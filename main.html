@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="assets/css/admin-style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+
+    <div class="app-container">
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <i class="fa-solid fa-robot" style="margin-right:10px;"></i> Robopanda
+            </div>
+            
+            <nav class="sidebar-menu" id="sidebar-menu-container">
+                </nav>
+
+            <div class="sidebar-footer">
+                <div id="display-name" style="font-weight:bold; color:#333;">User</div>
+                <div id="display-role" style="font-size:0.8rem; color:#666; margin-bottom:10px;">Role</div>
+                <button id="btn-logout" style="width:100%; padding:8px; border:1px solid #fee2e2; background:#fff1f2; color:#ef4444; border-radius:6px; cursor:pointer; font-size:0.9rem;">
+                    <i class="fa-solid fa-right-from-bracket"></i> Keluar
+                </button>
+            </div>
+        </aside>
+
+        <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+        <main class="main-content">
+            <header class="top-header">
+    <div style="display:flex; align-items:center;">
+        <button class="btn-toggle-sidebar" id="btn-toggle-sidebar">
+            <i class="fa-solid fa-bars"></i>
+        </button>
+        <div class="breadcrumb" id="breadcrumb-container">
+            </div>
+    </div>
+
+    <div style="display:flex; align-items:center; gap:10px;">
+        <div style="text-align:right; line-height:1.2;">
+            <div id="header-user-name" style="font-weight:bold; font-size:0.9rem; color:#333;">Loading...</div>
+            <div id="header-user-role" style="font-size:0.75rem; color:#666; text-transform:uppercase;">...</div>
+        </div>
+        <div style="width:35px; height:35px; background:#eff6ff; color:#4d97ff; border-radius:50%; display:flex; align-items:center; justify-content:center; border:1px solid #dbeafe;">
+            <i class="fa-solid fa-user"></i>
+        </div>
+    </div>
+</header>
+
+            <div id="content-canvas">
+                </div>
+        </main>
+    </div>
+
+    <script type="module" src="assets/js/main.js"></script>
+</body>
+</html>
