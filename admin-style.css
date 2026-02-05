@@ -1,0 +1,110 @@
+:root {
+    --primary-color: #4d97ff;
+    --sidebar-width: 260px;
+    --header-height: 50px;
+    --bg-light: #f3f4f6;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; outline: none; -webkit-tap-highlight-color: transparent; }
+body { 
+    font-family: 'Roboto', sans-serif; 
+    background: var(--bg-light); 
+    height: 100vh; /* Wajib Fix Height */
+    width: 100vw;
+    overflow: hidden; /* Body tidak boleh scroll */
+    display: flex;
+}
+
+/* LAYOUT CONTAINER */
+.app-container { 
+    display: flex; 
+    width: 100%; 
+    height: 100%; 
+}
+
+/* SIDEBAR */
+.sidebar {
+    width: var(--sidebar-width);
+    background: #ffffff;
+    border-right: 1px solid #e5e7eb;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    z-index: 50;
+    height: 100%;
+}
+
+.sidebar-header {
+    height: 60px;
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    border-bottom: 1px solid #f0f0f0;
+    font-family: 'Fredoka One', cursive;
+    color: var(--primary-color);
+    font-size: 1.4rem;
+    flex-shrink: 0;
+}
+
+.sidebar-menu { 
+    flex: 1; 
+    overflow-y: auto; /* Scroll Sidebar */
+    padding: 15px; 
+}
+
+.nav-group-title {
+    font-size: 0.75rem; color: #9ca3af; font-weight: 700; 
+    margin: 15px 0 5px 10px; text-transform: uppercase; 
+}
+
+.nav-item {
+    padding: 12px 15px; margin-bottom: 5px; border-radius: 8px; cursor: pointer;
+    color: #4b5563; display: flex; align-items: center; gap: 12px; font-size: 0.95rem; font-weight: 500;
+}
+.nav-item:hover, .nav-item.active { background: #eff6ff; color: var(--primary-color); }
+
+.sidebar-footer { padding: 15px; border-top: 1px solid #f0f0f0; background: #f9fafb; flex-shrink: 0; }
+
+/* MAIN CONTENT (KANAN) */
+.main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-width: 0;
+    background: white;
+}
+
+/* HEADER ATAS */
+.top-header {
+    height: var(--header-height);
+    background: #ffffff;
+    border-bottom: 1px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    justify-content: space-between;
+    flex-shrink: 0; /* Header jangan mengecil */
+}
+
+/* CANVAS (Area Kerja Modul) - INI KUNCINYA */
+#content-canvas {
+    flex: 1; /* Ambil sisa tinggi */
+    overflow-y: auto; /* Scroll vertikal aktif di sini */
+    padding: 20px;
+    background: var(--bg-light);
+    height: 100%; /* Pastikan mengisi parent */
+    padding-bottom: 80px; /* Jarak aman agar konten bawah tidak kepotong di HP */
+}
+
+/* MOBILE RESPONSIVE */
+.btn-toggle-sidebar { display: none; background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #64748b; }
+.sidebar-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 40; }
+
+@media (max-width: 768px) {
+    .btn-toggle-sidebar { display: block; margin-right: 15px; }
+    .sidebar { position: fixed; height: 100%; transform: translateX(-100%); transition: transform 0.3s; box-shadow: 4px 0 15px rgba(0,0,0,0.1); }
+    .sidebar.open { transform: translateX(0); }
+    .sidebar-overlay.active { display: block; }
+    #content-canvas { padding: 15px; padding-bottom: 100px; } /* Extra padding bawah di HP */
+}
