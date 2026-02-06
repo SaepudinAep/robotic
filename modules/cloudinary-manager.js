@@ -1,20 +1,13 @@
-/**
- * Project: Cloudinary Manager Module (Secure & Sync)
- * Features: Signed Upload, Real-time Quota Sync
- * Status: Logic Fixed (UI/UX Preserved)
- */
-
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 import { supabaseUrl, supabaseKey } from '../assets/js/config.js';
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 let allAccounts = [];
-let currentEditId = null;
 let testAccountId = null;
 
 // ==========================================
-// 1. GLOBAL BINDING
+// BINDING GLOBAL
 // ==========================================
 window.editAccount = (id) => openEditModal(id);
 window.deleteAccount = (id) => processDelete(id);
@@ -25,9 +18,6 @@ window.handleTestFile = (input) => {
     if (input.files && input.files[0]) performSecureTest(input.files[0]);
 };
 
-// ==========================================
-// 2. INITIALIZATION
-// ==========================================
 export async function init(canvas) {
     injectStyles();
 
@@ -68,17 +58,15 @@ export async function init(canvas) {
             <div class="cm-modal-card bounce-in">
                 <div class="cm-modal-header">
                     <h3 id="modal-title">Konfigurasi Akun</h3>
-                    <span class="cm-close" onclick="toggleModal('modal-account', false)">&times;</span>
+                    <span class="cm-close" id="close-modal-acc">&times;</span>
                 </div>
                 <div class="cm-modal-body">
                     <form id="form-account" onsubmit="return false;">
                         <input type="hidden" id="acc-id">
                         <label>Display Name</label>
                         <input type="text" id="acc-name" class="input-modern" placeholder="Akun Utama" required>
-                        
                         <label>Cloud Name</label>
                         <input type="text" id="acc-cloud" class="input-modern" placeholder="dx8..." required>
-                        
                         <div class="form-row">
                             <div class="flex-1">
                                 <label>API Key</label>
@@ -89,10 +77,8 @@ export async function init(canvas) {
                                 <input type="password" id="acc-secret" class="input-modern" required>
                             </div>
                         </div>
-
                         <label>Upload Preset (Optional)</label>
                         <input type="text" id="acc-preset" class="input-modern">
-
                         <div class="form-row" style="align-items: center; margin-top:10px;">
                             <div class="flex-1">
                                 <label>Limit (GB)</label>
@@ -115,11 +101,11 @@ export async function init(canvas) {
             <div class="cm-modal-card bounce-in" style="max-width:400px;">
                 <div class="cm-modal-header">
                     <h3>Secure Test Connection</h3>
-                    <span class="cm-close" onclick="toggleModal('modal-test', false)">&times;</span>
+                    <span class="cm-close" id="close-modal-test">&times;</span>
                 </div>
                 <div class="cm-modal-body" style="text-align:center;">
                     <input type="file" id="test-file-input" style="display:none;" accept="image/*" onchange="window.handleTestFile(this)">
-                    <div id="test-dropzone" class="test-zone" onclick="document.getElementById('test-file-input').click()">
+                    <div id="test-dropzone" class="test-zone">
                         <div id="test-ui-idle">
                             <i class="fa-solid fa-upload" style="font-size:2rem; color:#0ea5e9;"></i>
                             <p>Klik untuk upload file percobaan</p>
@@ -139,45 +125,36 @@ export async function init(canvas) {
     await loadAccounts();
 }
 
-// ==========================================
-// 3. LOGIC HANDLERS
-// ==========================================
-
 async function loadAccounts() {
     try {
         const { data, error } = await supabase
             .from('cloudinary_accounts')
             .select('*')
             .order('is_active', { ascending: false });
-
         if (error) throw error;
         allAccounts = data || [];
         renderList();
         updateStats();
-    } catch (e) {
-        console.error("Gagal load:", e.message);
-    }
+    } catch (e) { console.error("Gagal load:", e.message); }
 }
 
 function renderList() {
     const container = document.getElementById('account-list-container');
+    if (!container) return;
     if (allAccounts.length === 0) {
-        container.innerHTML = `<div style="grid-column:1/-1; text-align:center; padding:40px; color:#94a3b8;">Belum ada akun terdaftar.</div>`;
+        container.innerHTML = `<div style="grid-column:1/-1; text-align:center; padding:40px; color:#94a3b8;">Belum ada akun.</div>`;
         return;
     }
-
     container.innerHTML = allAccounts.map(acc => {
         const usage = acc.current_usage_gb || 0;
         const limit = acc.usage_limit_gb || 10;
         const percent = Math.min((usage / limit) * 100, 100);
-
         return `
             <div class="acc-card ${acc.is_active ? 'active' : ''}">
                 <div class="acc-card-header">
                     <strong>${acc.display_name}</strong>
                     <code>${acc.cloud_name}</code>
                 </div>
-                
                 <div class="usage-box">
                     <div class="usage-label">
                         <span>Penyimpanan</span>
@@ -189,48 +166,57 @@ function renderList() {
                         <div class="usage-bar-fill" style="width:${percent}%"></div>
                     </div>
                     <div class="usage-meta">
-                        <span>${usage} GB</span>
-                        <span>Limit ${limit} GB</span>
+                        <span>${usage} GB / ${limit} GB</span>
                     </div>
                 </div>
-
                 <div class="acc-actions">
                     <button class="btn-small" onclick="window.testConnection('${acc.id}')">Tes</button>
                     <button class="btn-small" onclick="window.editAccount('${acc.id}')">Edit</button>
-                    <button class="btn-small" onclick="window.toggleActive('${acc.id}', ${!acc.is_active})">
-                        ${acc.is_active ? 'Off' : 'On'}
-                    </button>
+                    <button class="btn-small" onclick="window.deleteAccount('${acc.id}')"><i class="fa-solid fa-trash"></i></button>
                 </div>
             </div>
         `;
     }).join('');
 }
 
-// --- BAGIAN LOGIKA YANG DIPERBAIKI (Paste di dalam file manager Bapak) ---
-
-// --- BAGIAN LOGIKA PERBAIKAN ---
+async function processSyncQuota(id) {
+    const btn = document.querySelector(`button[onclick="window.syncQuota('${id}')"]`);
+    const original = btn.innerHTML;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+    try {
+        const { data, error } = await supabase.functions.invoke('cloudinary-sign', {
+            body: { account_id: id, action: 'sync_quota' }
+        });
+        if (error) throw error;
+        alert("Berhasil! Penggunaan saat ini: " + data.usage_gb + " GB");
+        await loadAccounts();
+    } catch (e) { alert("Sync Gagal: " + e.message); }
+    finally { btn.innerHTML = original; }
+}
 
 async function performSecureTest(file) {
     const acc = allAccounts.find(a => a.id === testAccountId);
-    if (!acc) return;
+    const uiIdle = document.getElementById('test-ui-idle');
+    const uiLoading = document.getElementById('test-ui-loading');
+    const resultArea = document.getElementById('test-result-area');
 
-    // UI elements Bapak (test-ui-idle, dll) tetap aman
-    document.getElementById('test-ui-idle').style.display = 'none';
-    document.getElementById('test-ui-loading').style.display = 'block';
-    document.getElementById('test-progress-text').innerText = "Meminta Signature...";
+    uiIdle.style.display = 'none';
+    uiLoading.style.display = 'block';
+    resultArea.style.display = 'none';
 
     try {
         const { data, error } = await supabase.functions.invoke('cloudinary-sign', {
             body: { 
                 account_id: acc.id, 
-                action: 'get_signature', // Harus sama dengan di index.ts
+                action: 'get_signature', 
                 params: { folder: 'test_robotik' } 
             }
         });
 
-        if (error) throw new Error(error.message);
-
-        document.getElementById('test-progress-text').innerText = "Uploading...";
+        if (error) {
+            const errBody = await error.context.json().catch(() => ({ error: error.message }));
+            throw new Error(errBody.error || "Server Error");
+        }
 
         const fd = new FormData();
         fd.append('file', file);
@@ -240,63 +226,34 @@ async function performSecureTest(file) {
         fd.append('folder', 'test_robotik');
 
         const cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${data.cloud_name}/image/upload`, {
-            method: 'POST',
-            body: fd
+            method: 'POST', body: fd
         });
-
         const cloudData = await cloudRes.json();
         if (cloudData.error) throw new Error(cloudData.error.message);
 
-        document.getElementById('test-result-area').style.display = 'block';
-        document.getElementById('test-result-area').innerHTML = `<div class="alert-success"><b>Sukses!</b> Koneksi Cloudinary Aman.</div>`;
-
+        resultArea.style.display = 'block';
+        resultArea.innerHTML = `<div class="alert-success">✅ Berhasil Terhubung!</div>`;
     } catch (e) {
-        document.getElementById('test-result-area').style.display = 'block';
-        document.getElementById('test-result-area').innerHTML = `<div class="alert-danger"><b>Gagal:</b> ${e.message}</div>`;
+        resultArea.style.display = 'block';
+        resultArea.innerHTML = `<div class="alert-danger">❌ Gagal: ${e.message}</div>`;
     } finally {
-        document.getElementById('test-ui-loading').style.display = 'none';
-        document.getElementById('test-ui-idle').style.display = 'block';
+        uiLoading.style.display = 'none';
+        uiIdle.style.display = 'block';
     }
-}
-
-async function processSyncQuota(id) {
-    const btn = document.querySelector(`button[onclick="window.syncQuota('${id}')"]`);
-    const original = btn.innerHTML;
-    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
-    
-    try {
-        const { data, error } = await supabase.functions.invoke('cloudinary-sign', {
-            body: { account_id: id, action: 'sync_quota' } // Harus sama dengan di index.ts
-        });
-        
-        if (error) throw new Error(error.message);
-        
-        alert(`Sinkronisasi Berhasil!\nPenggunaan: ${data.usage_gb} GB`);
-        await loadAccounts();
-    } catch (e) {
-        alert("Gagal Sync: " + e.message);
-    } finally {
-        btn.innerHTML = original;
-    }
-}
-// ==========================================
-// 4. HELPERS (Styles & CRUD)
-// ==========================================
-
-function updateStats() {
-    document.getElementById('stat-total').innerText = allAccounts.length;
-    const active = allAccounts.find(a => a.is_active);
-    document.getElementById('stat-status').innerHTML = active ? `<span style="color:#10b981;">Aktif (${active.cloud_name})</span>` : 'Tidak Aktif';
 }
 
 function bindEvents() {
     document.getElementById('btn-add-account').onclick = () => {
         document.getElementById('form-account').reset();
         document.getElementById('acc-id').value = '';
-        document.getElementById('modal-title').innerText = "Tambah Akun";
         toggleModal('modal-account', true);
     };
     document.getElementById('btn-save-acc').onclick = saveAccount;
+    document.getElementById('close-modal-acc').onclick = () => toggleModal('modal-account', false);
+    document.getElementById('close-modal-test').onclick = () => toggleModal('modal-test', false);
+    
+    const dropzone = document.getElementById('test-dropzone');
+    if (dropzone) dropzone.onclick = () => document.getElementById('test-file-input').click();
 }
 
 async function saveAccount() {
@@ -310,16 +267,15 @@ async function saveAccount() {
         usage_limit_gb: document.getElementById('acc-limit').value,
         is_active: document.getElementById('acc-active').checked
     };
-
-    if (payload.is_active) {
-        await supabase.from('cloudinary_accounts').update({ is_active: false }).neq('id', '00000000-0000-0000-0000-000000000000');
-    }
-
+    if (payload.is_active) await supabase.from('cloudinary_accounts').update({ is_active: false }).neq('id', '00000000-0000-0000-0000-000000000000');
     if (id) await supabase.from('cloudinary_accounts').update(payload).eq('id', id);
     else await supabase.from('cloudinary_accounts').insert(payload);
-
     toggleModal('modal-account', false);
     await loadAccounts();
+}
+
+async function processDelete(id) {
+    if (confirm("Hapus akun ini?")) { await supabase.from('cloudinary_accounts').delete().eq('id', id); await loadAccounts(); }
 }
 
 async function processToggleActive(id, status) {
@@ -328,16 +284,9 @@ async function processToggleActive(id, status) {
     await loadAccounts();
 }
 
-async function processDelete(id) {
-    if (confirm("Hapus akun ini?")) {
-        await supabase.from('cloudinary_accounts').delete().eq('id', id);
-        await loadAccounts();
-    }
-}
-
 function openEditModal(id) {
+    if (!id) return;
     const a = allAccounts.find(x => x.id === id);
-    if (!a) return;
     document.getElementById('acc-id').value = a.id;
     document.getElementById('acc-name').value = a.display_name;
     document.getElementById('acc-cloud').value = a.cloud_name;
@@ -346,7 +295,6 @@ function openEditModal(id) {
     document.getElementById('acc-preset').value = a.upload_preset || '';
     document.getElementById('acc-limit').value = a.usage_limit_gb;
     document.getElementById('acc-active').checked = a.is_active;
-    document.getElementById('modal-title').innerText = "Edit Akun";
     toggleModal('modal-account', true);
 }
 
@@ -358,7 +306,13 @@ function openTestModal(id) {
 
 function toggleModal(id, show) {
     const el = document.getElementById(id);
-    if(el) el.style.display = show ? 'flex' : 'none';
+    if (el) el.style.display = show ? 'flex' : 'none';
+}
+
+function updateStats() {
+    document.getElementById('stat-total').innerText = allAccounts.length;
+    const active = allAccounts.find(a => a.is_active);
+    document.getElementById('stat-status').innerHTML = active ? `<span style="color:#10b981;">Aktif (${active.cloud_name})</span>` : 'Tidak Aktif';
 }
 
 function injectStyles() {
@@ -368,37 +322,28 @@ function injectStyles() {
     s.textContent = `
         .cm-container { padding: 20px; font-family: 'Poppins', sans-serif; background: #f8fafc; min-height: 100vh; }
         .cm-header { display: flex; justify-content: space-between; align-items: center; background: white; padding: 20px; border-radius: 15px; margin-bottom: 25px; border-left: 5px solid #0ea5e9; }
-        .cm-title { margin: 0; font-size: 1.2rem; font-weight: 700; }
         .cm-stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 25px; }
         .stat-card { background: white; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0; }
         .cm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
         .acc-card { background: white; padding: 20px; border-radius: 15px; border: 1px solid #e2e8f0; position: relative; }
-        .active { border-color: #10b981; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.1); }
+        .active { border-color: #10b981; }
         .usage-bar-bg { background: #e2e8f0; height: 8px; border-radius: 4px; overflow: hidden; margin: 10px 0; }
         .usage-bar-fill { height: 100%; background: #0ea5e9; transition: 0.3s; }
         .usage-label { display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600; }
         .usage-meta { display: flex; justify-content: space-between; font-size: 0.75rem; color: #64748b; }
-        .btn-sync-text { background: none; border: none; color: #3b82f6; cursor: pointer; font-size: 0.75rem; }
         .cm-modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 9999; }
         .cm-modal-card { background: white; border-radius: 20px; width: 95%; max-width: 500px; overflow: hidden; }
-        .cm-modal-header { padding: 15px 20px; background: #f1f5f9; display: flex; justify-content: space-between; }
+        .cm-modal-header { padding: 15px 20px; background: #f1f5f9; display: flex; justify-content: space-between; align-items: center; }
         .cm-modal-body { padding: 20px; }
-        .input-modern { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; margin-bottom: 12px; font-size: 0.9rem; }
-        .btn-primary-pill { background: #0ea5e9; color: white; border: none; padding: 10px 20px; border-radius: 50px; font-weight: 600; cursor: pointer; }
-        .btn-save-full { width: 100%; background: #10b981; color: white; padding: 12px; border: none; border-radius: 10px; font-weight: 600; cursor: pointer; }
+        .input-modern { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; margin-bottom: 12px; }
+        .btn-primary-pill { background: #0ea5e9; color: white; border: none; padding: 10px 20px; border-radius: 50px; cursor: pointer; }
+        .btn-save-full { width: 100%; background: #10b981; color: white; padding: 12px; border: none; border-radius: 10px; cursor: pointer; }
         .acc-actions { display: flex; gap: 5px; margin-top: 15px; }
-        .btn-small { flex: 1; padding: 6px; border-radius: 6px; border: 1px solid #e2e8f0; background: white; font-size: 0.8rem; cursor: pointer; }
+        .btn-small { flex: 1; padding: 6px; border-radius: 6px; border: 1px solid #e2e8f0; background: white; cursor: pointer; }
         .test-zone { border: 2px dashed #cbd5e1; padding: 30px; border-radius: 15px; cursor: pointer; text-align: center; }
         .alert-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; padding: 10px; border-radius: 8px; }
         .alert-danger { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 10px; border-radius: 8px; }
-        .fade-in { animation: fadeIn 0.4s ease; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        .switch-container { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; cursor: pointer; }
-        .slider { width: 34px; height: 18px; background: #ccc; border-radius: 20px; position: relative; transition: .4s; }
-        input:checked + .slider { background: #10b981; }
-        .slider:before { content: ""; position: absolute; height: 14px; width: 14px; left: 2px; bottom: 2px; background: white; border-radius: 50%; transition: .4s; }
-        input:checked + .slider:before { transform: translateX(16px); }
-        .cm-close { cursor: pointer; font-size: 1.5rem; color: #64748b; }
+        .cm-close { cursor: pointer; font-size: 1.5rem; }
     `;
     document.head.appendChild(s);
 }
