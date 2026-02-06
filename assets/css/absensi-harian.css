@@ -1,0 +1,287 @@
+/* ABSENSI HARIAN - ULTIMATE VIBRANT EDITION */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Fredoka:wght@500;600&display=swap');
+
+:root {
+    --font-main: 'Poppins', sans-serif;
+    --font-header: 'Fredoka', sans-serif;
+    --text-dark: #1e293b;
+    --text-white: #ffffff;
+    
+    /* VIBRANT PALETTE (Bukan Pastel Pucat) */
+    --grad-blue: linear-gradient(135deg, #60a5fa, #2563eb);
+    --bg-blue-soft: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+    --text-blue: #1e3a8a;
+
+    --grad-orange: linear-gradient(135deg, #fb923c, #ea580c);
+    --bg-orange-soft: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%);
+    --text-orange: #9a3412;
+
+    --grad-green: linear-gradient(135deg, #34d399, #059669);
+    --bg-green-soft: linear-gradient(135deg, #dcfce7 0%, #86efac 100%);
+    --text-green: #14532d;
+    
+    --shadow-float: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+    --shadow-card: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
+
+.harian-container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 20px 20px 140px;
+    font-family: var(--font-main);
+    background: #f8fafc; /* Latar belakang aplikasi tetap bersih */
+    color: var(--text-dark);
+}
+
+/* --- HERO CARD (INFO KELAS) --- */
+.class-info-card {
+    background: white;
+    padding: 25px; border-radius: 24px;
+    margin-bottom: 30px; position: relative;
+    box-shadow: 0 20px 40px -10px rgba(59, 130, 246, 0.15); /* Shadow Biru Halus */
+    border: 1px solid #eef2ff;
+    overflow: hidden;
+}
+
+/* Dekorasi Circle di Background Hero */
+.class-info-card::after {
+    content: ''; position: absolute; right: -30px; bottom: -30px;
+    width: 120px; height: 120px; border-radius: 50%;
+    background: var(--grad-blue); opacity: 0.1;
+}
+
+.info-main { display: flex; align-items: center; gap: 15px; position: relative; z-index: 2; }
+.info-icon {
+    width: 55px; height: 55px;
+    background: var(--grad-blue); color: white;
+    border-radius: 18px; display: flex; align-items: center; justify-content: center;
+    font-size: 1.6rem; box-shadow: 0 8px 15px rgba(37, 99, 235, 0.2);
+}
+.info-class-name { font-family: var(--font-header); font-size: 1.5rem; color: #1e293b; margin: 0; line-height: 1.2; }
+.info-school-name { font-size: 0.9rem; font-weight: 500; color: #64748b; }
+
+.info-meta { display: flex; gap: 10px; margin-top: 15px; position: relative; z-index: 2; }
+.meta-badge {
+    background: #f1f5f9; padding: 6px 12px; border-radius: 10px;
+    font-size: 0.75rem; font-weight: 600; color: #475569;
+    display: flex; align-items: center; gap: 6px;
+}
+
+.btn-rekap-mini {
+    position: absolute; top: 25px; right: 25px;
+    background: white; color: #2563eb;
+    padding: 8px 18px; border-radius: 50px;
+    border: 2px solid #eff6ff; font-weight: 700; font-size: 0.8rem;
+    cursor: pointer; transition: 0.3s; z-index: 10;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+.btn-rekap-mini:hover { background: #2563eb; color: white; border-color: #2563eb; transform: translateY(-2px); }
+
+
+/* --- SECTOR CARDS (FULL COLOR) --- */
+/* Ini kuncinya: Background Card BERWARNA, bukan putih */
+.card-section {
+    padding: 25px; border-radius: 28px; margin-bottom: 25px;
+    transition: transform 0.2s; position: relative; border: none;
+    box-shadow: var(--shadow-card);
+}
+
+/* 1. MATERI (BIRU) */
+.card-blue-tint { background: var(--bg-blue-soft); color: var(--text-blue); }
+.card-blue-tint .section-header h4 { color: var(--text-blue); }
+.bg-blue { background: var(--grad-blue); box-shadow: 0 5px 15px rgba(37, 99, 235, 0.3); }
+
+/* 2. TARGET (ORANGE) */
+.card-orange-tint { background: var(--bg-orange-soft); color: var(--text-orange); }
+.card-orange-tint .section-header h4 { color: var(--text-orange); }
+.bg-orange { background: var(--grad-orange); box-shadow: 0 5px 15px rgba(234, 88, 12, 0.3); }
+
+/* 3. ABSENSI (HIJAU) */
+.card-green-tint { background: var(--bg-green-soft); color: var(--text-green); }
+.card-green-tint .section-header h4 { color: var(--text-green); }
+.bg-green { background: var(--grad-green); box-shadow: 0 5px 15px rgba(5, 150, 105, 0.3); }
+
+
+/* Header Styling */
+.section-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; margin-bottom: 20px; }
+.header-label { display: flex; align-items: center; gap: 12px; }
+.icon-circle {
+    width: 42px; height: 42px; border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.1rem; color: white;
+}
+.section-header h4 { font-family: var(--font-header); font-size: 1.1rem; margin: 0; font-weight: 600; }
+
+
+/* --- INPUTS & FORMS (FLOATING WHITE) --- */
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+.form-group.full { grid-column: span 2; }
+.form-group label {
+    display: block; font-size: 0.75rem; font-weight: 700;
+    margin-bottom: 6px; opacity: 0.8; text-transform: uppercase; letter-spacing: 0.5px;
+}
+
+/* Input dibuat putih agar kontras dengan background berwarna */
+.input-modern {
+    width: 100%; padding: 12px 16px;
+    border: none; border-radius: 14px;
+    background: rgba(255, 255, 255, 0.9); /* Putih semi transparan */
+    font-size: 0.9rem; font-weight: 600; color: var(--text-dark);
+    outline: none; transition: 0.2s;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.03);
+}
+.input-modern:focus { background: white; transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.08); }
+
+
+/* --- BUTTONS --- */
+.btn-primary {
+    border: none; padding: 14px; border-radius: 16px;
+    color: white; font-weight: 700; font-size: 0.95rem;
+    cursor: pointer; width: 100%; margin-top: 15px;
+    transition: 0.2s; box-shadow: 0 5px 15px rgba(0,0,0,0.15);
+    text-transform: uppercase; letter-spacing: 1px;
+}
+.btn-primary:hover { transform: translateY(-3px); filter: brightness(1.1); }
+.blue-grad { background: var(--grad-blue); }
+.orange-grad { background: var(--grad-orange); }
+.green-grad { background: var(--grad-green); }
+
+.btn-secondary {
+    background: white; color: var(--text-dark);
+    padding: 0 15px; border-radius: 12px; font-weight: 700;
+    border: 2px solid rgba(0,0,0,0.05); cursor: pointer;
+}
+.btn-pill-blue {
+    background: white; color: #2563eb;
+    padding: 6px 14px; border-radius: 20px; border: none;
+    font-size: 0.75rem; font-weight: 700; cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+/* --- TABLE (CLEAN & SHARP) --- */
+.table-wrapper {
+    overflow-x: auto; background: white;
+    border-radius: 16px; margin-top: 15px;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.05);
+}
+.absensi-table { width: 100%; border-collapse: collapse; white-space: nowrap; }
+.absensi-table th {
+    background: #f8fafc; padding: 14px 10px;
+    font-size: 0.75rem; color: #64748b; text-transform: uppercase;
+    font-weight: 700; border-bottom: 2px solid #e2e8f0;
+}
+.absensi-table td { padding: 10px; border-bottom: 1px solid #f1f5f9; text-align: center; }
+
+/* Sticky Name Column */
+.absensi-table th:nth-child(2), .absensi-table td:nth-child(2) {
+    position: sticky; left: 0; background: white; z-index: 10;
+    border-right: 2px solid #f1f5f9;
+}
+.absensi-table td:nth-child(2) { text-align: left; font-weight: 400; color: #1e293b; min-width: 130px; }
+
+/* Emoji Select - Floating */
+/* EMOJI SELECT - CLEAN ICON ONLY */
+.absensi-table select {
+    /* 1. MAGIC CODE: MENGHILANGKAN PANAH BAWAAN */
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: none;
+
+    /* 2. Styling Kotak */
+    padding: 6px 0; /* Padding kiri-kanan 0 agar icon benar-benar di tengah */
+    border-radius: 10px;
+    border: 1px solid #e2e8f0;
+    background-color: #fff;
+    
+    /* 3. Typography & Layout */
+    width: 100%;
+    min-width: 55px;
+    text-align: center;
+    text-align-last: center; /* WAJIB: Agar icon yang terpilih rata tengah di Chrome/Android */
+    font-size: 1.2rem; /* Icon kita besarkan sedikit agar makin jelas */
+    font-family: "Segoe UI Emoji", "Noto Color Emoji", sans-serif; /* Pastikan emoji render bagus */
+    
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+/* Efek Hover: Biar user tahu ini bisa diklik meski tanpa panah */
+.absensi-table select:hover {
+    background-color: #f1f5f9;
+    border-color: #cbd5e1;
+    transform: scale(1.05); /* Efek membesar sedikit saat disentuh */
+}
+
+/* Efek Focus: Saat sedang dipilih */
+.absensi-table select:focus {
+    outline: none;
+    border-color: #6366f1; /* Warna aksen biru saat aktif */
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.grade-badge {
+    background: #eff6ff; color: #2563eb;
+    padding: 4px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 700;
+}
+
+
+/* --- FLOATING ACTION BAR --- */
+.action-bar-sticky {
+    position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+    width: 90%; max-width: 500px;
+    background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px);
+    padding: 12px 12px 12px 25px; border-radius: 50px;
+    display: flex; justify-content: space-between; align-items: center;
+    box-shadow: 0 15px 40px rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.5);
+    z-index: 99;
+}
+#simpan-absensi { margin-top: 0; width: auto; padding: 10px 25px; border-radius: 30px; }
+
+
+/* --- HISTORY CARDS (FULL COLOR CYCLE) --- */
+.history-title {
+    font-size: 0.85rem; font-weight: 800; color: #94a3b8;
+    margin: 40px 0 15px 5px; text-transform: uppercase; letter-spacing: 1px;
+}
+.history-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 15px; }
+
+.history-card {
+    padding: 18px; border-radius: 20px;
+    cursor: pointer; transition: 0.3s;
+    border: none; position: relative; overflow: hidden;
+    color: white; /* Text putih di atas card berwarna */
+    box-shadow: 0 8px 15px rgba(0,0,0,0.05);
+}
+.history-card:hover { transform: translateY(-5px) scale(1.03); box-shadow: 0 15px 30px rgba(0,0,0,0.15); }
+
+/* WARNA-WARNI RIWAYAT (VIBRANT) */
+.card-color-0 { background: linear-gradient(135deg, #60a5fa, #2563eb); } /* Blue */
+.card-color-1 { background: linear-gradient(135deg, #fb923c, #ea580c); } /* Orange */
+.card-color-2 { background: linear-gradient(135deg, #34d399, #059669); } /* Green */
+.card-color-3 { background: linear-gradient(135deg, #a78bfa, #7c3aed); } /* Purple */
+.card-color-4 { background: linear-gradient(135deg, #f472b6, #db2777); } /* Pink */
+
+/* Text di dalam history card */
+.h-date { font-size: 0.75rem; font-weight: 700; opacity: 0.9; margin-bottom: 6px; }
+.h-materi { font-size: 0.95rem; font-weight: 700; line-height: 1.3; margin-bottom: 12px; text-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+.h-teacher {
+    font-size: 0.7rem; background: rgba(255,255,255,0.2);
+    padding: 4px 10px; border-radius: 20px; width: fit-content; font-weight: 600;
+    backdrop-filter: blur(4px);
+}
+
+/* Utilities */
+.rotate-icon { transform: rotate(180deg); transition: 0.3s; }
+.compact-select {
+    padding: 8px 12px; border-radius: 12px; border: none; background: white;
+    color: var(--text-dark); font-weight: 600; outline: none; cursor: pointer;
+}
+.fade-in { animation: fadeIn 0.4s ease-out; }
+@keyframes fadeIn { from { opacity:0; transform:translateY(15px); } to { opacity:1; transform:translateY(0); } }
+
+/* Mobile */
+@media (max-width: 600px) {
+    .form-grid { grid-template-columns: 1fr; }
+    .action-bar-sticky { width: 95%; bottom: 20px; padding: 10px 10px 10px 20px; }
+}
