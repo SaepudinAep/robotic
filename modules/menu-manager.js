@@ -1,6 +1,6 @@
 /**
- * Project: Menu Manager Module (SPA) - FIXED
- * Features: Icon Picker, Edit Fix, Card UI
+ * Project: Menu Manager Module (SPA) - AESTHETIC V2
+ * Features: Soft UI, Gradient Icons, DOM Integrity Fix
  * Filename: modules/menu-manager.js
  */
 
@@ -9,12 +9,11 @@ import { supabaseUrl, supabaseKey } from '../assets/js/config.js';
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// --- STATE GLOBAL ---
 let allMenus = [];
 let allLevels = [];
 let allCategories = [];
+let modalOpenInProgress = false;
 
-// --- ICON LIBRARY (Koleksi Icon Umum untuk Sekolah) ---
 const iconLibrary = [
     "fa-solid fa-house", "fa-solid fa-gauge", "fa-solid fa-user", "fa-solid fa-users", 
     "fa-solid fa-user-graduate", "fa-solid fa-chalkboard-user", "fa-solid fa-school", 
@@ -33,140 +32,147 @@ const iconLibrary = [
     "fa-solid fa-robot", "fa-solid fa-flask", "fa-solid fa-dna", "fa-solid fa-laptop-code"
 ];
 
+function cleanupModals() {
+    const existingContainer = document.getElementById('mm-modals-portal');
+    if (existingContainer) existingContainer.remove();
+}
+
 export async function init(canvas) {
-    // 1. INJECT STYLE 
+    cleanupModals();
     injectStyles();
 
-    // 2. RENDER HTML SHELL
     canvas.innerHTML = `
-        <div style="max-width: 1100px; margin: 0 auto; padding-bottom: 100px;">
+        <div style="max-width: 1200px; margin: 0 auto; padding-bottom: 120px;">
             <div class="mm-toolbar">
                 <div>
-                    <h2 style="margin:0; font-family:'Fredoka One'; color:#333; font-size:1.4rem;">Menu Manager</h2>
-                    <p style="margin:2px 0 0 0; color:#666; font-size:0.9rem;">Atur navigasi aplikasi</p>
+                    <h2 class="mm-page-title">Menu Manager</h2>
+                    <p class="mm-page-subtitle">Desain Navigasi Aplikasi Anda</p>
                 </div>
-                <div style="display:flex; gap:10px;">
-                    <button id="btn-manage-cat" class="mm-btn-action mm-bg-yellow">
+                <div style="display:flex; gap:12px;">
+                    <button id="btn-manage-cat" class="mm-btn-action mm-btn-secondary">
                         <i class="fa-solid fa-layer-group"></i> <span class="hide-mobile">Kategori</span>
                     </button>
-                    <button id="btn-add-menu" class="mm-btn-action mm-bg-blue">
+                    <button id="btn-add-menu" class="mm-btn-action mm-btn-primary">
                         <i class="fa-solid fa-plus"></i> <span class="hide-mobile">Menu Baru</span>
                     </button>
                 </div>
             </div>
-
-            <div id="menu-list-container" class="mm-grid-container">
-                <div style="text-align:center; padding:50px; color:#999;">
-                    <i class="fa-solid fa-circle-notch fa-spin"></i> Memuat data...
+            <div id="menu-list-container">
+                <div class="mm-loading">
+                    <i class="fa-solid fa-circle-notch fa-spin"></i>
+                    <span>Memuat data...</span>
                 </div>
             </div>
         </div>
+    `;
 
+    // Render Modal Portal di Body (Z-Index Safe Area)
+    const modalPortal = document.createElement('div');
+    modalPortal.id = 'mm-modals-portal';
+    modalPortal.innerHTML = `
         <div id="modal-menu" class="mm-modal">
             <div class="mm-modal-content">
                 <div class="modal-header">
-                    <h3 id="modal-title" style="margin:0;">Form Menu</h3>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <div class="header-icon-badge"><i class="fa-solid fa-pen-to-square"></i></div>
+                        <h3 id="modal-title" style="margin:0;">Form Menu</h3>
+                    </div>
                     <span class="close-modal" id="close-menu-modal">&times;</span>
                 </div>
                 <div class="modal-body">
                     <input type="hidden" id="menu-id">
-                    
                     <div class="form-group">
                         <label>Judul Menu</label>
-                        <input type="text" id="menu-title" placeholder="Contoh: Data Siswa" class="input-field">
+                        <input type="text" id="menu-title" class="input-field" placeholder="Nama tampilan menu...">
                     </div>
-                    
                     <div class="form-row">
                         <div class="form-group" style="flex:2;">
-                            <label>Route (Modul ID)</label>
-                            <input type="text" id="menu-route" placeholder="Contoh: students" class="input-field">
+                            <label>Route ID</label>
+                            <input type="text" id="menu-route" class="input-field" placeholder="modul-id">
                         </div>
                         <div class="form-group" style="flex:1;">
                             <label>Urutan</label>
-                            <input type="number" id="menu-order" value="1" class="input-field">
+                            <input type="number" id="menu-order" class="input-field">
                         </div>
                     </div>
-
                     <div class="form-group">
                         <label>Kategori</label>
-                        <select id="menu-category" class="input-field">
-                            <option value="">-- Pilih --</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Icon</label>
-                        <div style="display:flex; gap:10px;">
-                            <div id="icon-preview-box" class="icon-preview-box">
-                                <i id="icon-preview" class="fa-solid fa-cube"></i>
-                            </div>
-                            <input type="text" id="menu-icon" placeholder="fa-solid fa-cube" class="input-field" style="flex:1;">
-                            <button type="button" id="btn-open-picker" class="mm-btn-action mm-bg-yellow">Pilih</button>
+                        <div class="select-wrapper">
+                            <select id="menu-category" class="input-field"></select>
                         </div>
                     </div>
-
                     <div class="form-group">
-                        <label>Hak Akses Role</label>
+                        <label>Visual Icon</label>
+                        <div class="icon-input-wrapper">
+                            <div class="icon-preview-box"><i id="icon-preview" class="fa-solid fa-cube"></i></div>
+                            <input type="text" id="menu-icon" class="input-field" style="flex:1;" placeholder="fa-solid fa-...">
+                            <button type="button" id="btn-open-picker" class="mm-btn-action mm-btn-yellow">Pilih</button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Akses Role</label>
                         <div class="mm-checkbox-group">
-                            <label class="mm-checkbox-item"><input type="checkbox" class="cb-role" value="super_admin"> Super Admin</label>
+                            <label class="mm-checkbox-item"><input type="checkbox" class="cb-role" value="super_admin"> Admin</label>
                             <label class="mm-checkbox-item"><input type="checkbox" class="cb-role" value="teacher"> Teacher</label>
                             <label class="mm-checkbox-item"><input type="checkbox" class="cb-role" value="student"> Student</label>
                         </div>
                     </div>
-
                     <div class="form-group">
-                        <label>Filter Level (Opsional)</label>
-                        <div class="mm-checkbox-group" id="container-cb-levels">Loading levels...</div>
+                        <label>Filter Level</label>
+                        <div class="mm-checkbox-group" id="container-cb-levels"></div>
                     </div>
-
                     <div class="form-group">
-                        <label class="mm-checkbox-item" style="background:none; border:none; padding:0;">
-                            <input type="checkbox" id="menu-active" checked> 
-                            <strong>Menu Aktif?</strong>
+                        <label class="mm-toggle-switch">
+                            <input type="checkbox" id="menu-active" checked>
+                            <span class="slider"></span>
+                            <strong style="margin-left:10px;">Status Aktif</strong>
                         </label>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button id="btn-save-menu" class="mm-btn-action mm-bg-blue" style="width:100%; justify-content:center;">Simpan Data</button>
+                    <button id="btn-save-menu" class="mm-btn-action mm-btn-primary" style="width:100%;">Simpan Perubahan</button>
                 </div>
             </div>
         </div>
 
-        <div id="modal-icon-picker" class="mm-modal" style="z-index: 10001;">
+        <div id="modal-icon-picker" class="mm-modal">
             <div class="mm-modal-content" style="width: 500px;">
                 <div class="modal-header">
-                    <h3 style="margin:0;">Pilih Icon</h3>
+                    <h3>Pustaka Icon</h3>
                     <span class="close-modal" id="close-picker">&times;</span>
                 </div>
-                <div style="padding:15px;">
-                    <input type="text" id="icon-search" class="input-field" placeholder="Cari icon (ex: user, book)..." style="margin-bottom:15px;">
+                <div style="padding:20px;">
+                    <input type="text" id="icon-search" class="input-field" placeholder="Cari icon (misal: user, book)..." style="margin-bottom:15px;">
                     <div id="icon-grid" class="icon-grid"></div>
                 </div>
             </div>
         </div>
 
         <div id="modal-cat" class="mm-modal">
-            <div class="mm-modal-content" style="width: 450px;">
+            <div class="mm-modal-content" style="width: 480px;">
                 <div class="modal-header">
-                    <h3 style="margin:0;">Kategori Menu</h3>
+                    <h3>Kategori Menu</h3>
                     <span class="close-modal" id="close-cat">&times;</span>
                 </div>
-                <div style="padding:15px;">
+                <div style="padding:20px;">
                     <div class="cat-form-box">
-                        <h4 id="cat-form-title" style="margin:0 0 10px 0; color:#666;">Tambah Baru</h4>
                         <input type="hidden" id="cat-id">
                         <input type="text" id="cat-title" placeholder="Nama Kategori" class="input-field" style="margin-bottom:10px;">
                         <div style="display:flex; gap:10px; margin-bottom:10px;">
-                            <input type="text" id="cat-key" placeholder="Key (unik)" class="input-field">
-                            <input type="number" id="cat-order" value="1" class="input-field" style="width:70px;">
+                            <input type="text" id="cat-key" placeholder="Key (Unik)" class="input-field">
+                            <input type="number" id="cat-order" class="input-field" style="width:80px;" placeholder="Urut">
                         </div>
-                        <select id="cat-target" class="input-field" style="margin-bottom:10px;">
-                            <option value="admin_v2">Admin V2</option>
-                            <option value="all">Semua App</option>
-                        </select>
+                        <div class="select-wrapper" style="margin-bottom:15px;">
+                            <select id="cat-target" class="input-field">
+                                <option value="admin_v2">Admin V2</option>
+                                <option value="teacher">Teacher App</option>
+                                <option value="student">Student App</option>
+                                <option value="all">Semua App</option>
+                            </select>
+                        </div>
                         <div style="display:flex; justify-content:flex-end; gap:10px;">
-                            <button id="btn-reset-cat" style="display:none; color:red; background:none; border:none; cursor:pointer;">Batal</button>
-                            <button id="btn-save-cat" class="mm-btn-action mm-bg-blue">Simpan</button>
+                            <button id="btn-reset-cat" class="mm-btn-text-danger" style="display:none;">Batal</button>
+                            <button id="btn-save-cat" class="mm-btn-action mm-btn-primary">Simpan</button>
                         </div>
                     </div>
                     <div id="cat-list-container" class="cat-list-box"></div>
@@ -174,101 +180,182 @@ export async function init(canvas) {
             </div>
         </div>
     `;
+    document.body.appendChild(modalPortal);
 
-    // 3. BIND EVENTS (Pastikan DOM sudah ada)
     bindEvents();
-    
-    // 4. LOAD DATA
     renderIconGrid();
     await loadData();
 }
 
-// ==========================================
-// 2. CSS STYLING
-// ==========================================
 function injectStyles() {
     if (document.getElementById('menu-manager-css')) return;
     const style = document.createElement('style');
     style.id = 'menu-manager-css';
     style.textContent = `
-        /* UTILS */
+        /* --- UTILS --- */
         .hide-mobile { display: inline; }
         @media (max-width: 600px) { .hide-mobile { display: none; } }
         
+        /* --- TOOLBAR --- */
         .mm-toolbar { 
-            background: white; padding: 15px 20px; border-radius: 12px; 
-            box-shadow: 0 4px 10px rgba(0,0,0,0.05); margin-bottom: 25px;
-            display: flex; justify-content: space-between; align-items: center;
+            background: rgba(255, 255, 255, 0.8); 
+            backdrop-filter: blur(10px);
+            padding: 20px 25px; 
+            border-radius: 16px; 
+            box-shadow: 0 4px 20px rgba(0,0,0,0.03); 
+            margin-bottom: 30px; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            border: 1px solid rgba(255,255,255,0.5);
+        }
+        .mm-page-title { margin:0; font-family:'Fredoka One', cursive; color:#1e293b; font-size:1.6rem; letter-spacing:0.5px; }
+        .mm-page-subtitle { margin:4px 0 0 0; color:#64748b; font-size:0.9rem; font-weight:500; }
+
+        /* --- LOADING --- */
+        .mm-loading { text-align:center; padding: 60px; color: #cbd5e1; font-size: 1.2rem; display:flex; flex-direction:column; gap:15px; align-items:center; }
+
+        /* --- GRID SYSTEM --- */
+        .mm-grid { 
+            display: grid; 
+            gap: 20px; 
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); 
+            margin-bottom: 40px; 
         }
 
-        /* GRID & CARDS */
-        .mm-grid { display: grid; gap: 15px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); margin-bottom: 25px; }
-        
+        /* --- CARD DESIGN (ESTETIK) --- */
         .mm-card { 
-            background: white; border-radius: 12px; padding: 15px; 
-            border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 15px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.02); transition: all 0.2s; cursor: pointer;
+            background: white; 
+            border-radius: 16px; 
+            padding: 18px; 
+            display: flex; 
+            align-items: center; 
+            gap: 18px; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.02); 
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
+            border: 1px solid transparent;
             position: relative;
+            overflow: hidden;
         }
-        .mm-card:hover { transform: translateY(-3px); box-shadow: 0 8px 15px rgba(0,0,0,0.08); border-color: #4d97ff; }
+        .mm-card:hover { 
+            transform: translateY(-5px); 
+            box-shadow: 0 15px 30px rgba(0,0,0,0.08); 
+            border-color: rgba(77, 151, 255, 0.2);
+        }
         
+        /* --- GRADIENT ICON BOX --- */
         .mm-icon-box { 
-            width: 45px; height: 45px; background: #eff6ff; color: #4d97ff; 
-            border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;
+            width: 54px; height: 54px; 
+            border-radius: 14px; 
+            display: flex; align-items: center; justify-content: center; 
+            font-size: 1.4rem; 
+            flex-shrink: 0; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
         }
-        .mm-content { flex: 1; overflow: hidden; }
-        .mm-title { font-weight: 700; color: #334155; font-size: 1rem; margin-bottom: 3px; }
-        .mm-meta { font-size: 0.8rem; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-        /* ACTIONS (Floating) */
-        .mm-actions { display: flex; gap: 5px; }
-        .btn-mini { width: 30px; height: 30px; border-radius: 6px; border: 1px solid #eee; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; }
-        .btn-mini.edit:hover { background: #ffab19; color: white; border-color: #ffab19; }
-        .btn-mini.del:hover { background: #ef4444; color: white; border-color: #ef4444; }
-
-        /* MODAL */
-        .mm-modal { display: none; position: fixed; z-index: 10000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); backdrop-filter: blur(3px); justify-content: center; align-items: center; }
-        .mm-modal-content { background-color: #fff; border-radius: 12px; width: 500px; max-width: 90%; box-shadow: 0 10px 30px rgba(0,0,0,0.2); animation: popIn 0.3s; display: flex; flex-direction: column; max-height: 90vh; }
-        @keyframes popIn { from {transform: scale(0.9); opacity: 0;} to {transform: scale(1); opacity: 1;} }
+        /* THEME COLORS (Colorful & Gradient) */
+        .theme-blue .mm-icon-box { background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%); color: #0284c7; }
+        .theme-orange .mm-icon-box { background: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%); color: #ea580c; }
+        .theme-green .mm-icon-box { background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%); color: #16a34a; }
+        .theme-purple .mm-icon-box { background: linear-gradient(135deg, #f3e8ff 0%, #d8b4fe 100%); color: #9333ea; }
         
-        .modal-header { padding: 15px 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
-        .modal-body { padding: 20px; overflow-y: auto; }
-        .modal-footer { padding: 15px 20px; border-top: 1px solid #eee; background: #f8fafc; border-radius: 0 0 12px 12px; }
-        .close-modal { font-size: 1.5rem; cursor: pointer; color: #999; }
-        .close-modal:hover { color: #333; }
+        /* TYPOGRAPHY CARD */
+        .mm-card-title { font-weight: 700; color: #334155; font-size: 1rem; margin-bottom: 4px; }
+        .mm-card-meta { font-size: 0.75rem; color: #94a3b8; font-weight: 500; display:flex; gap:8px; align-items:center; }
+        .badge { padding: 2px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 600; }
+        .badge-route { background: #f1f5f9; color: #64748b; }
+        .badge-order { background: #f8fafc; border: 1px solid #e2e8f0; color: #94a3b8; }
 
-        /* FORM ELEMENTS */
-        .form-group { margin-bottom: 15px; }
-        .form-row { display: flex; gap: 10px; }
-        .input-field { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.9rem; }
-        .input-field:focus { border-color: #4d97ff; outline: none; box-shadow: 0 0 0 3px rgba(77, 151, 255, 0.1); }
-        .mm-checkbox-group { display: flex; flex-wrap: wrap; gap: 8px; background: #f8fafc; padding: 10px; border-radius: 6px; border: 1px solid #e2e8f0; }
-        .mm-checkbox-item { font-size: 0.85rem; display: flex; align-items: center; gap: 5px; cursor: pointer; }
+        /* ACTIONS (Hidden by default, show on hover) */
+        .mm-actions { 
+            margin-left: auto; 
+            display: flex; gap: 8px; 
+            opacity: 0.6; 
+            transition: 0.2s; 
+        }
+        .mm-card:hover .mm-actions { opacity: 1; }
+        
+        .btn-icon { 
+            width: 36px; height: 36px; 
+            border-radius: 10px; 
+            border: none; 
+            display: flex; align-items: center; justify-content: center; 
+            cursor: pointer; 
+            background: #f8fafc; color: #64748b; 
+            transition: 0.2s; 
+        }
+        .btn-icon:hover { transform: scale(1.1); }
+        .btn-icon.edit:hover { background: #ffab19; color: white; box-shadow: 0 4px 10px rgba(255,171,25,0.3); }
+        .btn-icon.del:hover { background: #ef4444; color: white; box-shadow: 0 4px 10px rgba(239,68,68,0.3); }
 
-        /* BUTTONS */
-        .mm-btn-action { border: none; padding: 10px 15px; border-radius: 8px; color: white; font-weight: bold; font-size: 0.9rem; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; transition: 0.2s; }
-        .mm-bg-blue { background: #4d97ff; } .mm-bg-blue:hover { background: #2563eb; }
-        .mm-bg-yellow { background: #ffab19; color: #333; } .mm-bg-yellow:hover { background: #e69500; }
-        .mm-bg-red { background: #ef4444; }
+        /* --- MODAL DESIGN --- */
+        .mm-modal { display: none; position: fixed; z-index: 10000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); backdrop-filter: blur(6px); justify-content: center; align-items: center; padding: 20px; }
+        #modal-icon-picker { z-index: 10010; }
+        .mm-modal.show { display: flex !important; }
+        .mm-modal-content { background: #fff; border-radius: 20px; width: 500px; max-width: 100%; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); display: flex; flex-direction: column; max-height: 90vh; border: 1px solid rgba(255,255,255,0.8); }
+        @keyframes slideUp { from {transform: translateY(20px); opacity:0;} to {transform: translateY(0); opacity:1;} }
+        
+        .modal-header { padding: 20px 25px; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; }
+        .header-icon-badge { width: 32px; height: 32px; background: #eff6ff; color: #4d97ff; border-radius: 8px; display:flex; align-items:center; justify-content:center; }
+        .modal-body { padding: 25px; overflow-y: auto; background: #fff; }
+        .modal-footer { padding: 20px 25px; border-top: 1px solid #f1f5f9; background: #f8fafc; border-radius: 0 0 20px 20px; }
+        
+        .close-modal { font-size: 1.8rem; cursor: pointer; color: #cbd5e1; line-height: 1; transition:0.2s; }
+        .close-modal:hover { color: #ef4444; transform: rotate(90deg); }
 
-        /* ICON PICKER GRID */
-        .icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(50px, 1fr)); gap: 10px; max-height: 300px; overflow-y: auto; margin-top: 10px; }
-        .icon-item { width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; border: 1px solid #eee; border-radius: 8px; cursor: pointer; font-size: 1.2rem; color: #555; transition: 0.2s; }
-        .icon-item:hover { background: #e0f2fe; color: #4d97ff; border-color: #4d97ff; transform: scale(1.1); }
-        .icon-preview-box { width: 42px; height: 42px; background: #eee; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; color: #555; }
+        /* --- FORM ELEMENTS --- */
+        .form-group { margin-bottom: 18px; }
+        .form-group label { display: block; margin-bottom: 8px; font-size: 0.85rem; font-weight: 600; color: #475569; }
+        .form-row { display: flex; gap: 15px; }
+        
+        .input-field { 
+            width: 100%; padding: 12px 15px; 
+            border: 2px solid #f1f5f9; border-radius: 10px; 
+            font-size: 0.95rem; color: #334155; 
+            background: #f8fafc; transition: 0.2s; 
+        }
+        .input-field:focus { border-color: #4d97ff; background: #fff; outline: none; box-shadow: 0 0 0 4px rgba(77, 151, 255, 0.1); }
+        
+        .icon-input-wrapper { display: flex; gap: 12px; }
+        .icon-preview-box { width: 50px; height: 50px; background: #f1f5f9; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; color: #64748b; }
 
-        /* CATEGORY LIST */
-        .cat-list-box { max-height: 250px; overflow-y: auto; border: 1px solid #eee; border-radius: 6px; background: white; }
-        .cat-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #f1f5f9; }
-        .cat-item:last-child { border-bottom: none; }
-        .cat-form-box { background: #f8fafc; padding: 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #e2e8f0; }
+        .mm-checkbox-group { display: flex; flex-wrap: wrap; gap: 10px; }
+        .mm-checkbox-item { 
+            background: #fff; border: 1px solid #e2e8f0; 
+            padding: 8px 12px; border-radius: 8px; 
+            font-size: 0.85rem; color: #64748b; cursor: pointer; 
+            display: flex; align-items: center; gap: 6px; transition:0.2s;
+        }
+        .mm-checkbox-item:hover { border-color: #cbd5e1; background: #f8fafc; }
+        
+        /* Toggle Switch */
+        .mm-toggle-switch { position: relative; display: inline-flex; align-items: center; cursor: pointer; }
+        .mm-toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: relative; display:inline-block; width: 46px; height: 24px; background-color: #cbd5e1; border-radius: 34px; transition: .4s; }
+        .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; border-radius: 50%; transition: .4s; }
+        input:checked + .slider { background-color: #10b981; }
+        input:checked + .slider:before { transform: translateX(22px); }
+
+        /* --- BUTTONS --- */
+        .mm-btn-action { border: none; padding: 12px 20px; border-radius: 10px; font-weight: 600; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; transition: 0.2s; font-size: 0.9rem; }
+        .mm-btn-action:hover { transform: translateY(-2px); }
+        .mm-btn-primary { background: linear-gradient(135deg, #4d97ff 0%, #2563eb 100%); color: white; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3); }
+        .mm-btn-secondary { background: white; border: 1px solid #e2e8f0; color: #475569; }
+        .mm-btn-secondary:hover { border-color: #4d97ff; color: #4d97ff; }
+        .mm-btn-yellow { background: #ffab19; color: #fff; }
+        .mm-btn-text-danger { background: none; color: #ef4444; border:none; font-weight:600; cursor:pointer; }
+        
+        /* --- LISTS --- */
+        .icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(55px, 1fr)); gap: 12px; max-height: 320px; overflow-y: auto; }
+        .icon-item { width: 55px; height: 55px; display: flex; align-items: center; justify-content: center; border-radius: 12px; cursor: pointer; border: 1px solid #f1f5f9; font-size: 1.2rem; color: #64748b; transition:0.2s; }
+        .icon-item:hover { background: #eff6ff; color: #4d97ff; border-color: #4d97ff; transform: scale(1.1); }
+        
+        .cat-list-box { max-height: 280px; overflow-y: auto; border: 1px solid #f1f5f9; border-radius: 12px; background: white; }
+        .cat-form-box { background: #f8fafc; padding: 15px; border-radius: 12px; margin-bottom: 20px; border: 1px dashed #cbd5e1; }
     `;
     document.head.appendChild(style);
 }
 
-// ==========================================
-// 3. LOAD DATA
-// ==========================================
 async function loadData() {
     try {
         const [l, c, m] = await Promise.all([
@@ -276,38 +363,26 @@ async function loadData() {
             supabase.from('menu_categories').select('*').order('order_index'),
             supabase.from('app_menus').select('*').order('order_index')
         ]);
-
         allLevels = l.data || [];
         allCategories = c.data || [];
         allMenus = m.data || [];
-
         renderLevelCheckboxes();
         renderCategoryOptions();
         renderCategoryList();
         renderMenuList();
-        
-    } catch (e) {
-        console.error("Load Data Error:", e);
-        document.getElementById('menu-list-container').innerHTML = '<p style="color:red; text-align:center;">Gagal memuat data.</p>';
-    }
+    } catch (e) { console.error(e); }
 }
 
 function renderLevelCheckboxes() {
     const container = document.getElementById('container-cb-levels');
-    container.innerHTML = allLevels.map(l => `
-        <label class="mm-checkbox-item"><input type="checkbox" class="cb-level" value="${l.id}"> ${l.kode}</label>
-    `).join('');
+    if(container) container.innerHTML = allLevels.map(l => `<label class="mm-checkbox-item"><input type="checkbox" class="cb-level" value="${l.id}"> ${l.kode}</label>`).join('');
 }
 
 function renderCategoryOptions() {
     const select = document.getElementById('menu-category');
-    select.innerHTML = '<option value="">-- Pilih Kategori --</option>' + 
-        allCategories.map(c => `<option value="${c.id}">${c.title} (${c.target_app})</option>`).join('');
+    if(select) select.innerHTML = '<option value="">-- Pilih Kategori --</option>' + allCategories.map(c => `<option value="${c.id}">${c.title}</option>`).join('');
 }
 
-// ==========================================
-// 4. RENDER MENU LIST
-// ==========================================
 function renderMenuList() {
     const container = document.getElementById('menu-list-container');
     container.innerHTML = '';
@@ -316,65 +391,68 @@ function renderMenuList() {
         const items = allMenus.filter(m => m.category === cat.id);
         if (items.length === 0) return;
 
-        // Header Kategori
-        container.innerHTML += `
-            <div style="margin-top:20px; margin-bottom:10px; padding-bottom:5px; border-bottom:2px solid #eee; display:flex; justify-content:space-between; align-items:center;">
-                <h4 style="margin:0; text-transform:uppercase; color:#64748b; font-size:0.85rem; letter-spacing:1px;">
-                    ${cat.title} <span style="background:#e2e8f0; padding:2px 6px; border-radius:4px; font-size:0.7rem;">${cat.target_app}</span>
-                </h4>
+        // Logic Warna Tema Kategori
+        let themeClass = 'theme-blue'; // Default
+        let labelColor = '#4d97ff';
+        const titleLower = cat.title.toLowerCase();
+        
+        if (titleLower.includes('admin') || titleLower.includes('system')) { themeClass = 'theme-orange'; labelColor = '#f97316'; }
+        else if (titleLower.includes('home') || titleLower.includes('dashboard')) { themeClass = 'theme-green'; labelColor = '#10b981'; }
+        else if (titleLower.includes('user') || titleLower.includes('siswa')) { themeClass = 'theme-purple'; labelColor = '#8b5cf6'; }
+
+        // Section Header dengan InsertAdjacentHTML (Safe DOM)
+        const sectionHtml = `
+            <div style="margin-top:35px; margin-bottom:20px; display:flex; align-items:center; gap:12px;">
+                <div style="height:24px; width:5px; background:${labelColor}; border-radius:10px;"></div>
+                <h4 style="margin:0; text-transform:uppercase; color:#475569; font-size:0.85rem; letter-spacing:1.2px; font-weight:700;">${cat.title}</h4>
+                <div style="background:#f1f5f9; padding:4px 10px; border-radius:20px; font-size:0.65rem; color:#94a3b8; font-weight:600; text-transform:uppercase;">${cat.target_app}</div>
             </div>
         `;
+        container.insertAdjacentHTML('beforeend', sectionHtml);
 
         const grid = document.createElement('div');
         grid.className = 'mm-grid';
 
         items.forEach(m => {
             const card = document.createElement('div');
-            card.className = 'mm-card';
+            card.className = `mm-card ${themeClass}`;
             
-            // Render Card Content
+            // Status Dot
+            const statusDot = m.is_active 
+                ? '<span style="width:8px; height:8px; background:#10b981; border-radius:50%; display:inline-block;" title="Aktif"></span>'
+                : '<span style="width:8px; height:8px; background:#ef4444; border-radius:50%; display:inline-block;" title="Nonaktif"></span>';
+
             card.innerHTML = `
                 <div class="mm-icon-box"><i class="${m.icon_class || 'fa-solid fa-cube'}"></i></div>
-                <div class="mm-content">
-                    <div class="mm-title">${m.title}</div>
-                    <div class="mm-meta">Route: ${m.route}</div>
-                    <div style="margin-top:5px; font-size:0.75rem;">
-                        ${m.is_active ? '<span style="color:green;">● Aktif</span>' : '<span style="color:red;">● Mati</span>'} 
-                        | Urutan: ${m.order_index}
+                <div style="flex:1; overflow:hidden;">
+                    <div class="mm-card-title">${m.title}</div>
+                    <div class="mm-card-meta">
+                        ${statusDot}
+                        <span class="badge badge-route">${m.route}</span>
+                        <span class="badge badge-order">#${m.order_index}</span>
                     </div>
                 </div>
                 <div class="mm-actions">
-                    <button class="btn-mini edit" title="Edit"><i class="fa-solid fa-pen"></i></button>
-                    <button class="btn-mini del" title="Hapus"><i class="fa-solid fa-trash"></i></button>
+                    <button class="btn-icon edit" data-id="${m.id}"><i class="fa-solid fa-pen"></i></button>
+                    <button class="btn-icon del" data-id="${m.id}"><i class="fa-solid fa-trash"></i></button>
                 </div>
             `;
 
-            // Event Listeners (Prevent Bubbling)
-            const btnEdit = card.querySelector('.edit');
-            const btnDel = card.querySelector('.del');
-
-            btnEdit.onclick = (e) => { e.stopPropagation(); openMenuModal(m.id); };
-            btnDel.onclick = (e) => { e.stopPropagation(); deleteMenu(m.id); };
-            
-            // Klik kartu juga membuka edit
+            card.querySelector('.edit').onclick = (e) => { e.stopPropagation(); openMenuModal(m.id); };
+            card.querySelector('.del').onclick = (e) => { e.stopPropagation(); deleteMenu(m.id); };
             card.onclick = () => openMenuModal(m.id);
-
             grid.appendChild(card);
         });
         container.appendChild(grid);
     });
 }
 
-// ==========================================
-// 5. ICON PICKER LOGIC
-// ==========================================
 function renderIconGrid(filter = "") {
     const container = document.getElementById('icon-grid');
+    if(!container) return;
     container.innerHTML = "";
-    const term = filter.toLowerCase();
-    
     iconLibrary.forEach(icon => {
-        if (icon.includes(term)) {
+        if (icon.includes(filter.toLowerCase())) {
             const div = document.createElement('div');
             div.className = 'icon-item';
             div.innerHTML = `<i class="${icon}"></i>`;
@@ -388,31 +466,15 @@ function renderIconGrid(filter = "") {
     });
 }
 
-// ==========================================
-// 6. FORM LOGIC (ADD/EDIT)
-// ==========================================
 function openMenuModal(id = null) {
+    modalOpenInProgress = true;
     const modal = document.getElementById('modal-menu');
-    const title = document.getElementById('modal-title');
+    document.getElementById('menu-id').value = id || '';
+    document.getElementById('modal-title').textContent = id ? "Edit Menu" : "Tambah Menu Baru";
     
-    // Reset Form
-    document.getElementById('menu-id').value = '';
-    document.getElementById('menu-title').value = '';
-    document.getElementById('menu-route').value = '';
-    document.getElementById('menu-order').value = 1;
-    document.getElementById('menu-category').value = '';
-    document.getElementById('menu-icon').value = '';
-    document.getElementById('icon-preview').className = 'fa-solid fa-cube';
-    document.querySelectorAll('.cb-role').forEach(cb => cb.checked = false);
-    document.querySelectorAll('.cb-level').forEach(cb => cb.checked = false);
-    document.getElementById('menu-active').checked = true;
-
     if (id) {
-        // Mode EDIT: Isi data
         const m = allMenus.find(x => x.id === id);
         if (m) {
-            title.textContent = "Edit Menu";
-            document.getElementById('menu-id').value = m.id;
             document.getElementById('menu-title').value = m.title;
             document.getElementById('menu-route').value = m.route;
             document.getElementById('menu-order').value = m.order_index;
@@ -420,28 +482,29 @@ function openMenuModal(id = null) {
             document.getElementById('menu-icon').value = m.icon_class;
             document.getElementById('icon-preview').className = m.icon_class || 'fa-solid fa-cube';
             document.getElementById('menu-active').checked = m.is_active;
-
-            // Parse JSONB Roles & Levels
-            let roles = [];
-            try { roles = typeof m.allowed_roles === 'string' ? JSON.parse(m.allowed_roles) : m.allowed_roles; } catch(e){}
+            
+            let roles = typeof m.allowed_roles === 'string' ? JSON.parse(m.allowed_roles) : m.allowed_roles;
             document.querySelectorAll('.cb-role').forEach(cb => cb.checked = roles?.includes(cb.value));
-
-            let levels = [];
-            try { levels = typeof m.allowed_level_ids === 'string' ? JSON.parse(m.allowed_level_ids) : m.allowed_level_ids; } catch(e){}
-            document.querySelectorAll('.cb-level').forEach(cb => cb.checked = levels?.includes(cb.value));
+            
+            let lvls = typeof m.allowed_level_ids === 'string' ? JSON.parse(m.allowed_level_ids) : m.allowed_level_ids;
+            document.querySelectorAll('.cb-level').forEach(cb => cb.checked = lvls?.includes(cb.value));
         }
     } else {
-        title.textContent = "Tambah Menu Baru";
+        document.getElementById('menu-title').value = '';
+        document.getElementById('menu-route').value = '';
+        document.getElementById('menu-order').value = 1;
+        document.getElementById('menu-icon').value = '';
+        document.getElementById('menu-category').value = '';
+        document.querySelectorAll('input[type=checkbox]').forEach(c => c.checked = false);
+        document.getElementById('menu-active').checked = true;
     }
-
-    modal.style.display = 'flex'; // Gunakan Flex agar centered
+    toggleModal('modal-menu', true);
 }
 
 async function saveMenu() {
     const id = document.getElementById('menu-id').value;
     const roles = Array.from(document.querySelectorAll('.cb-role:checked')).map(c => c.value);
     const levels = Array.from(document.querySelectorAll('.cb-level:checked')).map(c => c.value);
-
     const payload = {
         title: document.getElementById('menu-title').value,
         route: document.getElementById('menu-route').value,
@@ -452,51 +515,42 @@ async function saveMenu() {
         allowed_roles: roles,
         allowed_level_ids: levels
     };
-
-    if(!payload.title || !payload.route || !payload.category) return alert("Judul, Route, dan Kategori wajib diisi!");
-
+    if(!payload.title || !payload.route || !payload.category) return alert("Data wajib diisi!");
+    
     const btn = document.getElementById('btn-save-menu');
     btn.textContent = "Menyimpan..."; btn.disabled = true;
 
-    const { error } = id 
-        ? await supabase.from('app_menus').update(payload).eq('id', id)
-        : await supabase.from('app_menus').insert([payload]);
-
-    if(error) alert("Error: " + error.message);
-    else {
+    try {
+        if (id) await supabase.from('app_menus').update(payload).eq('id', id);
+        else await supabase.from('app_menus').insert([payload]);
         toggleModal('modal-menu', false);
-        loadData();
-    }
-    btn.textContent = "Simpan Data"; btn.disabled = false;
+        await loadData();
+    } catch(err) { alert(err.message); } finally { btn.textContent = "Simpan Perubahan"; btn.disabled = false; }
 }
 
 async function deleteMenu(id) {
-    if(confirm("Yakin hapus menu ini?")) {
+    if(confirm("Hapus menu ini permanen?")) {
         await supabase.from('app_menus').delete().eq('id', id);
-        loadData();
+        await loadData();
     }
 }
 
-// ==========================================
-// 7. CATEGORY LOGIC
-// ==========================================
 function renderCategoryList() {
     const container = document.getElementById('cat-list-container');
-    container.innerHTML = allCategories.map(c => `
-        <div class="cat-item">
+    if(container) container.innerHTML = allCategories.map(c => `
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:12px; border-bottom:1px solid #f1f5f9; transition:0.2s; border-radius:8px;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
             <div>
-                <strong>${c.title}</strong> <small>(${c.category_key})</small>
-                <div style="font-size:0.75rem; color:#666;">Urutan: ${c.order_index} | App: ${c.target_app}</div>
+                <div style="font-weight:600; color:#334155; font-size:0.9rem;">${c.title}</div>
+                <div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">Key: ${c.category_key} • App: ${c.target_app}</div>
             </div>
-            <div style="display:flex; gap:5px;">
-                <button class="btn-mini edit" onclick="window.editCat('${c.id}')"><i class="fa-solid fa-pen"></i></button>
-                <button class="btn-mini del" onclick="window.delCat('${c.id}')"><i class="fa-solid fa-trash"></i></button>
+            <div style="display:flex; gap:6px;">
+                <button class="btn-icon edit" onclick="window.editCat('${c.id}')"><i class="fa-solid fa-pen"></i></button>
+                <button class="btn-icon del" onclick="window.delCat('${c.id}')"><i class="fa-solid fa-trash"></i></button>
             </div>
         </div>
     `).join('');
 }
 
-// Global functions for inline onclick in category list
 window.editCat = (id) => {
     const c = allCategories.find(x => x.id === id);
     if (!c) return;
@@ -505,16 +559,13 @@ window.editCat = (id) => {
     document.getElementById('cat-key').value = c.category_key;
     document.getElementById('cat-order').value = c.order_index;
     document.getElementById('cat-target').value = c.target_app;
-    
-    document.getElementById('cat-form-title').textContent = "Edit Kategori";
-    document.getElementById('btn-save-cat').textContent = "Update";
     document.getElementById('btn-reset-cat').style.display = "block";
 };
 
 window.delCat = async (id) => {
-    if(confirm("Hapus kategori? Semua menu di dalamnya akan ikut terhapus!")) {
+    if(confirm("Hapus kategori? Semua menu di dalamnya juga akan terhapus.")) {
         await supabase.from('menu_categories').delete().eq('id', id);
-        loadData();
+        await loadData();
     }
 };
 
@@ -526,18 +577,13 @@ async function saveCategory() {
         order_index: parseInt(document.getElementById('cat-order').value) || 0,
         target_app: document.getElementById('cat-target').value
     };
-
-    if(!payload.title || !payload.category_key) return alert("Data kategori tidak lengkap!");
-
-    const { error } = id
-        ? await supabase.from('menu_categories').update(payload).eq('id', id)
-        : await supabase.from('menu_categories').insert([payload]);
-
-    if(error) alert("Error: " + error.message);
-    else {
+    if(!payload.title || !payload.category_key) return alert("Lengkapi data kategori!");
+    try {
+        if (id) await supabase.from('menu_categories').update(payload).eq('id', id);
+        else await supabase.from('menu_categories').insert([payload]);
         resetCatForm();
-        loadData();
-    }
+        await loadData();
+    } catch(err) { alert(err.message); }
 }
 
 function resetCatForm() {
@@ -545,43 +591,33 @@ function resetCatForm() {
     document.getElementById('cat-title').value = '';
     document.getElementById('cat-key').value = '';
     document.getElementById('cat-order').value = 1;
-    document.getElementById('cat-form-title').textContent = "Tambah Baru";
-    document.getElementById('btn-save-cat').textContent = "Simpan";
     document.getElementById('btn-reset-cat').style.display = "none";
 }
 
-// ==========================================
-// 8. BIND EVENTS
-// ==========================================
 function bindEvents() {
-    // Modal Toggles
     document.getElementById('btn-add-menu').onclick = () => openMenuModal();
     document.getElementById('close-menu-modal').onclick = () => toggleModal('modal-menu', false);
-    
     document.getElementById('btn-manage-cat').onclick = () => toggleModal('modal-cat', true);
     document.getElementById('close-cat').onclick = () => toggleModal('modal-cat', false);
-    
     document.getElementById('btn-open-picker').onclick = () => toggleModal('modal-icon-picker', true);
     document.getElementById('close-picker').onclick = () => toggleModal('modal-icon-picker', false);
-
-    // Save Actions
     document.getElementById('btn-save-menu').onclick = saveMenu;
     document.getElementById('btn-save-cat').onclick = saveCategory;
     document.getElementById('btn-reset-cat').onclick = resetCatForm;
-
-    // Search Icon
     document.getElementById('icon-search').onkeyup = (e) => renderIconGrid(e.target.value);
     
-    // Close modal on outside click
-    window.onclick = (e) => {
-        if (e.target.classList.contains('mm-modal')) {
+    window.addEventListener('click', (e) => {
+        if (modalOpenInProgress) return;
+        if (['modal-menu', 'modal-cat', 'modal-icon-picker'].includes(e.target.id)) {
             e.target.style.display = 'none';
+            e.target.classList.remove('show');
         }
-    };
+    });
 }
 
 function toggleModal(id, show) {
     const el = document.getElementById(id);
-    if(show) el.style.display = 'flex';
-    else el.style.display = 'none';
+    if (!el) return;
+    if(show) { modalOpenInProgress = true; el.style.display = 'flex'; el.classList.add('show'); setTimeout(() => { modalOpenInProgress = false; }, 300); }
+    else { el.style.display = 'none'; el.classList.remove('show'); }
 }

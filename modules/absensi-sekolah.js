@@ -1,7 +1,6 @@
 /**
- * Project: Absensi Sekolah Module (SPA)
- * Description: Daftar kelas untuk absensi with Colorful Cards.
- * Filename: modules/absensi-sekolah.js
+ * Project: Absensi Sekolah Module (SPA) - FIXED
+ * Features: 2-Column Mobile Layout, Global Dispatcher Fix, Breadcrumb Cleanup.
  */
 
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
@@ -10,28 +9,39 @@ import { supabaseUrl, supabaseKey } from '../assets/js/config.js';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ==========================================
-// 1. INITIALIZATION
+// 1. GLOBAL DISPATCHER (Fix Bug Klik)
 // ==========================================
+// Wajib ditempel ke window agar atribut onclick="" di HTML bisa memanggilnya
+window.dispatchAbsensi = (classId, className) => {
+    localStorage.setItem("activeClassId", classId);
+    localStorage.setItem("activeClassName", className);
+    if (window.dispatchModuleLoad) {
+        window.dispatchModuleLoad('absensi-harian', 'Input Absensi', className);
+    }
+};
 
 export async function init(canvas) {
-    // 1. Ambil Context Semester Aktif
     const activeAcademicYear = localStorage.getItem("activeAcademicYear") || "Belum Diset";
     const activeSemester = localStorage.getItem("activeSemester") || "Belum Diset";
 
-    // 2. Inject CSS
     injectStyles();
 
-    // 3. Render HTML Structure
     canvas.innerHTML = `
         <div class="as-container">
+            <nav class="breadcrumb-nav">
+                <span class="br-link" onclick="window.dispatchModuleLoad('overview')">Home</span>
+                <i class="fas fa-chevron-right separator"></i>
+                <span class="current">Absensi Sekolah</span>
+            </nav>
+
             <div class="as-header">
-                <div>
+                <div class="header-titles">
                     <h2>Absensi Siswa</h2>
-                    <p>Periode Aktif: <span class="badge-periode">${activeSemester} ${activeAcademicYear}</span></p>
+                    <p>Periode: <span class="badge-periode">${activeSemester} ${activeAcademicYear}</span></p>
                 </div>
-                <div style="display:flex; gap:10px;">
-                    <button id="btn-show-all" class="btn-outline" title="Tampilkan semua tanpa filter periode">
-                        <i class="fas fa-list"></i> Semua Kelas
+                <div class="header-btns">
+                    <button id="btn-show-all" class="btn-outline">
+                        <i class="fas fa-list"></i> Semua
                     </button>
                     <button id="btn-rekap" class="btn-primary">
                         <i class="fas fa-chart-line"></i> Rekap
@@ -41,27 +51,20 @@ export async function init(canvas) {
 
             <div id="class-grid" class="card-grid">
                 <div class="loading-state">
-                    <i class="fas fa-circle-notch fa-spin"></i> Mencari kelas aktif...
+                    <i class="fas fa-circle-notch fa-spin"></i> Mencari kelas...
                 </div>
             </div>
         </div>
     `;
 
-    // 4. Load Data (Default: Filter by Active Semester)
     await loadClasses(true);
 
-    // 5. Events
     document.getElementById('btn-show-all').onclick = () => loadClasses(false);
-    
     document.getElementById('btn-rekap').onclick = () => {
         if(window.dispatchModuleLoad) window.dispatchModuleLoad('rekap-absensi', 'Rekapitulasi', 'Laporan');
-        else alert("Modul Rekap belum siap.");
     };
 }
 
-// ==========================================
-// 2. CSS STYLING (COLORFUL THEME)
-// ==========================================
 function injectStyles() {
     const styleId = 'absensi-sekolah-css';
     if (document.getElementById(styleId)) return;
@@ -69,174 +72,134 @@ function injectStyles() {
     const style = document.createElement('style');
     style.id = styleId;
     style.textContent = `
-        .as-container { max-width: 1200px; margin: 0 auto; padding-bottom: 80px; font-family: 'Roboto', sans-serif; }
+        .as-container { max-width: 1200px; margin: 0 auto; padding: 15px; padding-bottom: 80px; }
         
-        .as-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; border-bottom: 2px solid #eee; padding-bottom: 20px; flex-wrap: wrap; gap: 15px; }
-        .as-header h2 { margin: 0; font-family: 'Fredoka One', cursive; color: #333; font-size: 1.8rem; }
-        .as-header p { margin: 5px 0 0; color: #666; font-size: 0.95rem; }
-        
-        .badge-periode { background: #e0f2fe; color: #0284c7; padding: 4px 10px; border-radius: 12px; font-weight: bold; font-size: 0.9rem; }
+        .breadcrumb-nav { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; font-size: 0.8rem; color: #888; }
+        .br-link { color: #4d97ff; cursor: pointer; font-weight: 500; }
+        .br-link:hover { text-decoration: underline; }
+        .breadcrumb-nav .separator { font-size: 0.6rem; color: #ccc; }
+        .breadcrumb-nav .current { color: #333; font-weight: bold; }
 
-        .btn-primary { background: linear-gradient(135deg, #4d97ff, #2563eb); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; display: flex; align-items: center; gap: 8px; transition: 0.2s; }
-        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(77,151,255,0.3); }
-        
-        .btn-outline { background: white; color: #555; border: 1px solid #ddd; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; display: flex; align-items: center; gap: 8px; transition: 0.2s; }
-        .btn-outline:hover { background: #f9f9f9; color: #333; border-color: #bbb; }
+        .as-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 25px; flex-wrap: wrap; gap: 15px; }
+        .as-header h2 { margin: 0; font-family: 'Fredoka One', cursive; color: #333; font-size: 1.5rem; }
+        .badge-periode { font-weight: bold; color: #4d97ff; }
 
-        /* Grid System */
-        .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 20px; }
-        
-        /* Colorful Card Style */
+        .card-grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); 
+            gap: 20px; 
+        }
+
         .color-card {
-            border-radius: 16px;
-            padding: 25px;
-            color: white;
+            border-radius: 18px;
+            background: white;
             cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
+            transition: all 0.3s ease;
             display: flex;
             flex-direction: column;
-            justify-content: space-between;
-            min-height: 160px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
             position: relative;
             overflow: hidden;
+            border: 1px solid #f0f0f0;
+        }
+        .color-card:hover { transform: translateY(-5px); box-shadow: 0 12px 25px rgba(0,0,0,0.1); }
+
+        .card-image-area {
+            height: 100px;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+        .img-placeholder { font-size: 2.5rem; color: rgba(255,255,255,0.4); }
+
+        .card-content { padding: 15px; flex-grow: 1; }
+        .card-school { font-size: 0.65rem; text-transform: uppercase; font-weight: 800; color: #999; margin-bottom: 4px; }
+        .card-title { font-family: 'Fredoka One', cursive; font-size: 1.1rem; margin: 0; color: #333; line-height: 1.2; }
+        
+        .card-footer { margin-top: 12px; padding-top: 12px; border-top: 1px solid #f9f9f9; display: flex; flex-direction: column; gap: 5px; font-size: 0.75rem; color: #777; }
+
+        /* MOBILE FIXES: TWO CARDS PER ROW */
+        @media (max-width: 600px) {
+            .as-header h2 { font-size: 1.2rem; }
+            .header-btns { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+            
+            .card-grid { 
+                grid-template-columns: 1fr 1fr; /* PAKSA 2 KOLOM */
+                gap: 12px; 
+            }
+            .color-card { border-radius: 14px; }
+            .card-image-area { height: 70px; }
+            .img-placeholder { font-size: 1.8rem; }
+            .card-content { padding: 10px; }
+            .card-title { font-size: 0.95rem; }
+            .card-footer { font-size: 0.65rem; }
         }
 
-        .color-card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0,0,0,0.15); }
-        
-        /* Hiasan background transparan */
-        .color-card::after {
-            content: ''; position: absolute; top: -20px; right: -20px;
-            width: 100px; height: 100px; background: rgba(255,255,255,0.15);
-            border-radius: 50%;
-        }
+        .card-blue { border-bottom: 5px solid #4d97ff; }
+        .card-orange { border-bottom: 5px solid #ffab19; }
+        .card-green { border-bottom: 5px solid #00b894; }
+        .card-purple { border-bottom: 5px solid #a55eea; }
 
-        .card-header { z-index: 1; }
-        .card-school { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.9; margin-bottom: 5px; }
-        .card-title { font-family: 'Fredoka One', cursive; font-size: 1.5rem; margin: 0 0 5px 0; line-height: 1.2; }
-        
-        .card-body { z-index: 1; margin-top: 15px; }
-        .card-info { display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem; background: rgba(0,0,0,0.1); padding: 8px 12px; border-radius: 10px; }
-        .card-info i { margin-right: 5px; opacity: 0.8; }
-
-        /* Variasi Warna (Modulus 4) */
-        .bg-blue   { background: linear-gradient(135deg, #4d97ff, #2563eb); }
-        .bg-orange { background: linear-gradient(135deg, #ffab19, #f59e0b); }
-        .bg-green  { background: linear-gradient(135deg, #00b894, #00a884); }
-        .bg-purple { background: linear-gradient(135deg, #a55eea, #8854d0); }
-
-        .loading-state { grid-column: 1/-1; text-align: center; padding: 50px; color: #999; font-size: 1.1rem; }
-        .empty-state { grid-column: 1/-1; text-align: center; padding: 40px; background: white; border-radius: 12px; border: 2px dashed #ccc; }
+        .loading-state { grid-column: 1/-1; text-align: center; padding: 50px; color: #999; }
+        .btn-primary { background: #4d97ff; color: white; border: none; padding: 10px 20px; border-radius: 10px; font-weight: bold; cursor: pointer; }
+        .btn-outline { background: white; border: 1px solid #ddd; padding: 10px 20px; border-radius: 10px; font-weight: bold; cursor: pointer; }
     `;
     document.head.appendChild(style);
 }
 
-// ==========================================
-// 3. LOGIC & DATA
-// ==========================================
-
 async function loadClasses(useFilter) {
     const grid = document.getElementById('class-grid');
-    grid.innerHTML = '<div class="loading-state"><i class="fas fa-circle-notch fa-spin"></i> Memuat data...</div>';
-
     try {
-        let query = supabase
-            .from('classes')
-            .select(`
-                id, name, jadwal, level,
-                schools (name),
-                semesters (name),
-                academic_years (year)
-            `)
-            .order('name');
-
-        // Filter Ketat (Default)
+        let query = supabase.from('classes').select('id, name, jadwal, level, schools(name), semesters(name), academic_years(year)');
         if (useFilter) {
             const activeYear = localStorage.getItem("activeAcademicYear"); 
-            let activeSem = localStorage.getItem("activeSemester"); 
-            
+            const activeSem = localStorage.getItem("activeSemester")?.split(' (')[0].trim(); 
             if (activeYear && activeSem) {
-                // FIX LOGIC: Bersihkan nama semester (Hapus suffix 'Genap/Ganjil')
-                const cleanSemester = activeSem.split(' (')[0].trim(); 
-                
-                query = query.eq('academic_years.year', activeYear);
-                query = query.eq('semesters.name', cleanSemester); 
+                // Gunakan nama relasi tabel untuk filter
+                query = query.eq('academic_years.year', activeYear).eq('semesters.name', activeSem); 
             }
         }
-
-        const { data, error } = await query;
-
+        const { data, error } = await query.order('name');
         if (error) throw error;
-
-        if (!data || data.length === 0) {
-            if (useFilter) {
-                grid.innerHTML = `
-                    <div class="empty-state">
-                        <i class="fas fa-filter" style="font-size:3rem; color:#ddd; margin-bottom:15px;"></i>
-                        <p>Tidak ada kelas untuk periode ini.</p>
-                        <small style="display:block; margin-bottom:10px; color:#999;">
-                            Filter: ${localStorage.getItem("activeSemester")} ${localStorage.getItem("activeAcademicYear")}
-                        </small>
-                        <button onclick="document.getElementById('btn-show-all').click()" style="cursor:pointer; color:#4d97ff; background:none; border:none; text-decoration:underline;">
-                            Tampilkan Semua Kelas (Abaikan Periode)
-                        </button>
-                    </div>
-                `;
-            } else {
-                grid.innerHTML = `<div class="empty-state">Belum ada data kelas sama sekali. Silakan input di menu Registrasi Sekolah.</div>`;
-            }
-            return;
-        }
-
-        renderCards(data, grid);
-
+        renderCards(data || [], grid);
     } catch (err) {
-        console.error("Error:", err);
-        grid.innerHTML = `<div class="empty-state" style="color:red;">Error: ${err.message}</div>`;
+        grid.innerHTML = `<div class="loading-state">Error: ${err.message}</div>`;
     }
 }
 
 function renderCards(classes, container) {
-    // Array kelas warna untuk rotasi
-    const colors = ['bg-blue', 'bg-orange', 'bg-green', 'bg-purple'];
+    const accents = ['card-blue', 'card-orange', 'card-green', 'card-purple'];
+    const gradients = [
+        'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', 
+        'linear-gradient(135deg, #f6d365 0%, #fda085 100%)', 
+        'linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)', 
+        'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)'
+    ];
+
+    if (classes.length === 0) {
+        container.innerHTML = `<div class="loading-state">Tidak ada kelas aktif di periode ini.</div>`;
+        return;
+    }
 
     container.innerHTML = classes.map((c, index) => {
-        // Fallback data jika join null
-        const schoolName = c.schools?.name || 'Sekolah Umum';
-        const schedule = c.jadwal || 'Belum diatur';
-        
-        // Tentukan warna berdasarkan urutan
-        const colorClass = colors[index % colors.length];
-
+        const accent = accents[index % accents.length];
+        const gradient = gradients[index % gradients.length];
         return `
-        <div class="color-card ${colorClass}" onclick="window.dispatchAbsensi('${c.id}', '${c.name}')">
-            <div class="card-header">
-                <div class="card-school"><i class="fas fa-school"></i> ${schoolName}</div>
-                <div class="card-title">${c.name}</div>
+        <div class="color-card ${accent}" onclick="window.dispatchAbsensi('${c.id}', '${c.name}')">
+            <div class="card-image-area" style="background: ${gradient}">
+                <i class="fas fa-robot img-placeholder"></i>
             </div>
-            <div class="card-body">
-                <div class="card-info">
+            <div class="card-content">
+                <div class="card-school">${c.schools?.name || 'Sekolah Umum'}</div>
+                <div class="card-title">${c.name}</div>
+                <div class="card-footer">
                     <span><i class="fas fa-layer-group"></i> ${c.level || '-'}</span>
-                    <span><i class="far fa-clock"></i> ${schedule}</span>
+                    <span><i class="far fa-clock"></i> ${c.jadwal || 'Belum diset'}</span>
                 </div>
             </div>
         </div>
         `;
     }).join('');
 }
-
-// ==========================================
-// 4. DISPATCHER
-// ==========================================
-window.dispatchAbsensi = (classId, className) => {
-    // 1. Simpan State
-    localStorage.setItem("activeClassId", classId);
-    localStorage.setItem("activeClassName", className);
-
-    // 2. Load Module Harian
-    if(window.dispatchModuleLoad) {
-        window.dispatchModuleLoad('absensi-harian', 'Input Absensi', className);
-    } else {
-        alert("Sistem navigasi error. Harap refresh.");
-    }
-};
