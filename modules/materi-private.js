@@ -182,7 +182,7 @@ async function loadData() {
 
     try {
         if (currentTab === "materi") {
-            const { data } = await supabase.from('materi_private').select('*, levels(kode)').order('judul');
+            const { data } = await supabase.from('materi_private').select('*, levels(kode)').order('created_at', { ascending: false });
             loading.style.display = 'none';
             const filtered = data ? data.filter(m => m.judul.toLowerCase().includes(search)) : [];
             
