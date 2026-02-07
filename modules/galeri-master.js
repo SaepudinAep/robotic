@@ -1,7 +1,7 @@
 /**
- * Project: Universal Gallery Master (FINAL FIX: BACK BUTTON)
- * Fix: Smart Navigation Back logic based on Context Mode.
- * Filename: modules/galeri-master.js
+ * Project: Universal Gallery Master (Dual-Core Support)
+ * Version: 3.0 - Private Support, Auto-Caption, Publish All
+ * File: modules/galeri-master.js
  */
 
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
@@ -19,6 +19,9 @@ let context = {
 };
 
 let activeSessionId = null;
+let activeSessionDate = '';
+let activeSessionTitle = '';
+let currentPhotos = []; // Menyimpan data foto yang sedang tampil
 
 // Config Resize HD
 const MAX_WIDTH = 1280;
@@ -30,7 +33,7 @@ const JPG_QUALITY = 0.85;
 export async function init(canvas) {
     injectStyles();
     
-    // A. Deteksi Konteks Berdasarkan 'galleryContextMode'
+    // A. Deteksi Konteks
     const mode = localStorage.getItem("galleryContextMode");
 
     if (mode === 'PRIVATE') {
@@ -42,12 +45,12 @@ export async function init(canvas) {
         context.activeClassId = localStorage.getItem("activeClassId");
         context.className = localStorage.getItem("activeClassName") || 'Kelas Sekolah';
     } else {
-        canvas.innerHTML = '<div class="gm-error-box"><i class="fa-solid fa-triangle-exclamation"></i> Error: Mode galeri tidak terdeteksi. Silakan kembali ke menu utama.</div>';
+        canvas.innerHTML = '<div class="gm-error-box"><i class="fa-solid fa-triangle-exclamation"></i> Error: Mode galeri tidak terdeteksi.</div>';
         return;
     }
 
     if (!context.activeClassId) {
-        canvas.innerHTML = '<div class="gm-error-box"><i class="fa-solid fa-ban"></i> Error: ID Kelas hilang. Silakan pilih kelas ulang.</div>';
+        canvas.innerHTML = '<div class="gm-error-box"><i class="fa-solid fa-ban"></i> Error: ID Kelas hilang.</div>';
         return;
     }
 
@@ -63,19 +66,15 @@ export async function init(canvas) {
 }
 
 // ==========================================
-// 2. SMART NAVIGATION (FIXED BACK BUTTON)
+// 2. SMART NAVIGATION
 // ==========================================
 window.handleBackNavigation = () => {
-    // Tentukan tujuan balik berdasarkan mode saat ini
     const targetModule = context.mode === 'PRIVATE' ? 'galeri-private' : 'galeri-sekolah';
     const targetTitle = context.mode === 'PRIVATE' ? 'Galeri Private' : 'Galeri Sekolah';
 
-    // Panggil fungsi navigasi utama (SPA Dispatcher)
     if (window.dispatchModuleLoad) {
         window.dispatchModuleLoad(targetModule, targetTitle);
     } else {
-        // Fallback jika dispatcher tidak ada
-        console.warn("Dispatcher not found, using history.back()");
         window.history.back();
     }
 };
@@ -95,14 +94,15 @@ async function loadSessions() {
         query = supabase.from('pertemuan_private').select('id, tanggal, materi_private(judul, level_id)').eq('class_id', context.activeClassId);
     }
 
+    // Filter guru (hanya lihat levelnya sendiri jika bukan admin)
     if (context.user?.role === 'teacher' && context.user.level_id) {
         const levelPath = context.mode === 'SCHOOL' ? 'materi.level_id' : 'materi_private.level_id';
         query = query.eq(levelPath, context.user.level_id);
     }
 
-    const { data: sessions } = await query.order('tanggal', { ascending: false });
+    const { data: sessions, error } = await query.order('tanggal', { ascending: false });
     
-    if (!sessions?.length) {
+    if (error || !sessions?.length) {
         sessionBar.innerHTML = '<div class="gm-empty-pill">Belum ada sesi aktif.</div>';
         return;
     }
@@ -110,25 +110,32 @@ async function loadSessions() {
     sessionBar.innerHTML = sessions.map(s => {
         const title = context.mode === 'SCHOOL' ? (s.materi?.title || 'Kegiatan') : (s.materi_private?.judul || 'Sesi Private');
         const tgl = new Date(s.tanggal).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+        // Simpan data raw untuk keperluan caption
+        const rawDate = new Date(s.tanggal).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' }).replace(' ', '');
+        
         return `
-            <button class="gm-sess-pill touch-feedback" onclick="window.selectSession('${s.id}', '${s.tanggal}', '${title}', this)">
+            <button class="gm-sess-pill touch-feedback" onclick="window.selectSession('${s.id}', '${rawDate}', '${title}', this)">
                 <span class="sess-date">${tgl}</span>
                 <span class="sess-name">${title}</span>
             </button>
         `;
     }).join('');
 
+    // Auto-select first session
     if (sessions.length > 0) {
         document.querySelector('.gm-sess-pill').click();
     }
 }
 
-window.selectSession = async (id, date, title, element) => {
+window.selectSession = async (id, dateFormatted, title, element) => {
     activeSessionId = id;
+    activeSessionDate = dateFormatted; // Format: 07Feb
+    activeSessionTitle = title.replace(/\s/g, ''); // Format: RoboticsLevel1
+    
     document.querySelectorAll('.gm-sess-pill').forEach(el => el.classList.remove('active'));
     element.classList.add('active');
+    
     document.getElementById('display-session-title').innerText = title;
-    document.getElementById('display-raw-date').value = date;
     
     const toolbar = document.getElementById('gallery-toolbar');
     toolbar.style.display = 'flex';
@@ -141,28 +148,53 @@ async function loadPhotos() {
     const grid = document.getElementById('gallery-grid');
     grid.innerHTML = '<div class="gm-loading-grid"><i class="fa-solid fa-spinner fa-spin"></i> Mengambil dokumentasi...</div>';
 
+    // DUAL-CORE LOGIC: Pilih kolom berdasarkan mode
+    const targetCol = context.mode === 'SCHOOL' ? 'pertemuan_id' : 'pertemuan_private_id';
+
     let query = supabase.from('gallery_contents')
         .select('*')
-        .eq('pertemuan_id', activeSessionId)
+        .eq(targetCol, activeSessionId)
         .order('created_at', { ascending: false });
     
-    if (context.user?.role !== 'super_admin') {
+    if (context.user?.role !== 'super_admin' && context.user?.role !== 'pic') {
         query = query.eq('is_deleted', false);
     }
 
     const { data: photos } = await query;
+    currentPhotos = photos || [];
+
+    // Update Text Tombol Publish All
+    updatePublishButtonState();
 
     if (!photos?.length) {
         grid.innerHTML = `
             <div class="gm-empty-state">
                 <div class="empty-icon"><i class="fa-regular fa-images"></i></div>
                 <p>Belum ada dokumentasi.</p>
-                <small>Jadilah yang pertama mengupload!</small>
+                <small>Mode: ${context.mode}</small>
             </div>
         `;
         return;
     }
     renderGrid(photos, grid);
+}
+
+function updatePublishButtonState() {
+    const btn = document.getElementById('btn-publish-all');
+    if (!btn) return;
+    
+    // Cek apakah ada setidaknya satu yang masih draft
+    const hasDraft = currentPhotos.some(p => !p.is_published);
+    
+    if (hasDraft) {
+        btn.innerHTML = '<i class="fa-solid fa-check-double"></i> <span class="hide-mobile">Publish All</span>';
+        btn.onclick = () => window.togglePublishAll(true);
+        btn.className = "gm-btn-tool orange touch-feedback";
+    } else {
+        btn.innerHTML = '<i class="fa-solid fa-eye-slash"></i> <span class="hide-mobile">Draft All</span>';
+        btn.onclick = () => window.togglePublishAll(false);
+        btn.className = "gm-btn-tool dark touch-feedback";
+    }
 }
 
 function renderGrid(photos, container) {
@@ -193,6 +225,7 @@ function renderGrid(photos, container) {
                     <img src="${thumb}" loading="lazy" alt="Dokumentasi">
                     <div class="status-pill ${statusClass}">${p.is_published ? 'LIVE' : 'DRAFT'}</div>
                     ${isDeleted ? '<div class="deleted-overlay"><i class="fa-solid fa-trash"></i> TERHAPUS</div>' : ''}
+                    <div class="caption-overlay">${p.caption || ''}</div>
                 </div>
                 <div class="gm-card-actions">
                     <button class="btn-mini-action" onclick="window.togglePublish('${p.id}', ${p.is_published})" title="${p.is_published ? 'Sembunyikan' : 'Publish'}">
@@ -208,7 +241,7 @@ function renderGrid(photos, container) {
 }
 
 // ==========================================
-// 4. ACTIONS
+// 4. ACTIONS (UPLOAD & PUBLISH)
 // ==========================================
 window.openUploadModal = (type) => {
     const modal = document.getElementById('modal-upload');
@@ -217,6 +250,21 @@ window.openUploadModal = (type) => {
     document.getElementById('form-file').style.display = type === 'file' ? 'block' : 'none';
     document.getElementById('form-yt').style.display = type === 'yt' ? 'block' : 'none';
     document.getElementById('upload-status').innerHTML = '';
+};
+
+// FITUR BARU: PUBLISH ALL
+window.togglePublishAll = async (targetState) => {
+    if (!confirm(targetState ? "Publish semua foto ini ke Siswa?" : "Sembunyikan semua foto (Draft)?")) return;
+
+    const targetCol = context.mode === 'SCHOOL' ? 'pertemuan_id' : 'pertemuan_private_id';
+    
+    // Update Batch
+    const { error } = await supabase.from('gallery_contents')
+        .update({ is_published: targetState })
+        .eq(targetCol, activeSessionId);
+
+    if (error) alert("Gagal update batch: " + error.message);
+    else await loadPhotos();
 };
 
 window.executeUpload = async () => {
@@ -229,6 +277,16 @@ window.executeUpload = async () => {
         if (!acc) throw new Error("Tidak ada akun Cloudinary aktif.");
 
         const isYt = document.getElementById('form-yt').style.display === 'block';
+        
+        // Tentukan Kolom ID berdasarkan Mode
+        const payloadBase = {};
+        if (context.mode === 'SCHOOL') {
+            payloadBase.pertemuan_id = activeSessionId;
+            payloadBase.class_id = context.activeClassId; // Wajib untuk filter kelas sekolah
+        } else {
+            payloadBase.pertemuan_private_id = activeSessionId;
+            payloadBase.class_id = null; // SAFETY: Jangan isi class_id saat private agar tidak error FK
+        }
 
         if (isYt) {
             const url = document.getElementById('yt-url').value;
@@ -236,7 +294,7 @@ window.executeUpload = async () => {
             if(!url) throw new Error("Link URL wajib diisi");
             
             await supabase.from('gallery_contents').insert({
-                pertemuan_id: activeSessionId, class_id: context.activeClassId,
+                ...payloadBase,
                 file_url: url, media_type: 'youtube', caption: title, is_published: true
             });
         } else {
@@ -244,11 +302,19 @@ window.executeUpload = async () => {
             if(files.length === 0) throw new Error("Pilih minimal 1 file.");
             
             const activeYear = localStorage.getItem("activeAcademicYear") || "Umum"; 
-            const dateRaw = document.getElementById('display-raw-date').value;
-            const folderPath = `galeri-${context.mode.toLowerCase()}/${sanitize(activeYear)}/${sanitize(context.className)}/${sanitize(dateRaw)}`;
+            const folderPath = `galeri-${context.mode.toLowerCase()}/${sanitize(activeYear)}/${sanitize(context.className)}/${sanitize(activeSessionDate)}`;
+
+            // Hitung index awal untuk penomoran caption
+            let startIndex = currentPhotos.length + 1;
 
             for (const file of files) {
                 status.innerText = `Mengupload ${file.name}...`;
+                
+                // 1. AUTO CAPTION GENERATOR
+                const noUrut = startIndex.toString().padStart(2, '0');
+                const cleanCaption = `robopanda_${activeSessionDate}_${activeSessionTitle}_${noUrut}`;
+                startIndex++;
+
                 const fileToUpload = await compressImage(file);
                 
                 const { data: { session } } = await supabase.auth.getSession();
@@ -257,6 +323,7 @@ window.executeUpload = async () => {
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
                     body: JSON.stringify({ action: 'get_signature', account_id: acc.id, params: { folder: folderPath } })
                 });
+                
                 if(!signRes.ok) throw new Error("Gagal dapat signature.");
                 const signData = await signRes.json();
 
@@ -272,10 +339,13 @@ window.executeUpload = async () => {
                 const cloudData = await cloudRes.json();
 
                 await supabase.from('gallery_contents').insert({
-                    pertemuan_id: activeSessionId, class_id: context.activeClassId,
-                    file_url: cloudData.secure_url, public_id: cloudData.public_id,
-                    media_type: cloudData.resource_type, caption: file.name,
-                    cloudinary_account_id: acc.id, is_published: true
+                    ...payloadBase,
+                    file_url: cloudData.secure_url, 
+                    public_id: cloudData.public_id,
+                    media_type: cloudData.resource_type, 
+                    caption: cleanCaption, // Pakai caption otomatis
+                    cloudinary_account_id: acc.id, 
+                    is_published: true
                 });
             }
         }
@@ -319,7 +389,6 @@ function renderMainLayout(canvas) {
                     <div class="gm-header-info">
                         <h1>Galeri ${context.mode === 'SCHOOL' ? 'Sekolah' : 'Private'}</h1>
                         <p><i class="fa-solid fa-shapes"></i> ${context.className}</p>
-                        <input type="hidden" id="display-raw-date">
                     </div>
                 </div>
                 <div id="session-horizontal-bar" class="gm-session-bar hide-scrollbar"></div>
@@ -329,6 +398,7 @@ function renderMainLayout(canvas) {
                 <div id="gallery-toolbar" class="gm-toolbar" style="display:none;">
                     <span id="display-session-title" class="current-topic">Topik Sesi</span>
                     <div class="gm-tools-right">
+                        <button id="btn-publish-all" class="gm-btn-tool dark touch-feedback"><i class="fa-solid fa-check-double"></i></button>
                         <button class="gm-btn-tool blue touch-feedback" onclick="window.openUploadModal('file')"><i class="fa-solid fa-cloud-arrow-up"></i> <span class="hide-mobile">Upload</span></button>
                         <button class="gm-btn-tool red touch-feedback" onclick="window.openUploadModal('yt')"><i class="fa-brands fa-youtube"></i> <span class="hide-mobile">Video</span></button>
                     </div>
@@ -343,8 +413,8 @@ function renderMainLayout(canvas) {
                 <div class="gm-modal-body">
                     <div id="form-file">
                         <div class="gm-dropzone" onclick="document.getElementById('file-input').click()">
-                            <i class="fa-solid fa-images"></i><p>Tap pilih Foto/Video</p><small>Auto-Resize HD</small>
-                            <input type="file" id="file-input" multiple accept="image/*,video/*" hidden onchange="this.nextElementSibling.innerText = this.files.length + ' file'">
+                            <i class="fa-solid fa-images"></i><p>Tap pilih Foto/Video</p><small>Auto-Resize HD & Auto-Caption</small>
+                            <input type="file" id="file-input" multiple accept="image/*,video/*" hidden onchange="this.nextElementSibling.innerText = this.files.length + ' file dipilih'">
                             <div class="file-count-label"></div>
                         </div>
                     </div>
@@ -396,7 +466,10 @@ function injectStyles() {
         .current-topic { font-weight: 700; color: #334155; font-size: 0.95rem; border-left: 4px solid #f59e0b; padding-left: 10px; }
         .gm-tools-right { display: flex; gap: 10px; }
         .gm-btn-tool { border: none; padding: 8px 16px; border-radius: 8px; color: white; font-weight: 600; font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 6px; }
-        .gm-btn-tool.blue { background: #3b82f6; } .gm-btn-tool.red { background: #ef4444; }
+        .gm-btn-tool.blue { background: #3b82f6; } 
+        .gm-btn-tool.red { background: #ef4444; }
+        .gm-btn-tool.orange { background: #f59e0b; }
+        .gm-btn-tool.dark { background: #475569; }
 
         .gm-grid { padding: 20px; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 15px; }
         .gm-card { background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.03); position: relative; transition: 0.2s; }
@@ -406,6 +479,9 @@ function injectStyles() {
         .media-badge.yt { background: #ff0000; } .media-badge.vid { background: #3b82f6; }
         .status-pill { position: absolute; bottom: 8px; left: 8px; font-size: 0.65rem; font-weight: 800; padding: 2px 8px; border-radius: 4px; z-index: 2; }
         .status-live { background: #10b981; color: white; } .status-draft { background: #f59e0b; color: white; } .status-deleted { opacity: 0.5; filter: grayscale(1); }
+        .caption-overlay { position: absolute; bottom: 0; left: 0; width: 100%; padding: 4px; background: rgba(0,0,0,0.6); color: white; font-size: 0.6rem; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: 0.2s; }
+        .gm-card:hover .caption-overlay { opacity: 1; }
+
         .gm-card-actions { padding: 8px; display: flex; justify-content: flex-end; gap: 6px; background: #fff; border-top: 1px solid #f1f5f9; }
         .btn-mini-action { width: 32px; height: 32px; border-radius: 8px; border: 1px solid #e2e8f0; background: #fff; color: #64748b; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s; }
         .btn-mini-action.danger:hover { background: #fee2e2; color: #ef4444; border-color: #fecaca; }
@@ -458,4 +534,4 @@ function compressImage(file) {
 }
 window.closeModal = (id) => { const el = document.getElementById(id); el.classList.remove('show'); setTimeout(() => { el.style.display = 'none'; }, 200); if(id === 'lightbox') { document.getElementById('lb-vid').innerHTML = ''; document.getElementById('lb-img').src = ''; }};
 function getYoutubeId(url) { const m = url.match(/^.*(youtu\.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/); return (m && m[2].length === 11) ? m[2] : null; }
-function sanitize(s) { return s ? s.replace(/[^a-z0-9]/gi, '_').toLowerCase() : 'u'; }
+function sanitize(s) { return s ? s.replace(/[^a-z0-9]/gi, '').toLowerCase() : 'u'; }
