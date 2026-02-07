@@ -1,0 +1,461 @@
+/**
+ * Project: Universal Gallery Master (FINAL FIX: BACK BUTTON)
+ * Fix: Smart Navigation Back logic based on Context Mode.
+ * Filename: modules/galeri-master.js
+ */
+
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+import { supabaseUrl, supabaseKey } from '../assets/js/config.js';
+
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+// --- STATE GLOBAL ---
+let context = {
+    mode: null,      // 'SCHOOL' atau 'PRIVATE'
+    activeClassId: null,
+    user: null,      // Profile & Role
+    className: null,
+    school: 'Umum'
+};
+
+let activeSessionId = null;
+
+// Config Resize HD
+const MAX_WIDTH = 1280;
+const JPG_QUALITY = 0.85;
+
+// ==========================================
+// 1. INITIALIZATION
+// ==========================================
+export async function init(canvas) {
+    injectStyles();
+    
+    // A. Deteksi Konteks Berdasarkan 'galleryContextMode'
+    const mode = localStorage.getItem("galleryContextMode");
+
+    if (mode === 'PRIVATE') {
+        context.mode = 'PRIVATE';
+        context.activeClassId = localStorage.getItem("activePrivateClassId");
+        context.className = localStorage.getItem("activePrivateClassName") || 'Kelas Private';
+    } else if (mode === 'SCHOOL') {
+        context.mode = 'SCHOOL';
+        context.activeClassId = localStorage.getItem("activeClassId");
+        context.className = localStorage.getItem("activeClassName") || 'Kelas Sekolah';
+    } else {
+        canvas.innerHTML = '<div class="gm-error-box"><i class="fa-solid fa-triangle-exclamation"></i> Error: Mode galeri tidak terdeteksi. Silakan kembali ke menu utama.</div>';
+        return;
+    }
+
+    if (!context.activeClassId) {
+        canvas.innerHTML = '<div class="gm-error-box"><i class="fa-solid fa-ban"></i> Error: ID Kelas hilang. Silakan pilih kelas ulang.</div>';
+        return;
+    }
+
+    // B. Ambil Profil User
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+        const { data: profile } = await supabase.from('user_profiles').select('*').eq('id', user.id).single();
+        context.user = profile;
+    }
+
+    renderMainLayout(canvas);
+    await loadSessions();
+}
+
+// ==========================================
+// 2. SMART NAVIGATION (FIXED BACK BUTTON)
+// ==========================================
+window.handleBackNavigation = () => {
+    // Tentukan tujuan balik berdasarkan mode saat ini
+    const targetModule = context.mode === 'PRIVATE' ? 'galeri-private' : 'galeri-sekolah';
+    const targetTitle = context.mode === 'PRIVATE' ? 'Galeri Private' : 'Galeri Sekolah';
+
+    // Panggil fungsi navigasi utama (SPA Dispatcher)
+    if (window.dispatchModuleLoad) {
+        window.dispatchModuleLoad(targetModule, targetTitle);
+    } else {
+        // Fallback jika dispatcher tidak ada
+        console.warn("Dispatcher not found, using history.back()");
+        window.history.back();
+    }
+};
+
+// ==========================================
+// 3. DATA LOADERS
+// ==========================================
+
+async function loadSessions() {
+    const sessionBar = document.getElementById('session-horizontal-bar');
+    sessionBar.innerHTML = '<div class="gm-loading-pill"><i class="fa-solid fa-circle-notch fa-spin"></i> Memuat Sesi...</div>';
+
+    let query;
+    if (context.mode === 'SCHOOL') {
+        query = supabase.from('pertemuan_kelas').select('id, tanggal, materi(title, level_id)').eq('class_id', context.activeClassId);
+    } else {
+        query = supabase.from('pertemuan_private').select('id, tanggal, materi_private(judul, level_id)').eq('class_id', context.activeClassId);
+    }
+
+    if (context.user?.role === 'teacher' && context.user.level_id) {
+        const levelPath = context.mode === 'SCHOOL' ? 'materi.level_id' : 'materi_private.level_id';
+        query = query.eq(levelPath, context.user.level_id);
+    }
+
+    const { data: sessions } = await query.order('tanggal', { ascending: false });
+    
+    if (!sessions?.length) {
+        sessionBar.innerHTML = '<div class="gm-empty-pill">Belum ada sesi aktif.</div>';
+        return;
+    }
+
+    sessionBar.innerHTML = sessions.map(s => {
+        const title = context.mode === 'SCHOOL' ? (s.materi?.title || 'Kegiatan') : (s.materi_private?.judul || 'Sesi Private');
+        const tgl = new Date(s.tanggal).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+        return `
+            <button class="gm-sess-pill touch-feedback" onclick="window.selectSession('${s.id}', '${s.tanggal}', '${title}', this)">
+                <span class="sess-date">${tgl}</span>
+                <span class="sess-name">${title}</span>
+            </button>
+        `;
+    }).join('');
+
+    if (sessions.length > 0) {
+        document.querySelector('.gm-sess-pill').click();
+    }
+}
+
+window.selectSession = async (id, date, title, element) => {
+    activeSessionId = id;
+    document.querySelectorAll('.gm-sess-pill').forEach(el => el.classList.remove('active'));
+    element.classList.add('active');
+    document.getElementById('display-session-title').innerText = title;
+    document.getElementById('display-raw-date').value = date;
+    
+    const toolbar = document.getElementById('gallery-toolbar');
+    toolbar.style.display = 'flex';
+    toolbar.classList.add('fade-in');
+
+    await loadPhotos();
+};
+
+async function loadPhotos() {
+    const grid = document.getElementById('gallery-grid');
+    grid.innerHTML = '<div class="gm-loading-grid"><i class="fa-solid fa-spinner fa-spin"></i> Mengambil dokumentasi...</div>';
+
+    let query = supabase.from('gallery_contents')
+        .select('*')
+        .eq('pertemuan_id', activeSessionId)
+        .order('created_at', { ascending: false });
+    
+    if (context.user?.role !== 'super_admin') {
+        query = query.eq('is_deleted', false);
+    }
+
+    const { data: photos } = await query;
+
+    if (!photos?.length) {
+        grid.innerHTML = `
+            <div class="gm-empty-state">
+                <div class="empty-icon"><i class="fa-regular fa-images"></i></div>
+                <p>Belum ada dokumentasi.</p>
+                <small>Jadilah yang pertama mengupload!</small>
+            </div>
+        `;
+        return;
+    }
+    renderGrid(photos, grid);
+}
+
+function renderGrid(photos, container) {
+    container.innerHTML = photos.map(p => {
+        const isYt = p.media_type === 'youtube';
+        const isVid = p.media_type === 'video';
+        let thumb = p.file_url;
+        const rot = p.rotation ? `a_${p.rotation}/` : '';
+        
+        if (isYt) {
+            const ytId = getYoutubeId(p.file_url);
+            thumb = `https://img.youtube.com/vi/${ytId}/mqdefault.jpg`;
+        } else if (!isVid && p.file_url.includes('cloudinary')) {
+            thumb = p.file_url.replace('/upload/', `/upload/${rot}w_400,q_auto,f_auto/`);
+        } else if (isVid && p.file_url.includes('cloudinary')) {
+            thumb = p.file_url.replace('.mp4', '.jpg').replace('/upload/', `/upload/${rot}w_400,q_auto,f_auto/`);
+        }
+        
+        const isDeleted = p.is_deleted;
+        const statusClass = p.is_published ? 'status-live' : 'status-draft';
+        const deleteClass = isDeleted ? 'status-deleted' : '';
+
+        return `
+            <div class="gm-card ${deleteClass} fade-in">
+                <div class="gm-card-media" onclick="window.openLightbox('${p.media_type}', '${p.file_url}', '${p.id}', ${p.rotation || 0})">
+                    ${isYt ? '<div class="media-badge yt"><i class="fa-brands fa-youtube"></i></div>' : ''}
+                    ${isVid ? '<div class="media-badge vid"><i class="fa-solid fa-video"></i></div>' : ''}
+                    <img src="${thumb}" loading="lazy" alt="Dokumentasi">
+                    <div class="status-pill ${statusClass}">${p.is_published ? 'LIVE' : 'DRAFT'}</div>
+                    ${isDeleted ? '<div class="deleted-overlay"><i class="fa-solid fa-trash"></i> TERHAPUS</div>' : ''}
+                </div>
+                <div class="gm-card-actions">
+                    <button class="btn-mini-action" onclick="window.togglePublish('${p.id}', ${p.is_published})" title="${p.is_published ? 'Sembunyikan' : 'Publish'}">
+                        <i class="fa-solid ${p.is_published ? 'fa-eye-slash' : 'fa-eye'}"></i>
+                    </button>
+                    <button class="btn-mini-action danger" onclick="window.deleteItem('${p.id}', '${p.public_id}', ${p.is_deleted})" title="Hapus">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// ==========================================
+// 4. ACTIONS
+// ==========================================
+window.openUploadModal = (type) => {
+    const modal = document.getElementById('modal-upload');
+    modal.style.display = 'flex';
+    setTimeout(() => modal.classList.add('show'), 10);
+    document.getElementById('form-file').style.display = type === 'file' ? 'block' : 'none';
+    document.getElementById('form-yt').style.display = type === 'yt' ? 'block' : 'none';
+    document.getElementById('upload-status').innerHTML = '';
+};
+
+window.executeUpload = async () => {
+    const btn = document.getElementById('btn-upload-action');
+    const status = document.getElementById('upload-status');
+    btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Proses...';
+
+    try {
+        const { data: acc } = await supabase.from('cloudinary_accounts').select('*').eq('is_active', true).single();
+        if (!acc) throw new Error("Tidak ada akun Cloudinary aktif.");
+
+        const isYt = document.getElementById('form-yt').style.display === 'block';
+
+        if (isYt) {
+            const url = document.getElementById('yt-url').value;
+            const title = document.getElementById('yt-title').value || "Video Youtube";
+            if(!url) throw new Error("Link URL wajib diisi");
+            
+            await supabase.from('gallery_contents').insert({
+                pertemuan_id: activeSessionId, class_id: context.activeClassId,
+                file_url: url, media_type: 'youtube', caption: title, is_published: true
+            });
+        } else {
+            const files = Array.from(document.getElementById('file-input').files);
+            if(files.length === 0) throw new Error("Pilih minimal 1 file.");
+            
+            const activeYear = localStorage.getItem("activeAcademicYear") || "Umum"; 
+            const dateRaw = document.getElementById('display-raw-date').value;
+            const folderPath = `galeri-${context.mode.toLowerCase()}/${sanitize(activeYear)}/${sanitize(context.className)}/${sanitize(dateRaw)}`;
+
+            for (const file of files) {
+                status.innerText = `Mengupload ${file.name}...`;
+                const fileToUpload = await compressImage(file);
+                
+                const { data: { session } } = await supabase.auth.getSession();
+                const signRes = await fetch('https://aedtrwpomswdqxarvsrg.supabase.co/functions/v1/cloudinary-sign', {
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+                    body: JSON.stringify({ action: 'get_signature', account_id: acc.id, params: { folder: folderPath } })
+                });
+                if(!signRes.ok) throw new Error("Gagal dapat signature.");
+                const signData = await signRes.json();
+
+                const fd = new FormData();
+                fd.append('file', fileToUpload);
+                fd.append('api_key', signData.api_key);
+                fd.append('timestamp', signData.timestamp);
+                fd.append('signature', signData.signature);
+                fd.append('folder', folderPath);
+
+                const cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${acc.cloud_name}/upload`, { method: 'POST', body: fd });
+                if(!cloudRes.ok) throw new Error("Gagal upload cloud.");
+                const cloudData = await cloudRes.json();
+
+                await supabase.from('gallery_contents').insert({
+                    pertemuan_id: activeSessionId, class_id: context.activeClassId,
+                    file_url: cloudData.secure_url, public_id: cloudData.public_id,
+                    media_type: cloudData.resource_type, caption: file.name,
+                    cloudinary_account_id: acc.id, is_published: true
+                });
+            }
+        }
+        window.closeModal('modal-upload');
+        loadPhotos();
+        alert("✅ Upload Berhasil!");
+    } catch (err) { status.innerHTML = `<span style="color:#ef4444;">${err.message}</span>`; }
+    finally { btn.disabled = false; btn.innerText = "Simpan Dokumentasi"; }
+};
+
+window.togglePublish = async (id, cur) => { await supabase.from('gallery_contents').update({ is_published: !cur }).eq('id', id); loadPhotos(); };
+
+window.deleteItem = async (id, pid, isDel) => {
+    if (!confirm(isDel ? "Hapus PERMANEN?" : "Hapus item?")) return;
+    if (context.user?.role === 'super_admin') await supabase.from('gallery_contents').delete().eq('id', id);
+    else await supabase.from('gallery_contents').update({ is_deleted: true }).eq('id', id);
+    loadPhotos();
+};
+
+window.rotateImage = async (id, curr) => {
+    const newRot = (curr + 90) % 360;
+    const img = document.getElementById('lb-img');
+    const clean = img.src.split('/upload/')[1].replace(/a_\d+\//, ''); 
+    img.src = img.src.split('/upload/')[0] + `/upload/${newRot ? `a_${newRot}/` : ''}` + clean;
+    document.getElementById('btn-lb-rotate').onclick = () => window.rotateImage(id, newRot);
+    await supabase.from('gallery_contents').update({ rotation: newRot }).eq('id', id);
+    loadPhotos(); 
+};
+
+// ==========================================
+// 5. UI RENDERER
+// ==========================================
+function renderMainLayout(canvas) {
+    canvas.innerHTML = `
+        <div class="gm-wrapper fade-in">
+            <div class="gm-header">
+                <div class="gm-header-top">
+                    <button class="gm-btn-back touch-feedback" onclick="window.handleBackNavigation()">
+                        <i class="fa-solid fa-arrow-left"></i>
+                    </button>
+                    <div class="gm-header-info">
+                        <h1>Galeri ${context.mode === 'SCHOOL' ? 'Sekolah' : 'Private'}</h1>
+                        <p><i class="fa-solid fa-shapes"></i> ${context.className}</p>
+                        <input type="hidden" id="display-raw-date">
+                    </div>
+                </div>
+                <div id="session-horizontal-bar" class="gm-session-bar hide-scrollbar"></div>
+            </div>
+
+            <div class="gm-content">
+                <div id="gallery-toolbar" class="gm-toolbar" style="display:none;">
+                    <span id="display-session-title" class="current-topic">Topik Sesi</span>
+                    <div class="gm-tools-right">
+                        <button class="gm-btn-tool blue touch-feedback" onclick="window.openUploadModal('file')"><i class="fa-solid fa-cloud-arrow-up"></i> <span class="hide-mobile">Upload</span></button>
+                        <button class="gm-btn-tool red touch-feedback" onclick="window.openUploadModal('yt')"><i class="fa-brands fa-youtube"></i> <span class="hide-mobile">Video</span></button>
+                    </div>
+                </div>
+                <div id="gallery-grid" class="gm-grid"><div class="gm-empty-state">Pilih tanggal sesi di atas.</div></div>
+            </div>
+        </div>
+
+        <div id="modal-upload" class="gm-modal-overlay">
+            <div class="gm-modal-card bounce-in">
+                <div class="gm-modal-head"><h3><i class="fa-solid fa-folder-plus"></i> Tambah Media</h3><button class="gm-close-btn" onclick="window.closeModal('modal-upload')">&times;</button></div>
+                <div class="gm-modal-body">
+                    <div id="form-file">
+                        <div class="gm-dropzone" onclick="document.getElementById('file-input').click()">
+                            <i class="fa-solid fa-images"></i><p>Tap pilih Foto/Video</p><small>Auto-Resize HD</small>
+                            <input type="file" id="file-input" multiple accept="image/*,video/*" hidden onchange="this.nextElementSibling.innerText = this.files.length + ' file'">
+                            <div class="file-count-label"></div>
+                        </div>
+                    </div>
+                    <div id="form-yt" style="display:none;">
+                        <div class="form-group"><label>Link YouTube</label><input type="text" id="yt-url" class="gm-input" placeholder="https://..."></div>
+                        <div class="form-group"><label>Judul</label><input type="text" id="yt-title" class="gm-input"></div>
+                    </div>
+                    <div id="upload-status" class="gm-status-text"></div>
+                </div>
+                <div class="gm-modal-foot"><button id="btn-upload-action" class="gm-btn-submit" onclick="window.executeUpload()">Simpan</button></div>
+            </div>
+        </div>
+
+        <div id="lightbox" class="gm-lightbox" onclick="window.closeModal('lightbox')">
+            <button class="gm-lb-close">&times;</button>
+            <div class="gm-lb-content" onclick="event.stopPropagation()">
+                <img id="lb-img" class="gm-lb-media" style="display:none;">
+                <div id="lb-vid" class="gm-lb-media" style="display:none;"></div>
+                <div class="gm-lb-controls"><button id="btn-lb-rotate" class="gm-lb-btn"><i class="fa-solid fa-rotate-right"></i> Putar</button></div>
+            </div>
+        </div>
+    `;
+}
+
+// ==========================================
+// 6. STYLING
+// ==========================================
+function injectStyles() {
+    if (document.getElementById('gm-css')) return;
+    const s = document.createElement('style');
+    s.id = 'gm-css';
+    s.textContent = `
+        .gm-wrapper { display: flex; flex-direction: column; height: 100vh; background: #f1f5f9; font-family: 'Poppins', sans-serif; overflow: hidden; }
+        .gm-header { background: #fff; box-shadow: 0 4px 20px rgba(0,0,0,0.03); z-index: 50; padding-bottom: 5px; }
+        .gm-header-top { padding: 15px 20px; display: flex; align-items: center; gap: 15px; }
+        .gm-btn-back { background: #f8fafc; border: 1px solid #e2e8f0; width: 40px; height: 40px; border-radius: 12px; color: #64748b; font-size: 1.1rem; cursor: pointer; transition: 0.2s; }
+        .gm-btn-back:hover { background: #e2e8f0; color: #334155; }
+        .gm-header-info h1 { margin: 0; font-size: 1.1rem; font-weight: 800; color: #1e293b; }
+        .gm-header-info p { margin: 0; font-size: 0.8rem; color: #64748b; }
+
+        .gm-session-bar { display: flex; gap: 10px; overflow-x: auto; padding: 5px 20px 15px; scrollbar-width: none; }
+        .gm-sess-pill { flex-shrink: 0; padding: 6px 16px; border-radius: 50px; background: #fff; border: 1px solid #e2e8f0; cursor: pointer; transition: 0.2s; display: flex; flex-direction: column; min-width: 100px; }
+        .gm-sess-pill.active { background: #2563eb; border-color: #2563eb; color: white; box-shadow: 0 4px 12px rgba(37,99,235,0.3); }
+        .sess-date { font-size: 0.7rem; font-weight: 700; opacity: 0.8; }
+        .sess-name { font-size: 0.8rem; font-weight: 600; white-space: nowrap; max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+
+        .gm-content { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+        .gm-toolbar { padding: 15px 20px; background: #fff; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 40; }
+        .current-topic { font-weight: 700; color: #334155; font-size: 0.95rem; border-left: 4px solid #f59e0b; padding-left: 10px; }
+        .gm-tools-right { display: flex; gap: 10px; }
+        .gm-btn-tool { border: none; padding: 8px 16px; border-radius: 8px; color: white; font-weight: 600; font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+        .gm-btn-tool.blue { background: #3b82f6; } .gm-btn-tool.red { background: #ef4444; }
+
+        .gm-grid { padding: 20px; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 15px; }
+        .gm-card { background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.03); position: relative; transition: 0.2s; }
+        .gm-card-media { height: 160px; position: relative; cursor: pointer; background: #0f172a; }
+        .gm-card-media img { width: 100%; height: 100%; object-fit: cover; transition: 0.3s; }
+        .media-badge { position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 0.8rem; color: white; z-index: 2; }
+        .media-badge.yt { background: #ff0000; } .media-badge.vid { background: #3b82f6; }
+        .status-pill { position: absolute; bottom: 8px; left: 8px; font-size: 0.65rem; font-weight: 800; padding: 2px 8px; border-radius: 4px; z-index: 2; }
+        .status-live { background: #10b981; color: white; } .status-draft { background: #f59e0b; color: white; } .status-deleted { opacity: 0.5; filter: grayscale(1); }
+        .gm-card-actions { padding: 8px; display: flex; justify-content: flex-end; gap: 6px; background: #fff; border-top: 1px solid #f1f5f9; }
+        .btn-mini-action { width: 32px; height: 32px; border-radius: 8px; border: 1px solid #e2e8f0; background: #fff; color: #64748b; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s; }
+        .btn-mini-action.danger:hover { background: #fee2e2; color: #ef4444; border-color: #fecaca; }
+
+        .gm-modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 2000; opacity: 0; transition: opacity 0.2s; }
+        .gm-modal-overlay.show { opacity: 1; }
+        .gm-modal-card { background: white; width: 480px; max-width: 90%; border-radius: 20px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); overflow: hidden; transform: translateY(20px); transition: transform 0.3s; }
+        .gm-modal-overlay.show .gm-modal-card { transform: translateY(0); }
+        .gm-modal-head { padding: 20px 25px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; }
+        .gm-modal-body { padding: 25px; }
+        .gm-dropzone { border: 2px dashed #cbd5e1; border-radius: 16px; padding: 40px 20px; text-align: center; cursor: pointer; transition: 0.2s; background: #f8fafc; }
+        .form-group { margin-bottom: 15px; } .gm-input { width: 100%; padding: 12px; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.95rem; }
+        .gm-modal-foot { padding: 20px 25px; background: #f8fafc; text-align: right; border-top: 1px solid #e2e8f0; }
+        .gm-btn-submit { background: #10b981; color: white; border: none; padding: 12px 24px; border-radius: 10px; font-weight: 600; cursor: pointer; width: 100%; }
+
+        .gm-lightbox { position: fixed; inset: 0; background: rgba(0,0,0,0.92); z-index: 3000; display: none; align-items: center; justify-content: center; backdrop-filter: blur(5px); }
+        .gm-lb-content { max-width: 90vw; max-height: 85vh; display: flex; flex-direction: column; align-items: center; position: relative; }
+        .gm-lb-media { max-width: 100%; max-height: 80vh; border-radius: 4px; box-shadow: 0 0 50px rgba(0,0,0,0.5); }
+        .gm-lb-close { position: absolute; top: 20px; right: 20px; background: rgba(255,255,255,0.1); color: white; border: none; width: 44px; height: 44px; border-radius: 50%; font-size: 1.5rem; cursor: pointer; transition: 0.2s; z-index: 3001; }
+        .gm-lb-btn { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2); color: white; padding: 10px 20px; border-radius: 30px; cursor: pointer; font-size: 0.9rem; display: flex; gap: 8px; align-items: center; margin-top:20px; }
+
+        .hide-mobile { display: inline; }
+        @media (max-width: 600px) { .hide-mobile { display: none; } .gm-grid { grid-template-columns: 1fr 1fr; gap: 10px; } }
+        .fade-in { animation: fadeIn 0.4s ease-out; } @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .gm-empty-state { grid-column: 1 / -1; text-align: center; padding: 60px; color: #94a3b8; }
+        .gm-error-box { text-align: center; padding: 50px; color: #ef4444; font-weight: bold; }
+    `;
+    document.head.appendChild(s);
+}
+
+// ==========================================
+// 7. UTILS
+// ==========================================
+function compressImage(file) {
+    return new Promise((resolve) => {
+        if (file.type.indexOf("image") === -1) return resolve(file);
+        const reader = new FileReader(); reader.readAsDataURL(file);
+        reader.onload = (e) => {
+            const img = new Image(); img.src = e.target.result;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                let w = img.width, h = img.height;
+                if (w > MAX_WIDTH) { h = Math.round(h * (MAX_WIDTH / w)); w = MAX_WIDTH; }
+                canvas.width = w; canvas.height = h;
+                const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, w, h);
+                canvas.toBlob((blob) => resolve(new File([blob], file.name, { type: 'image/jpeg' })), 'image/jpeg', JPG_QUALITY);
+            };
+        };
+    });
+}
+window.closeModal = (id) => { const el = document.getElementById(id); el.classList.remove('show'); setTimeout(() => { el.style.display = 'none'; }, 200); if(id === 'lightbox') { document.getElementById('lb-vid').innerHTML = ''; document.getElementById('lb-img').src = ''; }};
+function getYoutubeId(url) { const m = url.match(/^.*(youtu\.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/); return (m && m[2].length === 11) ? m[2] : null; }
+function sanitize(s) { return s ? s.replace(/[^a-z0-9]/gi, '_').toLowerCase() : 'u'; }

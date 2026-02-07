@@ -1,7 +1,7 @@
 /**
- * Project: Galeri Sekolah Module (Class Selection)
- * Features: Role-based filtering, Colorful Cards, Responsive 2-Column Grid
- * Redirect: galeri-harian
+ * Project: Galeri Sekolah Module (Gate Module - LOGIC FIXED)
+ * Features: Auto-Context Switching on Load & Role Filtering
+ * Fix: Sets 'SCHOOL' context immediately on init to prevent state mismatch.
  */
 
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
@@ -9,37 +9,27 @@ import { supabaseUrl, supabaseKey } from '../assets/js/config.js';
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// State Global untuk modul ini
+// State Global
 let currentUserProfile = null;
 
 // ==========================================
-// 1. GLOBAL DISPATCHER
-// ==========================================
-// Fungsi ini dipanggil saat Card diklik untuk pindah ke galeri-harian
-window.openClassGallery = (classId, className) => {
-    // Simpan context kelas yang dipilih
-    localStorage.setItem("activeClassId", classId);
-    localStorage.setItem("activeClassName", className);
-    
-    // Redirect ke modul galeri-harian (sesuai request)
-    if (window.dispatchModuleLoad) {
-        window.dispatchModuleLoad('galeri-harian', 'Dokumentasi Harian', className);
-    } else {
-        alert("Error: Fungsi dispatchModuleLoad tidak ditemukan di index.html");
-    }
-};
-
-// ==========================================
-// 2. INITIALIZATION
+// 1. INITIALIZATION (LOGIC FIXED)
 // ==========================================
 export async function init(canvas) {
+    // [LOGIC FIX] Langsung set konteks saat modul dibuka
+    // Ini menjamin "Ruangan" ini dikenali sebagai Sekolah, tanpa menunggu klik user.
+    localStorage.setItem("galleryContextMode", "SCHOOL");
+    
+    // [SAFETY] Hapus sisa ID Private agar Galeri Master tidak bingung (State Hygiene)
+    localStorage.removeItem("activePrivateClassId");
+    localStorage.removeItem("activePrivateClassName");
+
     injectStyles();
 
-    // Ambil Data Context dari LocalStorage (diset di Dashboard/Login)
+    // UI Render
     const activeAcademicYear = localStorage.getItem("activeAcademicYear") || "Semua Tahun";
-    const activeSemester = localStorage.getItem("activeSemester") || "Semua Semester";
+    const activeSemester = localStorage.getItem("activeSemester")?.split(' (')[0].trim() || "Semua Semester";
 
-    // Render Skeleton (Kerangka Awal)
     canvas.innerHTML = `
         <div class="gs-container fade-in">
             <div class="gs-header">
@@ -62,41 +52,60 @@ export async function init(canvas) {
     `;
 
     await loadUserProfile();
-    await loadClasses(canvas);
+    await loadClasses();
 }
 
 // ==========================================
-// 3. DATA LOGIC (Role & Filter)
+// 2. GLOBAL DISPATCHER (KE GALERI MASTER)
+// ==========================================
+window.openClassGallery = (classId, className) => {
+    // Simpan ID Kelas yang dipilih
+    localStorage.setItem("activeClassId", classId);
+    localStorage.setItem("activeClassName", className);
+    
+    // Dispatch ke Master (Mode sudah aman karena diset di init)
+    if (window.dispatchModuleLoad) {
+        window.dispatchModuleLoad('galeri-master', 'Dokumentasi Harian', className);
+    } else {
+        alert("Error: Fungsi navigasi tidak ditemukan.");
+    }
+};
+
+// ==========================================
+// 3. DATA LOGIC (Role & Level Filter)
 // ==========================================
 
 async function loadUserProfile() {
-    // Cek user yang login
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    // Ambil detail profile untuk tahu Role & School ID
     const { data } = await supabase.from('user_profiles')
-        .select('id, role, school_id, group_id')
+        .select('id, role, level_id')
         .eq('id', user.id)
         .single();
     
     currentUserProfile = data;
 }
 
-async function loadClasses(canvas) {
+async function getTeacherLevelCode(levelId) {
+    if (!levelId) return null;
+    const { data } = await supabase.from('levels').select('kode').eq('id', levelId).single();
+    return data?.kode;
+}
+
+async function loadClasses() {
     const grid = document.getElementById('gs-grid-container');
     const activeYear = localStorage.getItem("activeAcademicYear");
-    const activeSem = localStorage.getItem("activeSemester")?.split(' (')[0].trim(); // Bersihkan format jika ada kurung
+    const activeSem = localStorage.getItem("activeSemester")?.split(' (')[0].trim();
 
     try {
-        // Query Dasar: Ambil kelas + Relasi Sekolah, Tahun, Semester
         let query = supabase.from('classes')
             .select(`
                 id, 
                 name, 
                 level, 
                 jadwal,
-                schools!inner(id, name),
+                schools!inner(name),
                 academic_years!inner(year),
                 semesters!inner(name)
             `);
@@ -105,15 +114,13 @@ async function loadClasses(canvas) {
         if (activeYear) query = query.eq('academic_years.year', activeYear);
         if (activeSem) query = query.eq('semesters.name', activeSem);
 
-        // Filter 2: Berdasarkan Role (Security)
-        if (currentUserProfile) {
-            const { role, school_id } = currentUserProfile;
+        // Filter 2: Berdasarkan Role (Level-Based for Teacher)
+        if (currentUserProfile && currentUserProfile.role === 'teacher' && currentUserProfile.level_id) {
+            const teacherLevelCode = await getTeacherLevelCode(currentUserProfile.level_id);
             
-            // Jika PIC atau TEACHER, hanya tampilkan kelas di sekolah mereka
-            if ((role === 'pic' || role === 'teacher') && school_id) {
-                query = query.eq('school_id', school_id);
+            if (teacherLevelCode) {
+                query = query.eq('level', teacherLevelCode); 
             }
-            // Super Admin melihat semua (tidak ada filter tambahan)
         }
 
         const { data: classes, error } = await query.order('name', { ascending: true });
@@ -128,180 +135,127 @@ async function loadClasses(canvas) {
 }
 
 // ==========================================
-// 4. RENDER UI (Colorful Cards)
+// 4. RENDER UI
 // ==========================================
 function renderCards(classes, container) {
     if (classes.length === 0) {
-        container.innerHTML = `
-            <div class="gs-empty">
-                <img src="https://img.icons8.com/fluency/96/null/classroom.png"/>
-                <p>Tidak ada kelas aktif pada periode ini.</p>
-            </div>`;
+        container.innerHTML = `<div class="gs-empty"><p>Tidak ada kelas aktif pada periode ini yang sesuai dengan Level Anda.</p></div>`;
         return;
     }
 
-    // Pola warna yang akan berulang
     const themes = ['theme-blue', 'theme-orange', 'theme-green', 'theme-purple'];
 
     container.innerHTML = classes.map((c, index) => {
-        // Pilih warna berdasarkan urutan (Modulo)
         const theme = themes[index % themes.length];
         
-        // Tentukan Ikon Level
         let levelIcon = 'fa-shapes';
-        if (c.level === 'Kiddy') levelIcon = 'fa-child-reaching';
-        if (c.level === 'Beginner') levelIcon = 'fa-robot';
+        if (c.level?.toLowerCase().includes('kiddy')) levelIcon = 'fa-child-reaching';
+        if (c.level?.toLowerCase().includes('robot')) levelIcon = 'fa-robot';
 
         return `
-            <div class="gs-card ${theme}" onclick="window.openClassGallery('${c.id}', '${c.name}')">
-                <div class="gs-card-icon-bg">
-                    <i class="fa-solid ${levelIcon}"></i>
-                </div>
-                
+            <div class="gs-card ${theme}">
                 <div class="gs-card-content">
                     <span class="gs-school-label">${c.schools?.name}</span>
                     <h3 class="gs-class-name">${c.name}</h3>
                     
                     <div class="gs-card-meta">
-                        <span class="tag-level"><i class="fa-solid fa-layer-group"></i> ${c.level || 'Umum'}</span>
+                        <span class="tag-level"><i class="fa-solid ${levelIcon}"></i> ${c.level || 'Umum'}</span>
                         <span class="tag-time"><i class="fa-solid fa-clock"></i> ${c.jadwal || '-'}</span>
                     </div>
                 </div>
 
-                <div class="gs-card-action">
-                    <span>Buka Galeri</span>
+                <button class="gs-card-action touch-48" onclick="window.openClassGallery('${c.id}', '${c.name}')">
+                    <span>BUKA GALERI</span>
                     <i class="fa-solid fa-arrow-right"></i>
-                </div>
+                </button>
+                <div class="gs-card-icon-bg"><i class="fa-solid ${levelIcon}"></i></div>
             </div>
         `;
     }).join('');
 }
 
 // ==========================================
-// 5. STYLING (CSS Injection)
+// 5. STYLING
 // ==========================================
 function injectStyles() {
     if (document.getElementById('gs-css')) return;
     const s = document.createElement('style');
     s.id = 'gs-css';
     s.textContent = `
-        /* CONTAINER */
-        .gs-container { padding: 20px; font-family: 'Poppins', sans-serif; max-width: 1200px; margin: 0 auto; }
-        
-        /* HEADER */
+        /* BASE & HEADER */
+        .gs-container { padding: 25px; font-family: 'Poppins', sans-serif; max-width: 1200px; margin: 0 auto; }
         .gs-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; }
-        .gs-title-block h2 { margin: 0; font-size: 1.8rem; color: #1e293b; font-weight: 700; }
-        .gs-title-block p { margin: 5px 0 0; color: #64748b; font-size: 0.95rem; }
-        
-        .gs-badge { 
-            background: #e0f2fe; color: #0284c7; 
-            padding: 8px 16px; border-radius: 50px; 
-            font-size: 0.85rem; font-weight: 600; 
-            display: flex; align-items: center; gap: 8px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-        }
+        .gs-title-block h2 { margin: 0; font-size: 1.6rem; color: #1e293b; font-weight: 800; }
+        .gs-title-block p { margin: 5px 0 0; color: #64748b; font-size: 0.9rem; }
+        .gs-badge { background: #e0f2fe; color: #0284c7; padding: 8px 16px; border-radius: 50px; font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
 
-        /* GRID SYSTEM (Responsive 2 Kolom Tablet/HP) */
+        /* GRID SYSTEM (Responsive) */
         .gs-grid { 
             display: grid; 
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); 
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); 
             gap: 20px; 
         }
         
-        /* KUNCI 2 KOLOM DI LAYAR KECIL (Sesuai Request) */
-        @media (max-width: 992px) {
-            .gs-grid { grid-template-columns: 1fr 1fr; }
+        @media (min-width: 768px) and (max-width: 1200px) { 
+            .gs-grid { grid-template-columns: 1fr 1fr !important; padding: 0; }
         }
-        @media (max-width: 480px) {
-            .gs-header { flex-direction: column; gap: 15px; }
-            /* Opsional: Di HP sangat kecil (dibawah 480px) tetap 2 kolom atau jadi 1? 
-               Biasanya 1fr 1fr di HP kecil terlalu sempit, tapi jika request wajib 2 kolom, biarkan kode diatas. */
+        
+        @media (max-width: 767px) { 
+            .gs-grid { grid-template-columns: 1fr !important; }
+            .gs-container { padding: 15px; }
+            .gs-header { flex-direction: column; align-items: flex-start; gap: 15px; }
         }
 
         /* CARD DESIGN */
-        .gs-card {
-            background: #fff;
-            border-radius: 16px;
-            overflow: hidden;
-            position: relative;
-            cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
-            border: 1px solid rgba(0,0,0,0.05);
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            min-height: 160px;
-        }
-        .gs-card:active { transform: scale(0.98); }
-        .gs-card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0,0,0,0.1); }
+        .touch-48 { min-height: 48px; min-width: 48px; border: none; cursor: pointer; border-radius: 12px; transition: 0.2s; }
 
-        /* CARD CONTENT */
+        .gs-card {
+            background: #fff; border-radius: 16px; overflow: hidden; position: relative; cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s; border: 2px solid transparent;
+            display: flex; flex-direction: column; justify-content: space-between; min-height: 180px;
+        }
+        .gs-card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0,0,0,0.1); border-color: #3b82f6; }
+
         .gs-card-content { padding: 20px; z-index: 2; position: relative; flex-grow: 1; }
         .gs-school-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.7; font-weight: 700; display: block; margin-bottom: 5px; }
         .gs-class-name { margin: 0 0 15px 0; font-size: 1.25rem; font-weight: 800; line-height: 1.3; }
         
         .gs-card-meta { display: flex; gap: 8px; flex-wrap: wrap; }
-        .gs-card-meta span { 
+        .tag-level, .tag-time { 
             font-size: 0.75rem; padding: 4px 10px; border-radius: 6px; 
             background: rgba(255,255,255,0.6); backdrop-filter: blur(4px);
             font-weight: 600; display: flex; align-items: center; gap: 5px;
         }
-
-        /* DECORATIVE ICON BG */
-        .gs-card-icon-bg {
-            position: absolute;
-            top: -10px; right: -20px;
-            font-size: 6rem;
-            opacity: 0.15;
-            transform: rotate(15deg);
-            z-index: 1;
-        }
-
-        /* CARD FOOTER ACTION */
+        
         .gs-card-action {
-            padding: 12px 20px;
-            font-size: 0.8rem; font-weight: 700;
-            display: flex; justify-content: space-between; align-items: center;
-            z-index: 2;
+            width: 100%; border-radius: 0 0 16px 16px; padding: 12px 20px; font-size: 0.9rem; font-weight: 800;
+            display: flex; justify-content: space-between; align-items: center; z-index: 2;
         }
 
-        /* COLOR THEMES */
-        /* Blue Theme */
+        .gs-card-icon-bg { position: absolute; top: -10px; right: -20px; font-size: 8rem; opacity: 0.15; transform: rotate(15deg); z-index: 1; }
+
+        /* THEMES */
         .theme-blue { box-shadow: 0 4px 15px rgba(59, 130, 246, 0.15); }
         .theme-blue .gs-card-icon-bg { color: #3b82f6; }
-        .theme-blue .gs-school-label { color: #2563eb; }
         .theme-blue .gs-class-name { color: #1e3a8a; }
         .theme-blue .gs-card-action { background: linear-gradient(90deg, #eff6ff, #dbeafe); color: #2563eb; }
 
-        /* Orange Theme */
         .theme-orange { box-shadow: 0 4px 15px rgba(249, 115, 22, 0.15); }
         .theme-orange .gs-card-icon-bg { color: #f97316; }
-        .theme-orange .gs-school-label { color: #c2410c; }
         .theme-orange .gs-class-name { color: #7c2d12; }
         .theme-orange .gs-card-action { background: linear-gradient(90deg, #fff7ed, #ffedd5); color: #ea580c; }
-
-        /* Green Theme */
+        
         .theme-green { box-shadow: 0 4px 15px rgba(16, 185, 129, 0.15); }
         .theme-green .gs-card-icon-bg { color: #10b981; }
-        .theme-green .gs-school-label { color: #059669; }
         .theme-green .gs-class-name { color: #064e3b; }
         .theme-green .gs-card-action { background: linear-gradient(90deg, #f0fdf4, #dcfce7); color: #059669; }
 
-        /* Purple Theme */
         .theme-purple { box-shadow: 0 4px 15px rgba(139, 92, 246, 0.15); }
         .theme-purple .gs-card-icon-bg { color: #8b5cf6; }
-        .theme-purple .gs-school-label { color: #7c3aed; }
         .theme-purple .gs-class-name { color: #4c1d95; }
         .theme-purple .gs-card-action { background: linear-gradient(90deg, #f5f3ff, #ede9fe); color: #7c3aed; }
 
-        /* UTILS */
-        .gs-loading, .gs-empty, .gs-error { 
-            grid-column: 1 / -1; 
-            text-align: center; padding: 40px; 
-            background: #f8fafc; border-radius: 12px; border: 2px dashed #e2e8f0; 
-            color: #94a3b8; font-weight: 500;
-        }
-        .gs-empty img { width: 80px; margin-bottom: 10px; opacity: 0.6; }
+        .gs-empty { grid-column: 1 / -1; text-align: center; padding: 60px; background: #fff; border-radius: 12px; border: 2px dashed #e2e8f0; color: #94a3b8; font-weight: 600; font-size: 1.1rem; }
         .fade-in { animation: fadeIn 0.4s ease-out forwards; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     `;

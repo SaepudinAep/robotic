@@ -1,6 +1,7 @@
 /**
- * Project: Absensi Harian Module (SPA) - LOGIC ONLY
- * Dependensi: absensi-harian.css (UI)
+ * Project: Absensi Harian Module (SPA) - VIBRANT & MOBILE OPTIMIZED
+ * Features: Internalized CSS, Case-Insensitive Logic, Sticky Table Columns
+ * Filename: modules/absensi-harian.js
  */
 
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
@@ -14,7 +15,7 @@ let currentTargets = [];
 let isEditMode = false;
 
 // ==========================================
-// 1. INITIALIZATION & UI LOADING
+// 1. INITIALIZATION
 // ==========================================
 
 export async function init(canvas) {
@@ -25,9 +26,8 @@ export async function init(canvas) {
         return;
     }
 
-    // PANGGIL CSS SECARA MANUAL DI SINI
-    // Pastikan path ini sesuai dengan lokasi file css bapak
-    loadExternalCSS('./assets/css/absensi-harian.css'); 
+    // [INTEGRATION] Inject CSS langsung dari JS agar mandiri
+    injectStyles(); 
 
     canvas.innerHTML = `
         <div class="harian-container fade-in">
@@ -74,13 +74,13 @@ export async function init(canvas) {
                         <label>📚 Judul Materi</label>
                         <div style="position:relative;">
                             <input type="text" id="materi-title" class="input-modern" placeholder="Cari/Ketik materi..." autocomplete="off" required>
-                            <div id="materi-suggestion-box" style="display:none;"></div>
+                            <div id="materi-suggestion-box" class="suggestion-box" style="display:none;"></div>
                         </div>
                     </div>
                     <div class="form-group"><label>👨‍🏫 Guru</label><select id="materi-guru" class="input-modern" required></select></div>
                     <div class="form-group"><label>👥 Asisten</label><select id="materi-asisten" class="input-modern"></select></div>
                     <div class="form-group full margin-top">
-                        <button type="submit" class="btn-primary blue-grad">💾 Simpan Pertemuan</button>
+                        <button type="submit" id="btn-submit-materi" class="btn-primary blue-grad">💾 Simpan Pertemuan</button>
                     </div>
                 </form>
             </div>
@@ -111,7 +111,7 @@ export async function init(canvas) {
                 </div>
             </div>
 
-            <div class="card-section card-green-tint">
+            <div class="card-section card-green-tint" style="margin-bottom:80px;">
                 <div class="section-header">
                     <div class="header-label">
                         <div class="icon-circle bg-green"><i class="fas fa-user-check"></i></div>
@@ -119,19 +119,23 @@ export async function init(canvas) {
                     </div>
                     <select id="pertemuan-selector" class="compact-select input-modern"></select>
                 </div>
+                
                 <div class="table-wrapper">
                     <table id="absensi-table" class="absensi-table">
                         <thead></thead>
-                        <tbody><tr><td colspan="6" style="padding:20px; color:#ccc;">Pilih Pertemuan 👆</td></tr></tbody>
+                        <tbody><tr><td colspan="6" style="padding:20px; color:#ccc; text-align:center;">Pilih Pertemuan di atas 👆</td></tr></tbody>
                     </table>
                 </div>
+                
                 <div class="action-bar-sticky">
                     <div style="font-size:0.8rem;">Hadir: <strong id="total-hadir" style="color:#166534">0</strong></div>
-                    <button id="simpan-absensi" class="btn-primary green-grad">💾 Simpan Nilai</button>
+                    <button id="simpan-absensi" class="btn-primary green-grad" style="margin-top:0; width:auto; padding:10px 25px; border-radius:30px;">
+                        💾 Simpan Nilai
+                    </button>
                 </div>
             </div>
 
-            <div style="margin-top:20px;">
+            <div style="margin-top:20px; padding-bottom:40px;">
                 <h4 class="history-title">Riwayat Pertemuan</h4>
                 <div id="materi-history-list" class="history-grid"></div>
             </div>
@@ -142,7 +146,175 @@ export async function init(canvas) {
 }
 
 // ==========================================
-// 2. LOGIC CORE
+// 2. CSS INJECTION (FULL VIBRANT THEME)
+// ==========================================
+function injectStyles() {
+    if (document.getElementById('absensi-harian-css')) return;
+    const s = document.createElement('style');
+    s.id = 'absensi-harian-css';
+    s.textContent = `
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Fredoka:wght@500;600&display=swap');
+
+        :root {
+            --font-main: 'Poppins', sans-serif;
+            --font-header: 'Fredoka', sans-serif;
+            --text-dark: #1e293b;
+            --text-white: #ffffff;
+            
+            /* VIBRANT PALETTE */
+            --grad-blue: linear-gradient(135deg, #60a5fa, #2563eb);
+            --bg-blue-soft: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+            --text-blue: #1e3a8a;
+
+            --grad-orange: linear-gradient(135deg, #fb923c, #ea580c);
+            --bg-orange-soft: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%);
+            --text-orange: #9a3412;
+
+            --grad-green: linear-gradient(135deg, #34d399, #059669);
+            --bg-green-soft: linear-gradient(135deg, #dcfce7 0%, #86efac 100%);
+            --text-green: #14532d;
+            
+            --shadow-card: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        }
+
+        .harian-container {
+            max-width: 900px; margin: 0 auto; padding: 20px;
+            font-family: var(--font-main); background: #f8fafc; color: var(--text-dark);
+        }
+
+        /* HERO CARD */
+        .class-info-card {
+            background: white; padding: 25px; border-radius: 24px;
+            margin-bottom: 30px; position: relative; overflow: hidden;
+            box-shadow: 0 20px 40px -10px rgba(59, 130, 246, 0.15); border: 1px solid #eef2ff;
+        }
+        .class-info-card::after {
+            content: ''; position: absolute; right: -30px; bottom: -30px;
+            width: 120px; height: 120px; border-radius: 50%;
+            background: var(--grad-blue); opacity: 0.1;
+        }
+        .info-main { display: flex; align-items: center; gap: 15px; position: relative; z-index: 2; }
+        .info-icon {
+            width: 55px; height: 55px; background: var(--grad-blue); color: white;
+            border-radius: 18px; display: flex; align-items: center; justify-content: center;
+            font-size: 1.6rem; box-shadow: 0 8px 15px rgba(37, 99, 235, 0.2);
+        }
+        .info-class-name { font-family: var(--font-header); font-size: 1.5rem; margin: 0; line-height: 1.2; }
+        .info-school-name { font-size: 0.9rem; font-weight: 500; color: #64748b; }
+        .info-meta { display: flex; gap: 10px; margin-top: 15px; position: relative; z-index: 2; }
+        .meta-badge { background: #f1f5f9; padding: 6px 12px; border-radius: 10px; font-size: 0.75rem; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+        .btn-rekap-mini {
+            position: absolute; top: 25px; right: 25px; background: white; color: #2563eb;
+            padding: 8px 18px; border-radius: 50px; border: 2px solid #eff6ff; font-weight: 700;
+            font-size: 0.8rem; cursor: pointer; transition: 0.3s; z-index: 10;
+        }
+        .btn-rekap-mini:hover { background: #2563eb; color: white; }
+
+        /* SECTOR CARDS */
+        .card-section { padding: 25px; border-radius: 28px; margin-bottom: 25px; border: none; box-shadow: var(--shadow-card); transition: transform 0.2s; }
+        .card-blue-tint { background: var(--bg-blue-soft); color: var(--text-blue); }
+        .card-orange-tint { background: var(--bg-orange-soft); color: var(--text-orange); }
+        .card-green-tint { background: var(--bg-green-soft); color: var(--text-green); }
+        
+        .bg-blue { background: var(--grad-blue); box-shadow: 0 5px 15px rgba(37, 99, 235, 0.3); }
+        .bg-orange { background: var(--grad-orange); box-shadow: 0 5px 15px rgba(234, 88, 12, 0.3); }
+        .bg-green { background: var(--grad-green); box-shadow: 0 5px 15px rgba(5, 150, 105, 0.3); }
+
+        .section-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; margin-bottom: 20px; }
+        .header-label { display: flex; align-items: center; gap: 12px; }
+        .icon-circle { width: 42px; height: 42px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; color: white; }
+        .section-header h4 { font-family: var(--font-header); font-size: 1.1rem; margin: 0; font-weight: 600; }
+
+        /* FORMS & INPUTS */
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .form-group.full { grid-column: span 2; }
+        .form-group label { display: block; font-size: 0.75rem; font-weight: 700; margin-bottom: 6px; opacity: 0.8; text-transform: uppercase; }
+        .input-modern {
+            width: 100%; padding: 12px 16px; border: none; border-radius: 14px;
+            background: rgba(255, 255, 255, 0.9); font-size: 0.9rem; font-weight: 600;
+            color: var(--text-dark); outline: none; transition: 0.2s; box-shadow: 0 4px 10px rgba(0,0,0,0.03);
+        }
+        .input-modern:focus { background: white; transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.08); }
+
+        /* BUTTONS */
+        .btn-primary {
+            border: none; padding: 14px; border-radius: 16px; color: white; font-weight: 700;
+            font-size: 0.95rem; cursor: pointer; width: 100%; margin-top: 15px;
+            transition: 0.2s; box-shadow: 0 5px 15px rgba(0,0,0,0.15); text-transform: uppercase;
+        }
+        .btn-primary:hover { transform: translateY(-3px); filter: brightness(1.1); }
+        .blue-grad { background: var(--grad-blue); }
+        .orange-grad { background: var(--grad-orange); }
+        .green-grad { background: var(--grad-green); }
+        
+        .btn-secondary { background: white; color: var(--text-dark); padding: 0 15px; border-radius: 12px; font-weight: 700; border: 2px solid rgba(0,0,0,0.05); cursor: pointer; }
+        .btn-pill-blue { background: white; color: #2563eb; padding: 6px 14px; border-radius: 20px; border: none; font-size: 0.75rem; font-weight: 700; cursor: pointer; }
+
+        /* TABLE (Clean & Sharp) */
+        .table-wrapper { overflow-x: auto; background: white; border-radius: 16px; margin-top: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.05); }
+        .absensi-table { width: 100%; border-collapse: collapse; white-space: nowrap; }
+        .absensi-table th { background: #f8fafc; padding: 14px 10px; font-size: 0.75rem; color: #64748b; text-transform: uppercase; border-bottom: 2px solid #e2e8f0; }
+        .absensi-table td { padding: 10px; border-bottom: 1px solid #f1f5f9; text-align: center; }
+        
+        /* Sticky Name Column */
+        .absensi-table th:nth-child(2), .absensi-table td:nth-child(2) {
+            position: sticky; left: 0; background: white; z-index: 10; border-right: 2px solid #f1f5f9;
+        }
+        .absensi-table td:nth-child(2) { text-align: left; font-weight: 400; min-width: 130px; }
+
+        /* EMOJI SELECT */
+        .absensi-table select {
+            appearance: none; -webkit-appearance: none; background-image: none;
+            padding: 6px 0; border-radius: 10px; border: 1px solid #e2e8f0; background-color: #fff;
+            width: 100%; min-width: 55px; text-align: center; text-align-last: center;
+            font-size: 1.2rem; cursor: pointer; transition: 0.2s;
+        }
+        .absensi-table select:hover { background-color: #f1f5f9; transform: scale(1.05); }
+        .absensi-table select:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15); }
+        .grade-badge { background: #eff6ff; color: #2563eb; padding: 4px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 700; }
+
+        /* FLOATING ACTION BAR */
+        .action-bar-sticky {
+            position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+            width: 90%; max-width: 500px;
+            background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px);
+            padding: 12px 12px 12px 25px; border-radius: 50px;
+            display: flex; justify-content: space-between; align-items: center;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.5); z-index: 99;
+        }
+
+        /* HISTORY & UTILS */
+        .history-title { font-size: 0.85rem; font-weight: 800; color: #94a3b8; margin: 40px 0 15px 5px; text-transform: uppercase; }
+        .history-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 15px; }
+        .history-card { padding: 18px; border-radius: 20px; cursor: pointer; transition: 0.3s; border: none; color: white; box-shadow: 0 8px 15px rgba(0,0,0,0.05); }
+        .history-card:hover { transform: translateY(-5px); }
+        
+        .card-color-0 { background: linear-gradient(135deg, #60a5fa, #2563eb); }
+        .card-color-1 { background: linear-gradient(135deg, #fb923c, #ea580c); }
+        .card-color-2 { background: linear-gradient(135deg, #34d399, #059669); }
+        .card-color-3 { background: linear-gradient(135deg, #a78bfa, #7c3aed); }
+        .card-color-4 { background: linear-gradient(135deg, #f472b6, #db2777); }
+
+        .h-date { font-size: 0.75rem; font-weight: 700; opacity: 0.9; margin-bottom: 6px; }
+        .h-materi { font-size: 0.95rem; font-weight: 700; line-height: 1.3; margin-bottom: 12px; text-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .h-teacher { font-size: 0.7rem; background: rgba(255,255,255,0.2); padding: 4px 10px; border-radius: 20px; width: fit-content; font-weight: 600; }
+
+        .suggestion-box {
+            position: absolute; width: 100%; background: white; border: 1px solid #eee; border-radius: 0 0 12px 12px;
+            max-height: 200px; overflow-y: auto; z-index: 100; box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
+        .rotate-icon { transform: rotate(180deg); transition: 0.3s; }
+        .compact-select { padding: 8px 12px; border-radius: 12px; border: none; background: white; color: var(--text-dark); font-weight: 600; cursor: pointer; }
+        .fade-in { animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity:0; transform:translateY(15px); } to { opacity:1; transform:translateY(0); } }
+        
+        @media (max-width: 600px) { .form-grid { grid-template-columns: 1fr; } .action-bar-sticky { width: 95%; bottom: 20px; } }
+    `;
+    document.head.appendChild(s);
+}
+
+// ==========================================
+// 3. LOGIC CORE
 // ==========================================
 
 async function setupLogic() {
@@ -174,7 +346,7 @@ function setupEvents() {
         document.getElementById("icon-materi").classList.add("rotate-icon");
     };
 
-    // Auto Suggestion
+    // Auto Suggestion (Materi)
     const titleInput = document.getElementById("materi-title");
     titleInput.oninput = (e) => loadMateriSuggestions(e.target.value.trim(), document.getElementById("materi-level-filter").value);
     
@@ -197,7 +369,11 @@ function setupEvents() {
     mainAchInput.onchange = async (e) => {
         const val = e.target.value;
         if(!val) return;
-        const { data } = await supabase.from("achievement_sekolah").select("sub_achievement").eq("main_achievement", val);
+        // Fix: Case Insensitive search
+        const { data } = await supabase.from("achievement_sekolah")
+            .select("sub_achievement")
+            .ilike("main_achievement", val); // Gunakan ilike
+            
         if (data && data.length > 0) {
             const allSubs = data.map(d => d.sub_achievement).join('\n').split('\n').filter(Boolean);
             const uniqueSubs = [...new Set(allSubs)];
@@ -272,18 +448,26 @@ async function initTable(pertemuanId) {
 
 async function saveTargetsToDB() {
     if (!selectedPertemuanId) return alert("Simpan pertemuan dulu!");
+    
+    const btn = document.getElementById("btn-save-targets-db");
+    const oriText = btn.innerText;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+    
     try {
         for (let i = 0; i < currentTargets.length; i++) {
             let t = currentTargets[i];
             if (t.id) continue; // Skip jika sudah ada ID (sudah tersimpan)
             
             let masterId;
-            // Cek di Master
-            const { data: exist } = await supabase.from("achievement_sekolah").select("id").eq("main_achievement", t.main).eq("sub_achievement", t.sub).maybeSingle();
+            // FIX: Gunakan ilike untuk anti-duplicate case-insensitive
+            const { data: exist } = await supabase.from("achievement_sekolah")
+                .select("id")
+                .ilike("main_achievement", t.main)
+                .ilike("sub_achievement", t.sub)
+                .maybeSingle();
             
             if(exist) masterId = exist.id;
             else {
-                // Auto create master jika belum ada (Opsional, sesuai request 'satuan')
                 const { data: neu } = await supabase.from("achievement_sekolah").insert({ main_achievement: t.main, sub_achievement: t.sub }).select("id").single();
                 masterId = neu.id;
             }
@@ -293,17 +477,21 @@ async function saveTargetsToDB() {
                 pertemuan_id: selectedPertemuanId, class_id: localStorage.getItem("activeClassId"), achievement_sekolah_id: masterId 
             }).select("id").single();
             
-            currentTargets[i].id = link.id; // Update ID lokal
+            currentTargets[i].id = link.id; 
         }
         initTable(selectedPertemuanId); 
-        alert("Target Berhasil!");
-    } catch (e) { alert("Error: " + e.message); }
+        alert("Target Berhasil Disimpan!");
+    } catch (e) { 
+        alert("Error: " + e.message); 
+    } finally {
+        btn.innerText = oriText;
+    }
 }
 
 async function handleAbsensiSubmit() {
     if(!selectedPertemuanId) return alert("Pilih pertemuan dulu!");
     const btn = document.getElementById("simpan-absensi");
-    btn.innerHTML = `⏳ Menyimpan...`;
+    btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Menyimpan...`;
     
     const attBatch = [];
     const scoreBatch = [];
@@ -330,28 +518,18 @@ async function handleAbsensiSubmit() {
         });
     });
 
-    // Reset & Insert
+    // Reset & Insert (Safe Transition)
     await supabase.from("attendance").delete().eq("pertemuan_id", selectedPertemuanId);
     await supabase.from("achievement_siswa").delete().eq("pertemuan_id", selectedPertemuanId);
     
     if(attBatch.length) await supabase.from("attendance").insert(attBatch);
     if(scoreBatch.length) await supabase.from("achievement_siswa").insert(scoreBatch);
     
-    alert("Data Tersimpan!");
+    alert("✅ Data Nilai Tersimpan!");
     btn.innerHTML = `💾 Simpan Nilai`;
 }
 
 // --- HELPERS ---
-
-// FUNGSI PENTING: Memuat CSS Eksternal
-function loadExternalCSS(url) {
-    if (!document.querySelector(`link[href="${url}"]`)) {
-        const link = document.createElement('link');
-        link.rel = 'stylesheet';
-        link.href = url;
-        document.head.appendChild(link);
-    }
-}
 
 function getOptions(arr, selected) {
     return arr.map(([v, l]) => `<option value="${v}" ${v == selected ? 'selected' : ''}>${l}</option>`).join('');
@@ -366,9 +544,9 @@ function renderTargetListUI() {
     const container = document.getElementById("target-list-preview");
     if (!container) return;
     container.innerHTML = currentTargets.map((t, i) => `
-        <div style="padding:5px; border-bottom:1px solid #f1f5f9; display:flex; justify-content:space-between; align-items:center; font-size:0.75rem;">
-            <span><strong style="color:#f97316">T${i+1}</strong> ${t.main} - ${t.sub}</span>
-            <button onclick="window.hapusTarget(${i})" style="border:none; background:none; color:#ef4444; cursor:pointer;">✖</button>
+        <div style="padding:8px; border-bottom:1px solid #f1f5f9; display:flex; justify-content:space-between; align-items:center; font-size:0.85rem;">
+            <span><strong style="color:#f97316">Target ${i+1}:</strong> ${t.main} (${t.sub})</span>
+            <button onclick="window.hapusTarget(${i})" style="border:none; background:none; color:#ef4444; cursor:pointer; font-size:1.1rem;">&times;</button>
         </div>
     `).join("");
 }
@@ -376,7 +554,7 @@ function renderTargetListUI() {
 window.hapusTarget = async (index) => {
     const t = currentTargets[index];
     if(t.id) {
-        if(!confirm("Hapus target?")) return;
+        if(!confirm("Hapus target dari database?")) return;
         await supabase.from("achievement_kelas").delete().eq("id", t.id);
     }
     currentTargets.splice(index, 1);
@@ -387,7 +565,7 @@ window.hapusTarget = async (index) => {
 function addTargetToUI() {
     const main = document.getElementById("input-ach-main").value;
     const sub = document.getElementById("input-ach-sub").value;
-    if(!main || !sub) return alert("Isi lengkap!");
+    if(!main || !sub) return alert("Isi Topik dan Detail Target!");
     currentTargets.push({ main, sub, id: null });
     renderTargetListUI();
     document.getElementById("input-ach-sub").value = "";
@@ -428,8 +606,8 @@ async function loadAchievementSuggestions() {
 async function loadPertemuanOptions() {
     const { data } = await supabase.from("pertemuan_kelas").select("id, tanggal, materi(title)").eq("class_id", localStorage.getItem("activeClassId")).order("tanggal", {ascending:false});
     const sel = document.getElementById("pertemuan-selector");
-    sel.innerHTML = '<option value="">-- Pilih --</option>';
-    (data || []).forEach(p => sel.add(new Option(`${p.tanggal} - ${p.materi?.title}`, p.id)));
+    sel.innerHTML = '<option value="">-- Pilih Sesi --</option>';
+    (data || []).forEach(p => sel.add(new Option(`${new Date(p.tanggal).toLocaleDateString('id-ID')} - ${p.materi?.title}`, p.id)));
 }
 async function tampilkanDaftarMateri() {
     const classId = localStorage.getItem("activeClassId");
@@ -448,7 +626,6 @@ async function tampilkanDaftarMateri() {
 
     // Render dengan Cycle Color VIBRANT
     grid.innerHTML = data.map((p, index) => {
-        // Cycle 0-4 untuk warna background berbeda
         const colorClass = `card-color-${index % 5}`; 
         const tgl = new Date(p.tanggal).toLocaleDateString('id-ID', {day:'numeric', month:'short'});
         
@@ -465,15 +642,16 @@ async function tampilkanDaftarMateri() {
 async function loadMateriSuggestions(kw, lid) {
     const box = document.getElementById("materi-suggestion-box");
     if (!lid || kw.length < 2) { box.style.display = "none"; return; }
+    // FIX: ilike for materi search
     const { data } = await supabase.from("materi").select("title").eq("level_id", lid).ilike("title", `%${kw}%`).limit(5);
     if(data && data.length) {
-        box.innerHTML = data.map(m => `<div style="padding:5px; cursor:pointer; border-bottom:1px solid #eee;" onclick="document.getElementById('materi-title').value='${m.title}'; this.parentElement.style.display='none';">${m.title}</div>`).join("");
-        box.style.display = "block"; box.style.background="white"; box.style.border="1px solid #ddd"; box.style.position="absolute"; box.style.width="100%"; box.style.zIndex="10";
+        box.innerHTML = data.map(m => `<div class="suggestion-item" style="padding:10px; cursor:pointer; border-bottom:1px solid #eee;" onclick="document.getElementById('materi-title').value='${m.title}'; this.parentElement.style.display='none';">${m.title}</div>`).join("");
+        box.style.display = "block"; 
     } else box.style.display = "none";
 }
 function renderSubSelector(main, subs) {
     const area = document.getElementById("sub-achievement-injector-area");
-    area.innerHTML = `<select id="smart-sub-select" class="input-modern" onchange="document.getElementById('input-ach-sub').value=this.value; document.getElementById('input-ach-sub').style.display='block';">${subs.map(s=>`<option>${s}</option>`).join('')}</select>`;
+    area.innerHTML = `<select id="smart-sub-select" class="input-modern" onchange="document.getElementById('input-ach-sub').value=this.value; document.getElementById('input-ach-sub').focus();"><option value="">-- Pilih Detail Tersimpan --</option>${subs.map(s=>`<option>${s}</option>`).join('')}</select>`;
 }
 function toggleAccordion(cid, iid) {
     const c = document.getElementById(cid), i = document.getElementById(iid);
@@ -481,6 +659,7 @@ function toggleAccordion(cid, iid) {
     i.classList.toggle("rotate-icon");
 }
 function resetFormMateri() { isEditMode = false; selectedPertemuanId = null; document.getElementById("materi-form").reset(); currentTargets = []; renderTargetListUI(); }
+
 window.editPertemuan = async (id) => {
     const { data } = await supabase.from("pertemuan_kelas").select("*, materi(title, level_id)").eq("id", id).single();
     if(data) {
@@ -491,16 +670,26 @@ window.editPertemuan = async (id) => {
         document.getElementById("materi-guru").value = data.guru_id;
         document.getElementById("materi-asisten").value = data.asisten_id || "";
         document.getElementById("materi-form").style.display = "grid";
+        
+        // Auto open accordion
+        document.getElementById("icon-materi").classList.add("rotate-icon");
+        
         initTable(id);
         document.querySelector('.class-info-card').scrollIntoView({behavior:'smooth'});
     }
 };
+
 async function handleMateriSubmit(e) {
     e.preventDefault();
+    const btn = document.getElementById("btn-submit-materi");
+    const oriText = btn.innerText;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+    
     const title = document.getElementById("materi-title").value.trim();
     const levelId = document.getElementById("materi-level-filter").value;
     try {
-        let { data: materi } = await supabase.from("materi").select("id").eq("title", title).eq("level_id", levelId).maybeSingle();
+        // FIX: ilike for duplicate check
+        let { data: materi } = await supabase.from("materi").select("id").ilike("title", title).eq("level_id", levelId).maybeSingle();
         if (!materi) {
             const res = await supabase.from("materi").insert({ title, level_id: levelId }).select().single();
             materi = res.data;
@@ -515,6 +704,16 @@ async function handleMateriSubmit(e) {
             const res = await supabase.from("pertemuan_kelas").insert(payload).select("id").single();
             selectedPertemuanId = res.data.id;
         }
-        alert("Berhasil!"); await loadPertemuanOptions(); document.getElementById("pertemuan-selector").value = selectedPertemuanId; initTable(selectedPertemuanId);
+        
+        await loadPertemuanOptions(); 
+        document.getElementById("pertemuan-selector").value = selectedPertemuanId; 
+        initTable(selectedPertemuanId);
+        
+        // Close accordion after save to focus on targets
+        toggleAccordion("materi-form", "icon-materi");
+        document.getElementById("target-container").style.display = "grid"; // Open Target
+        document.getElementById("icon-target").classList.add("rotate-icon");
+        
     } catch (err) { alert(err.message); }
+    finally { btn.innerText = oriText; }
 }
