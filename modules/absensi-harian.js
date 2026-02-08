@@ -1,6 +1,6 @@
 /**
- * Project: Absensi Harian Module (SPA) - VIBRANT & MOBILE OPTIMIZED
- * Features: Internalized CSS, Case-Insensitive Logic, Sticky Table Columns
+ * Project: Absensi Harian Module (SPA) - FINAL MOBILE OPTIMIZED
+ * Features: Table-First Flow, Tap-to-Cycle, Upsert Logic, Vibrant UI
  * Filename: modules/absensi-harian.js
  */
 
@@ -13,61 +13,71 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 let selectedPertemuanId = null;
 let currentTargets = []; 
 let isEditMode = false;
+let debounceTimer = null; // Untuk search materi
+
+// --- KONFIGURASI DATA & IKON (TIDAK DIUBAH) ---
+const CONF = {
+    status: [['0','⬜'],['1','✅'],['2','❌']],
+    sikap:  [['0','❌'],['1','🤐'],['2','🙈'],['3','🙂'],['4','👀'],['5','🌀']],
+    fokus:  [['0','❌'],['1','😶'],['2','🙂'],['3','🔥']],
+    target: [['0','❌'],['1','😶'],['2','🙂'],['3','🔥']]
+};
 
 // ==========================================
-// 1. INITIALIZATION
+// 1. INITIALIZATION & UI STRUCTURE
 // ==========================================
 
 export async function init(canvas) {
     const classId = localStorage.getItem("activeClassId");
     if (!classId) {
-        alert("Pilih kelas terlebih dahulu!");
+        showToast("Pilih kelas terlebih dahulu!", "error");
         if(window.dispatchModuleLoad) window.dispatchModuleLoad('absensi-sekolah');
         return;
     }
 
-    // [INTEGRATION] Inject CSS langsung dari JS agar mandiri
     injectStyles(); 
 
     canvas.innerHTML = `
         <div class="harian-container fade-in">
+            <!-- Breadcrumb -->
             <nav class="breadcrumb-nav">
                 <span onclick="window.dispatchModuleLoad('overview')">Home</span>
                 <i class="fas fa-chevron-right separator"></i>
-                <span onclick="window.dispatchModuleLoad('absensi-sekolah')">Daftar Kelas</span>
+                <span onclick="window.dispatchModuleLoad('absensi-sekolah')">Kelas</span>
                 <i class="fas fa-chevron-right separator"></i>
                 <span class="current">Input Harian</span>
             </nav>
 
+            <!-- Info Kelas -->
             <div class="class-info-card">
                 <div class="info-main">
-                    <div class="info-icon"><i class="fas fa-robot"></i></div>
                     <div>
                         <h2 id="header-kelas" class="info-class-name">Loading...</h2>
                         <p id="header-sekolah" class="info-school-name">...</p>
                     </div>
+                    <button id="btn-rekap-shortcut" class="btn-rekap-mini">
+                        <i class="fas fa-chart-bar"></i> Rekap
+                    </button>
                 </div>
-                <div class="info-meta">
-                    <span class="meta-badge"><i class="far fa-calendar"></i> <span id="header-tahun">-</span></span>
-                    <span class="meta-badge"><i class="fas fa-clock"></i> <span id="header-jadwal">-</span></span>
-                </div>
-                <button id="btn-rekap-shortcut" class="btn-rekap-mini">
-                    <i class="fas fa-file-alt"></i> Rekap
+            </div>
+
+            <!-- COMPACT ACTION GRID (Micro-Toggles) -->
+            <div class="action-grid">
+                <button id="toggle-form-btn" class="btn-grid-action">
+                    <i class="far fa-calendar-alt"></i> Data Pertemuan
+                </button>
+                <button id="toggle-target-btn" class="btn-grid-action">
+                    <i class="fas fa-bullseye"></i> Target Capaian
                 </button>
             </div>
 
-            <div class="card-section card-blue-tint">
-                <div class="section-header" id="head-materi">
-                    <div class="header-label">
-                        <div class="icon-circle bg-blue"><i class="fas fa-book"></i></div>
-                        <h4>Data Pertemuan</h4>
+            <!-- Form Data Pertemuan (Hidden by Default) -->
+            <div id="materi-form-container" class="hidden-panel card-blue-tint">
+                <form id="materi-form" class="form-grid">
+                    <div style="grid-column: span 2; display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                        <h4 style="margin:0;">📝 Edit Sesi</h4>
+                        <button type="button" id="btn-new-session" class="btn-pill-blue"><i class="fas fa-plus"></i> Buat Baru</button>
                     </div>
-                    <div style="display:flex; gap:6px; align-items:center;">
-                        <button id="btn-new-form" class="btn-pill-blue"><i class="fas fa-plus"></i> Baru</button>
-                        <i id="icon-materi" class="fas fa-chevron-down accordion-icon rotate-icon"></i>
-                    </div>
-                </div>
-                <form id="materi-form" style="display:block;" class="form-grid fade-in">
                     <div class="form-group"><label>🎯 Level</label><select id="materi-level-filter" class="input-modern" required></select></div>
                     <div class="form-group"><label>📅 Tanggal</label><input type="date" id="materi-date" class="input-modern" required></div>
                     <div class="form-group full">
@@ -80,23 +90,17 @@ export async function init(canvas) {
                     <div class="form-group"><label>👨‍🏫 Guru</label><select id="materi-guru" class="input-modern" required></select></div>
                     <div class="form-group"><label>👥 Asisten</label><select id="materi-asisten" class="input-modern"></select></div>
                     <div class="form-group full margin-top">
-                        <button type="submit" id="btn-submit-materi" class="btn-primary blue-grad">💾 Simpan Pertemuan</button>
+                        <button type="submit" id="btn-submit-materi" class="btn-primary blue-grad">Simpan Data Pertemuan</button>
                     </div>
                 </form>
             </div>
 
-            <div class="card-section card-orange-tint">
-                <div class="section-header" id="head-target">
-                    <div class="header-label">
-                        <div class="icon-circle bg-orange"><i class="fas fa-bullseye"></i></div>
-                        <h4>Target Achievement</h4>
-                    </div>
-                    <i id="icon-target" class="fas fa-chevron-down accordion-icon"></i>
-                </div>
-                <div id="target-container" style="display:none;" class="form-grid fade-in">
+            <!-- Form Target (Hidden by Default) -->
+            <div id="target-container" class="hidden-panel card-orange-tint">
+                <h4 style="margin-bottom:10px;">🎯 Target Achievement</h4>
+                <div class="form-grid">
                     <div class="form-group full">
-                        <label>Topik Utama</label>
-                        <input type="text" id="input-ach-main" list="list-ach-saran" class="input-modern" placeholder="Pilih/Ketik Topik...">
+                        <input type="text" id="input-ach-main" list="list-ach-saran" class="input-modern" placeholder="Topik Utama...">
                         <datalist id="list-ach-saran"></datalist>
                     </div>
                     <div class="form-group full">
@@ -104,217 +108,170 @@ export async function init(canvas) {
                         <input type="text" id="input-ach-sub" class="input-modern" placeholder="Detail Target (Sub)...">
                     </div>
                     <div class="form-group full" style="display:flex; gap:8px;">
-                        <button type="button" id="btn-add-target-ui" class="btn-secondary">➕ List</button>
-                        <button type="button" id="btn-save-targets-db" class="btn-primary orange-grad">Simpan Target</button>
+                        <button type="button" id="btn-add-target-ui" class="btn-secondary" style="flex:1;">➕ Tambah List</button>
+                        <button type="button" id="btn-save-targets-db" class="btn-primary orange-grad" style="flex:1; margin-top:0;">Simpan Target</button>
                     </div>
                     <div id="target-list-preview" class="form-group full"></div>
                 </div>
             </div>
 
-            <div class="card-section card-green-tint" style="margin-bottom:80px;">
-                <div class="section-header">
-                    <div class="header-label">
-                        <div class="icon-circle bg-green"><i class="fas fa-user-check"></i></div>
-                        <h4>Penilaian Siswa</h4>
-                    </div>
+            <!-- TABLE SECTION (MAIN FOCUS) -->
+            <div class="card-section card-green-tint" id="table-section">
+                
+                <!-- Controls: Dropdown & Summary -->
+                <div class="table-controls">
                     <select id="pertemuan-selector" class="compact-select input-modern"></select>
+                    <div class="attendance-summary">
+                        Hadir: <strong id="total-hadir" style="color:#166534">0</strong>
+                    </div>
                 </div>
                 
+                <!-- Table Wrapper -->
                 <div class="table-wrapper">
                     <table id="absensi-table" class="absensi-table">
-                        <thead></thead>
-                        <tbody><tr><td colspan="6" style="padding:20px; color:#ccc; text-align:center;">Pilih Pertemuan di atas 👆</td></tr></tbody>
+                        <thead>
+                            <tr>
+                                <th style="width:30px">No</th>
+                                <th class="sticky-col">Nama Siswa</th>
+                                <th style="text-align:center">H</th> <!-- Hadir -->
+                                <th style="text-align:center">S</th> <!-- Sikap -->
+                                <th style="text-align:center">F</th> <!-- Fokus -->
+                                <!-- Target cols will be injected here -->
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td colspan="5" style="padding:30px; text-align:center;"><i class="fas fa-spinner fa-spin"></i> Memuat Data...</td></tr>
+                        </tbody>
                     </table>
                 </div>
-                
-                <div class="action-bar-sticky">
-                    <div style="font-size:0.8rem;">Hadir: <strong id="total-hadir" style="color:#166534">0</strong></div>
-                    <button id="simpan-absensi" class="btn-primary green-grad" style="margin-top:0; width:auto; padding:10px 25px; border-radius:30px;">
-                        💾 Simpan Nilai
-                    </button>
-                </div>
+
+                <!-- Static Save Button (Bottom) -->
+                <button id="simpan-absensi" class="btn-primary green-grad btn-save-static">
+                    💾 Simpan Nilai
+                </button>
             </div>
 
-            <div style="margin-top:20px; padding-bottom:40px;">
+            <!-- History Section -->
+            <div style="margin-top:30px; padding-bottom:40px;">
                 <h4 class="history-title">Riwayat Pertemuan</h4>
                 <div id="materi-history-list" class="history-grid"></div>
             </div>
         </div>
+
+        <!-- Toast Notification Container -->
+        <div id="toast-container"></div>
     `;
 
     await setupLogic();
 }
 
 // ==========================================
-// 2. CSS INJECTION (FULL VIBRANT THEME)
+// 2. CSS STYLES (MOBILE OPTIMIZED)
 // ==========================================
 function injectStyles() {
-    if (document.getElementById('absensi-harian-css')) return;
+    if (document.getElementById('absensi-mobile-css')) return;
     const s = document.createElement('style');
-    s.id = 'absensi-harian-css';
+    s.id = 'absensi-mobile-css';
     s.textContent = `
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Fredoka:wght@500;600&display=swap');
-
         :root {
             --font-main: 'Poppins', sans-serif;
-            --font-header: 'Fredoka', sans-serif;
-            --text-dark: #1e293b;
-            --text-white: #ffffff;
-            
-            /* VIBRANT PALETTE */
             --grad-blue: linear-gradient(135deg, #60a5fa, #2563eb);
-            --bg-blue-soft: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
-            --text-blue: #1e3a8a;
-
             --grad-orange: linear-gradient(135deg, #fb923c, #ea580c);
-            --bg-orange-soft: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%);
-            --text-orange: #9a3412;
-
             --grad-green: linear-gradient(135deg, #34d399, #059669);
-            --bg-green-soft: linear-gradient(135deg, #dcfce7 0%, #86efac 100%);
-            --text-green: #14532d;
-            
-            --shadow-card: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            --bg-dim: #f1f5f9;
         }
 
-        .harian-container {
-            max-width: 900px; margin: 0 auto; padding: 20px;
-            font-family: var(--font-main); background: #f8fafc; color: var(--text-dark);
-        }
-
-        /* HERO CARD */
-        .class-info-card {
-            background: white; padding: 25px; border-radius: 24px;
-            margin-bottom: 30px; position: relative; overflow: hidden;
-            box-shadow: 0 20px 40px -10px rgba(59, 130, 246, 0.15); border: 1px solid #eef2ff;
-        }
-        .class-info-card::after {
-            content: ''; position: absolute; right: -30px; bottom: -30px;
-            width: 120px; height: 120px; border-radius: 50%;
-            background: var(--grad-blue); opacity: 0.1;
-        }
-        .info-main { display: flex; align-items: center; gap: 15px; position: relative; z-index: 2; }
-        .info-icon {
-            width: 55px; height: 55px; background: var(--grad-blue); color: white;
-            border-radius: 18px; display: flex; align-items: center; justify-content: center;
-            font-size: 1.6rem; box-shadow: 0 8px 15px rgba(37, 99, 235, 0.2);
-        }
-        .info-class-name { font-family: var(--font-header); font-size: 1.5rem; margin: 0; line-height: 1.2; }
-        .info-school-name { font-size: 0.9rem; font-weight: 500; color: #64748b; }
-        .info-meta { display: flex; gap: 10px; margin-top: 15px; position: relative; z-index: 2; }
-        .meta-badge { background: #f1f5f9; padding: 6px 12px; border-radius: 10px; font-size: 0.75rem; font-weight: 600; display: flex; align-items: center; gap: 6px; }
-        .btn-rekap-mini {
-            position: absolute; top: 25px; right: 25px; background: white; color: #2563eb;
-            padding: 8px 18px; border-radius: 50px; border: 2px solid #eff6ff; font-weight: 700;
-            font-size: 0.8rem; cursor: pointer; transition: 0.3s; z-index: 10;
-        }
-        .btn-rekap-mini:hover { background: #2563eb; color: white; }
-
-        /* SECTOR CARDS */
-        .card-section { padding: 25px; border-radius: 28px; margin-bottom: 25px; border: none; box-shadow: var(--shadow-card); transition: transform 0.2s; }
-        .card-blue-tint { background: var(--bg-blue-soft); color: var(--text-blue); }
-        .card-orange-tint { background: var(--bg-orange-soft); color: var(--text-orange); }
-        .card-green-tint { background: var(--bg-green-soft); color: var(--text-green); }
+        .harian-container { max-width: 600px; margin: 0 auto; padding: 15px; font-family: var(--font-main); padding-bottom: 80px; }
         
-        .bg-blue { background: var(--grad-blue); box-shadow: 0 5px 15px rgba(37, 99, 235, 0.3); }
-        .bg-orange { background: var(--grad-orange); box-shadow: 0 5px 15px rgba(234, 88, 12, 0.3); }
-        .bg-green { background: var(--grad-green); box-shadow: 0 5px 15px rgba(5, 150, 105, 0.3); }
+        /* HEADER INFO */
+        .class-info-card { background: white; padding: 15px 20px; border-radius: 16px; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+        .info-main { display: flex; justify-content: space-between; align-items: center; }
+        .info-class-name { font-size: 1.2rem; margin: 0; font-weight: 700; color: #1e293b; }
+        .info-school-name { font-size: 0.8rem; color: #64748b; margin: 0; }
+        .btn-rekap-mini { background: #eff6ff; color: #2563eb; border: none; padding: 6px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; cursor: pointer; }
 
-        .section-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; margin-bottom: 20px; }
-        .header-label { display: flex; align-items: center; gap: 12px; }
-        .icon-circle { width: 42px; height: 42px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; color: white; }
-        .section-header h4 { font-family: var(--font-header); font-size: 1.1rem; margin: 0; font-weight: 600; }
+        /* ACTION GRID (MICRO TOGGLES) */
+        .action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+        .btn-grid-action {
+            background: white; border: 1px solid #e2e8f0; padding: 12px 5px; border-radius: 12px;
+            font-size: 0.85rem; font-weight: 600; color: #475569; cursor: pointer; transition: 0.2s;
+            display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+        }
+        .btn-grid-action.active { background: #eff6ff; border-color: #2563eb; color: #2563eb; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05); }
+        
+        /* HIDDEN PANELS */
+        .hidden-panel { display: none; padding: 15px; border-radius: 16px; margin-bottom: 15px; animation: slideDown 0.3s ease-out; }
+        .card-blue-tint { background: #f0f9ff; border: 1px solid #bae6fd; }
+        .card-orange-tint { background: #fff7ed; border: 1px solid #fed7aa; }
+        @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
 
-        /* FORMS & INPUTS */
-        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        /* TABLE SECTION */
+        .card-green-tint { background: white; padding: 15px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); }
+        .table-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .attendance-summary { font-size: 0.85rem; background: #f0fdf4; padding: 6px 12px; border-radius: 8px; color: #166534; border: 1px solid #bbf7d0; }
+
+        /* TABLE STYLING (MOBILE OPTIMIZED) */
+        .table-wrapper { overflow-x: auto; margin-bottom: 20px; -webkit-overflow-scrolling: touch; }
+        .absensi-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; /* Ukuran font pas untuk 20 baris */ }
+        
+        .absensi-table th { 
+            background: #f8fafc; color: #64748b; font-weight: 600; text-transform: uppercase; font-size: 0.7rem; 
+            padding: 10px 4px; border-bottom: 2px solid #e2e8f0; white-space: nowrap;
+        }
+        
+        .absensi-table td { 
+            padding: 8px 2px; border-bottom: 1px solid #f1f5f9; text-align: center; vertical-align: middle; height: 36px;
+        }
+
+        /* STICKY NAME COLUMN */
+        .sticky-col {
+            position: sticky; left: 0; background: white; z-index: 5; text-align: left !important;
+            padding-left: 5px !important; border-right: 1px solid #f1f5f9;
+            max-width: 110px; /* Batasi lebar */
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; /* Potong nama panjang */
+        }
+        .absensi-table th.sticky-col { z-index: 6; background: #f8fafc; }
+
+        /* TAP CELLS (TAP-TO-CYCLE) */
+        .tap-cell { 
+            cursor: pointer; user-select: none; border-radius: 6px; font-size: 1.1rem; transition: background 0.2s; 
+            min-width: 35px;
+        }
+        /* Dynamic Colors */
+        .tap-cell[data-val="0"] { background: transparent; filter: grayscale(100%); opacity: 0.6; } /* Belum dinilai */
+        /* Status */
+        .tap-cell[data-type="status"][data-val="1"] { background: #dcfce7; } /* Hadir */
+        .tap-cell[data-type="status"][data-val="2"] { background: #fee2e2; } /* Absen */
+        /* Scores */
+        .tap-cell[data-type="score"][data-val="1"], .tap-cell[data-type="score"][data-val="2"] { background: #ffedd5; } /* Rendah */
+        .tap-cell[data-type="score"][data-val="3"], .tap-cell[data-type="score"][data-val="4"], .tap-cell[data-type="score"][data-val="5"] { background: #dbeafe; } /* Tinggi */
+
+        /* BUTTONS & INPUTS */
+        .btn-primary { width: 100%; border: none; padding: 14px; border-radius: 12px; color: white; font-weight: 700; font-size: 0.95rem; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.15); }
+        .green-grad { background: var(--grad-green); } .blue-grad { background: var(--grad-blue); } .orange-grad { background: var(--grad-orange); }
+        .input-modern { width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; }
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .form-group.full { grid-column: span 2; }
-        .form-group label { display: block; font-size: 0.75rem; font-weight: 700; margin-bottom: 6px; opacity: 0.8; text-transform: uppercase; }
-        .input-modern {
-            width: 100%; padding: 12px 16px; border: none; border-radius: 14px;
-            background: rgba(255, 255, 255, 0.9); font-size: 0.9rem; font-weight: 600;
-            color: var(--text-dark); outline: none; transition: 0.2s; box-shadow: 0 4px 10px rgba(0,0,0,0.03);
-        }
-        .input-modern:focus { background: white; transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.08); }
-
-        /* BUTTONS */
-        .btn-primary {
-            border: none; padding: 14px; border-radius: 16px; color: white; font-weight: 700;
-            font-size: 0.95rem; cursor: pointer; width: 100%; margin-top: 15px;
-            transition: 0.2s; box-shadow: 0 5px 15px rgba(0,0,0,0.15); text-transform: uppercase;
-        }
-        .btn-primary:hover { transform: translateY(-3px); filter: brightness(1.1); }
-        .blue-grad { background: var(--grad-blue); }
-        .orange-grad { background: var(--grad-orange); }
-        .green-grad { background: var(--grad-green); }
         
-        .btn-secondary { background: white; color: var(--text-dark); padding: 0 15px; border-radius: 12px; font-weight: 700; border: 2px solid rgba(0,0,0,0.05); cursor: pointer; }
-        .btn-pill-blue { background: white; color: #2563eb; padding: 6px 14px; border-radius: 20px; border: none; font-size: 0.75rem; font-weight: 700; cursor: pointer; }
-
-        /* TABLE (Clean & Sharp) */
-        .table-wrapper { overflow-x: auto; background: white; border-radius: 16px; margin-top: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.05); }
-        .absensi-table { width: 100%; border-collapse: collapse; white-space: nowrap; }
-        .absensi-table th { background: #f8fafc; padding: 14px 10px; font-size: 0.75rem; color: #64748b; text-transform: uppercase; border-bottom: 2px solid #e2e8f0; }
-        .absensi-table td { padding: 10px; border-bottom: 1px solid #f1f5f9; text-align: center; }
+        /* HISTORY CARDS */
+        .history-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+        .history-card { padding: 12px; border-radius: 12px; color: white; cursor: pointer; transition: 0.2s; min-height: 80px; display: flex; flex-direction: column; justify-content: space-between; }
+        .history-card:active { transform: scale(0.96); }
+        .card-c0 { background: var(--grad-blue); } .card-c1 { background: var(--grad-orange); } .card-c2 { background: var(--grad-green); }
         
-        /* Sticky Name Column */
-        .absensi-table th:nth-child(2), .absensi-table td:nth-child(2) {
-            position: sticky; left: 0; background: white; z-index: 10; border-right: 2px solid #f1f5f9;
-        }
-        .absensi-table td:nth-child(2) { text-align: left; font-weight: 400; min-width: 130px; }
+        /* TOAST */
+        #toast-container { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 9999; display: flex; flex-direction: column; gap: 10px; width: 90%; max-width: 400px; }
+        .toast { background: #1e293b; color: white; padding: 12px 20px; border-radius: 30px; font-size: 0.9rem; box-shadow: 0 10px 25px rgba(0,0,0,0.2); animation: fadeInUp 0.3s ease-out; text-align: center; }
+        @keyframes fadeInUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
 
-        /* EMOJI SELECT */
-        .absensi-table select {
-            appearance: none; -webkit-appearance: none; background-image: none;
-            padding: 6px 0; border-radius: 10px; border: 1px solid #e2e8f0; background-color: #fff;
-            width: 100%; min-width: 55px; text-align: center; text-align-last: center;
-            font-size: 1.2rem; cursor: pointer; transition: 0.2s;
-        }
-        .absensi-table select:hover { background-color: #f1f5f9; transform: scale(1.05); }
-        .absensi-table select:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15); }
-        .grade-badge { background: #eff6ff; color: #2563eb; padding: 4px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 700; }
-
-        /* FLOATING ACTION BAR */
-        .action-bar-sticky {
-            position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
-            width: 90%; max-width: 500px;
-            background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px);
-            padding: 12px 12px 12px 25px; border-radius: 50px;
-            display: flex; justify-content: space-between; align-items: center;
-            box-shadow: 0 15px 40px rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.5); z-index: 99;
-        }
-
-        /* HISTORY & UTILS */
-        .history-title { font-size: 0.85rem; font-weight: 800; color: #94a3b8; margin: 40px 0 15px 5px; text-transform: uppercase; }
-        .history-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 15px; }
-        .history-card { padding: 18px; border-radius: 20px; cursor: pointer; transition: 0.3s; border: none; color: white; box-shadow: 0 8px 15px rgba(0,0,0,0.05); }
-        .history-card:hover { transform: translateY(-5px); }
-        
-        .card-color-0 { background: linear-gradient(135deg, #60a5fa, #2563eb); }
-        .card-color-1 { background: linear-gradient(135deg, #fb923c, #ea580c); }
-        .card-color-2 { background: linear-gradient(135deg, #34d399, #059669); }
-        .card-color-3 { background: linear-gradient(135deg, #a78bfa, #7c3aed); }
-        .card-color-4 { background: linear-gradient(135deg, #f472b6, #db2777); }
-
-        .h-date { font-size: 0.75rem; font-weight: 700; opacity: 0.9; margin-bottom: 6px; }
-        .h-materi { font-size: 0.95rem; font-weight: 700; line-height: 1.3; margin-bottom: 12px; text-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .h-teacher { font-size: 0.7rem; background: rgba(255,255,255,0.2); padding: 4px 10px; border-radius: 20px; width: fit-content; font-weight: 600; }
-
-        .suggestion-box {
-            position: absolute; width: 100%; background: white; border: 1px solid #eee; border-radius: 0 0 12px 12px;
-            max-height: 200px; overflow-y: auto; z-index: 100; box-shadow: 0 10px 20px rgba(0,0,0,0.1);
-        }
-        .rotate-icon { transform: rotate(180deg); transition: 0.3s; }
-        .compact-select { padding: 8px 12px; border-radius: 12px; border: none; background: white; color: var(--text-dark); font-weight: 600; cursor: pointer; }
-        .fade-in { animation: fadeIn 0.4s ease-out; }
-        @keyframes fadeIn { from { opacity:0; transform:translateY(15px); } to { opacity:1; transform:translateY(0); } }
-        
-        @media (max-width: 600px) { .form-grid { grid-template-columns: 1fr; } .action-bar-sticky { width: 95%; bottom: 20px; } }
+        /* UTILS */
+        .compact-select { max-width: 160px; padding: 6px 10px; }
     `;
     document.head.appendChild(s);
 }
 
 // ==========================================
-// 3. LOGIC CORE
+// 3. LOGIC & DATA HANDLING
 // ==========================================
 
 async function setupLogic() {
@@ -322,175 +279,199 @@ async function setupLogic() {
     await loadLevelOptions();
     await loadGuruDropdowns();
     await loadAchievementSuggestions();
-    await tampilkanDaftarMateri(); 
-    await loadPertemuanOptions();
+    
+    // SETUP EVENTS (Toggle, Input, dll)
     setupEvents();
+
+    // TABLE-FIRST STRATEGY: Cari pertemuan terakhir
+    const { data: latest } = await supabase.from("pertemuan_kelas")
+        .select("id")
+        .eq("class_id", localStorage.getItem("activeClassId"))
+        .order("tanggal", {ascending:false})
+        .limit(1)
+        .maybeSingle();
+
+    if (latest) {
+        // Jika ada, muat sesi penuh (Table, Form tersembunyi, History)
+        await loadSesiPenuh(latest.id);
+    } else {
+        // Jika belum ada sama sekali, buka form baru
+        resetFormMateri();
+        toggleFormPanel('materi-form-container', 'toggle-form-btn'); // Buka form
+    }
 }
 
 function setupEvents() {
-    // Navigasi & UI
-    document.getElementById("btn-rekap-shortcut").onclick = () => {
-        const classId = localStorage.getItem("activeClassId");
-        if(window.dispatchModuleLoad) window.dispatchModuleLoad('rekap-absensi', { classId });
-    };
-
-    document.getElementById("head-materi").onclick = (e) => {
-        if(e.target.closest('#btn-new-form')) return;
-        toggleAccordion("materi-form", "icon-materi");
-    };
-    document.getElementById("head-target").onclick = () => toggleAccordion("target-container", "icon-target");
+    // 1. Grid Action Buttons (Micro Toggles)
+    document.getElementById("toggle-form-btn").onclick = () => toggleFormPanel('materi-form-container', 'toggle-form-btn');
+    document.getElementById("toggle-target-btn").onclick = () => toggleFormPanel('target-container', 'toggle-target-btn');
     
-    document.getElementById("btn-new-form").onclick = () => {
+    // 2. Button "Buat Baru"
+    document.getElementById("btn-new-session").onclick = () => {
         resetFormMateri();
-        document.getElementById("materi-form").style.display = "grid";
-        document.getElementById("icon-materi").classList.add("rotate-icon");
+        showToast("Mode Input Pertemuan Baru");
     };
 
-    // Auto Suggestion (Materi)
-    const titleInput = document.getElementById("materi-title");
-    titleInput.oninput = (e) => loadMateriSuggestions(e.target.value.trim(), document.getElementById("materi-level-filter").value);
-    
-    // Target Logic
+    // 3. Debounce Search Materi
+    document.getElementById("materi-title").addEventListener("input", (e) => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            loadMateriSuggestions(e.target.value.trim(), document.getElementById("materi-level-filter").value);
+        }, 300); // Tunggu 300ms
+    });
+
+    // 4. Achievement Logic
     document.getElementById("btn-add-target-ui").onclick = addTargetToUI;
     document.getElementById("btn-save-targets-db").onclick = saveTargetsToDB;
-    
-    // Pertemuan Dropdown
-    document.getElementById("pertemuan-selector").onchange = (e) => {
-        selectedPertemuanId = e.target.value;
-        if(selectedPertemuanId) initTable(selectedPertemuanId);
+    document.getElementById("input-ach-main").onchange = async (e) => {
+        const val = e.target.value;
+        if(!val) return;
+        const { data } = await supabase.from("achievement_sekolah").select("sub_achievement").ilike("main_achievement", val);
+        if (data && data.length) {
+            const subs = [...new Set(data.map(d => d.sub_achievement).filter(Boolean))];
+            renderSubSelector(val, subs);
+        }
     };
 
-    // Submit Forms
+    // 5. Submit Handling
     document.getElementById("materi-form").onsubmit = handleMateriSubmit;
     document.getElementById("simpan-absensi").onclick = handleAbsensiSubmit;
 
-    // Sub Achievement Selector
-    const mainAchInput = document.getElementById("input-ach-main");
-    mainAchInput.onchange = async (e) => {
-        const val = e.target.value;
-        if(!val) return;
-        // Fix: Case Insensitive search
-        const { data } = await supabase.from("achievement_sekolah")
-            .select("sub_achievement")
-            .ilike("main_achievement", val); // Gunakan ilike
-            
-        if (data && data.length > 0) {
-            const allSubs = data.map(d => d.sub_achievement).join('\n').split('\n').filter(Boolean);
-            const uniqueSubs = [...new Set(allSubs)];
-            renderSubSelector(val, uniqueSubs);
-        }
+    // 6. Dropdown Sync
+    document.getElementById("pertemuan-selector").onchange = (e) => {
+        if(e.target.value) loadSesiPenuh(e.target.value);
     };
+
+    // 7. TAP-TO-CYCLE DELEGATION (Inti Interaksi Tabel)
+    document.querySelector("#absensi-table tbody").addEventListener("click", (e) => {
+        const cell = e.target.closest(".tap-cell");
+        if (!cell) return;
+        
+        const type = cell.dataset.type; // status, score
+        const currentVal = parseInt(cell.dataset.val);
+        let nextVal = 0;
+        let iconChar = '';
+        let options = [];
+
+        // Tentukan Cycle
+        if (type === 'status') options = CONF.status;
+        else if (type === 'sikap') options = CONF.sikap;
+        else options = CONF.fokus; // Fokus & Target sama siklusnya
+
+        // Cari index sekarang dan next
+        const idx = options.findIndex(o => o[0] == currentVal);
+        const nextIdx = (idx + 1) % options.length;
+        [nextVal, iconChar] = options[nextIdx];
+
+        // Update DOM (Visual)
+        cell.dataset.val = nextVal;
+        cell.innerHTML = iconChar;
+        
+        // Update Total Hadir Realtime
+        if(type === 'status') updateTotalHadir();
+    });
 }
 
-// --- TABLE LOGIC (STRICT FILTER) ---
+// --- CORE FUNCTION: LOAD FULL SESSION ---
+async function loadSesiPenuh(pertemuanId) {
+    selectedPertemuanId = pertemuanId;
+    isEditMode = true;
+
+    // 1. Tampilkan Loading di Tabel
+    const tbody = document.querySelector("#absensi-table tbody");
+    tbody.innerHTML = `<tr><td colspan="100%" style="padding:40px; text-align:center;"><i class="fas fa-spinner fa-spin fa-2x" style="color:#2563eb; margin-bottom:10px;"></i><br>Mengambil Data...</td></tr>`;
+
+    // 2. Ambil Detail Pertemuan (Untuk Form Tersembunyi)
+    const { data: detail } = await supabase.from("pertemuan_kelas").select("*, materi(title, level_id)").eq("id", pertemuanId).single();
+    if (detail) {
+        document.getElementById("materi-date").value = detail.tanggal;
+        document.getElementById("materi-title").value = detail.materi?.title || "";
+        document.getElementById("materi-level-filter").value = detail.materi?.level_id || "";
+        document.getElementById("materi-guru").value = detail.guru_id;
+        document.getElementById("materi-asisten").value = detail.asisten_id || "";
+    }
+
+    // 3. Load Dropdown & History (Sync)
+    await loadPertemuanOptions();
+    await tampilkanDaftarMateri();
+    document.getElementById("pertemuan-selector").value = pertemuanId; // Sync Dropdown
+
+    // 4. Render Tabel Absensi
+    await initTable(pertemuanId);
+}
+
+// --- TABLE RENDER LOGIC ---
 async function initTable(pertemuanId) {
     const classId = localStorage.getItem("activeClassId");
-    
+
+    // Fetch Paralel (Students, Attendance, Targets, Scores)
     const [resS, resA, resT, resScores] = await Promise.all([
-        supabase.from("students").select("id, name, grade").eq("class_id", classId).eq("is_active", true),
+        supabase.from("students").select("id, name").eq("class_id", classId).eq("is_active", true).order("name"),
         supabase.from("attendance").select("*").eq("pertemuan_id", pertemuanId),
-        supabase.from("achievement_kelas").select(`id, achievement_sekolah (main_achievement, sub_achievement)`).eq("pertemuan_id", pertemuanId).order("id"),
+        supabase.from("achievement_kelas").select(`id, achievement_sekolah (main_achievement)`).eq("pertemuan_id", pertemuanId).order("id"),
         supabase.from("achievement_siswa").select("*").eq("pertemuan_id", pertemuanId)
     ]);
 
-    // Sorting Grade -> Name
-    const students = (resS.data || []).sort((a, b) => {
-        const gA = a.grade || "", gB = b.grade || "";
-        return gA.localeCompare(gB) || a.name.localeCompare(b.name);
-    });
-
+    const students = resS.data || [];
     const absensi = resA.data || [];
     const targets = resT.data || [];
     const scores = resScores.data || [];
 
-    if(targets.length > 0) {
-        currentTargets = targets.map(t => ({
-            id: t.id, main: t.achievement_sekolah?.main_achievement || "?", sub: t.achievement_sekolah?.sub_achievement || "?"
-        }));
-    }
-    renderTargetListUI();
-
+    // Map Scores
     const scoreMap = {};
     scores.forEach(s => scoreMap[`${s.student_id}_${s.achievement_kelas_id}`] = s.score);
 
-    // Render Table Header
-    const thead = document.querySelector("#absensi-table thead");
-    let hHtml = `<tr><th>No</th><th>Nama Siswa</th><th>Grade</th><th>H</th><th>S</th><th>F</th>`;
-    currentTargets.forEach((t, i) => hHtml += `<th title="${t.main}">T${i+1}</th>`);
-    thead.innerHTML = hHtml + "</tr>";
+    // Update Global Targets
+    currentTargets = targets.map(t => ({ id: t.id, main: t.achievement_sekolah?.main_achievement || "?" }));
+    renderTargetListUI();
 
-    // Render Table Body
+    // Build Header
+    let hHtml = `<tr><th style="width:30px">No</th><th class="sticky-col">Nama Siswa</th><th style="text-align:center">H</th><th style="text-align:center">S</th><th style="text-align:center">F</th>`;
+    currentTargets.forEach((t, i) => hHtml += `<th style="text-align:center" title="${t.main}">T${i+1}</th>`);
+    document.querySelector("#absensi-table thead").innerHTML = hHtml + "</tr>";
+
+    // Build Body (Tap Cells)
     const tbody = document.querySelector("#absensi-table tbody");
     tbody.innerHTML = students.map((s, i) => {
-        const att = absensi.find(a => a.student_id === s.id) || { status:0, sikap:3, fokus:2 };
+        const att = absensi.find(a => a.student_id === s.id) || { status:0, sikap:0, fokus:0 }; // Default 0
         
         let row = `<tr data-sid="${s.id}">
             <td>${i+1}</td>
-            <td>${s.name}</td> 
-            <td><span class="grade-badge">${s.grade || '-'}</span></td>
-            <td><select class="status-sel">${getOptions([['0','⬜'],['1','✅'],['2','❌']], att.status)}</select></td>
-            <td><select class="sikap-sel">${getOptions([['0','❌'],['1','🤐'],['2','🙈'],['3','🙂'],['4','👀'],['5','🌀']], att.sikap)}</select></td>
-            <td><select class="fokus-sel">${getOptions([['0','❌'],['1','😶'],['2','🙂'],['3','🔥']], att.fokus)}</select></td>`;
+            <td class="sticky-col" onclick="alert('${s.name}')">${s.name}</td> <!-- Click name to see full -->
+            
+            <!-- Status -->
+            <td class="tap-cell" data-type="status" data-val="${att.status}">
+                ${getIcon(CONF.status, att.status)}
+            </td>
+            <!-- Sikap -->
+            <td class="tap-cell" data-type="sikap" data-val="${att.sikap}">
+                ${getIcon(CONF.sikap, att.sikap)}
+            </td>
+            <!-- Fokus -->
+            <td class="tap-cell" data-type="fokus" data-val="${att.fokus}">
+                ${getIcon(CONF.fokus, att.fokus)}
+            </td>`;
         
+        // Targets
         currentTargets.forEach(t => {
-            const tid = t.id || 'new';
-            const sc = scoreMap[`${s.id}_${tid}`] || 0;
-            row += `<td><select class="score-sel" data-tid="${tid}">${getOptions([['0','❌'],['1','😶'],['2','🙂'],['3','🔥']], sc)}</select></td>`;
+            const sc = scoreMap[`${s.id}_${t.id}`] || 0;
+            row += `<td class="tap-cell" data-type="score" data-target-id="${t.id}" data-val="${sc}">
+                ${getIcon(CONF.target, sc)}
+            </td>`;
         });
+        
         return row + "</tr>";
     }).join("");
 
     updateTotalHadir();
-    document.querySelectorAll(".status-sel").forEach(el => el.addEventListener("change", updateTotalHadir));
 }
 
-// --- SAVE & SUBMIT FUNCTIONS ---
-
-async function saveTargetsToDB() {
-    if (!selectedPertemuanId) return alert("Simpan pertemuan dulu!");
-    
-    const btn = document.getElementById("btn-save-targets-db");
-    const oriText = btn.innerText;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
-    
-    try {
-        for (let i = 0; i < currentTargets.length; i++) {
-            let t = currentTargets[i];
-            if (t.id) continue; // Skip jika sudah ada ID (sudah tersimpan)
-            
-            let masterId;
-            // FIX: Gunakan ilike untuk anti-duplicate case-insensitive
-            const { data: exist } = await supabase.from("achievement_sekolah")
-                .select("id")
-                .ilike("main_achievement", t.main)
-                .ilike("sub_achievement", t.sub)
-                .maybeSingle();
-            
-            if(exist) masterId = exist.id;
-            else {
-                const { data: neu } = await supabase.from("achievement_sekolah").insert({ main_achievement: t.main, sub_achievement: t.sub }).select("id").single();
-                masterId = neu.id;
-            }
-            
-            // Link ke Kelas
-            const { data: link } = await supabase.from("achievement_kelas").insert({
-                pertemuan_id: selectedPertemuanId, class_id: localStorage.getItem("activeClassId"), achievement_sekolah_id: masterId 
-            }).select("id").single();
-            
-            currentTargets[i].id = link.id; 
-        }
-        initTable(selectedPertemuanId); 
-        alert("Target Berhasil Disimpan!");
-    } catch (e) { 
-        alert("Error: " + e.message); 
-    } finally {
-        btn.innerText = oriText;
-    }
-}
-
+// --- DATA SAVING (UPSERT) ---
 async function handleAbsensiSubmit() {
-    if(!selectedPertemuanId) return alert("Pilih pertemuan dulu!");
+    if(!selectedPertemuanId) return showToast("Pilih pertemuan dulu!", "error");
+    
     const btn = document.getElementById("simpan-absensi");
+    const oriText = btn.innerHTML;
     btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Menyimpan...`;
     
     const attBatch = [];
@@ -500,220 +481,201 @@ async function handleAbsensiSubmit() {
 
     document.querySelectorAll("#absensi-table tbody tr").forEach(tr => {
         const sid = tr.dataset.sid;
+        
+        // Collect Status/Sikap/Fokus
         attBatch.push({
             pertemuan_id: selectedPertemuanId, student_id: sid, tanggal: tgl,
-            status: tr.querySelector(".status-sel").value,
-            sikap: tr.querySelector(".sikap-sel").value,
-            fokus: tr.querySelector(".fokus-sel").value
+            status: tr.children[2].dataset.val,
+            sikap: tr.children[3].dataset.val,
+            fokus: tr.children[4].dataset.val
         });
-        
-        tr.querySelectorAll(".score-sel").forEach(sel => {
-            const tid = sel.dataset.tid;
-            if(tid !== 'new') {
+
+        // Collect Targets
+        for(let i=5; i<tr.children.length; i++) {
+            const td = tr.children[i];
+            const tid = td.dataset.targetId;
+            if(tid) {
                 scoreBatch.push({
                     pertemuan_id: selectedPertemuanId, student_id: sid, class_id: classId,
-                    achievement_kelas_id: tid, score: sel.value
+                    achievement_kelas_id: tid, score: td.dataset.val
                 });
             }
-        });
+        }
     });
 
-    // Reset & Insert (Safe Transition)
-    await supabase.from("attendance").delete().eq("pertemuan_id", selectedPertemuanId);
-    await supabase.from("achievement_siswa").delete().eq("pertemuan_id", selectedPertemuanId);
-    
-    if(attBatch.length) await supabase.from("attendance").insert(attBatch);
-    if(scoreBatch.length) await supabase.from("achievement_siswa").insert(scoreBatch);
-    
-    alert("✅ Data Nilai Tersimpan!");
-    btn.innerHTML = `💾 Simpan Nilai`;
+    try {
+        // UPSERT ATTENDANCE (Aman untuk koneksi putus nyambung)
+        const { error: errA } = await supabase.from("attendance").upsert(attBatch, { onConflict: 'pertemuan_id, student_id' });
+        if(errA) throw errA;
+
+        // UPSERT SCORES
+        if(scoreBatch.length > 0) {
+            const { error: errS } = await supabase.from("achievement_siswa").upsert(scoreBatch, { onConflict: 'pertemuan_id, student_id, achievement_kelas_id' });
+            if(errS) throw errS;
+        }
+
+        showToast("✅ Data Nilai Berhasil Disimpan!");
+        loadSesiPenuh(selectedPertemuanId); // Refresh untuk memastikan
+    } catch (e) {
+        showToast("Gagal menyimpan: " + e.message, "error");
+    } finally {
+        btn.innerHTML = oriText;
+    }
 }
 
-// --- HELPERS ---
+// --- HELPER FUNCTIONS ---
+function getIcon(arr, val) {
+    const item = arr.find(x => x[0] == val);
+    return item ? item[1] : arr[0][1];
+}
 
-function getOptions(arr, selected) {
-    return arr.map(([v, l]) => `<option value="${v}" ${v == selected ? 'selected' : ''}>${l}</option>`).join('');
+function showToast(msg, type='success') {
+    const container = document.getElementById('toast-container');
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.style.border = type === 'error' ? '1px solid #ef4444' : 'none';
+    el.innerHTML = msg;
+    container.appendChild(el);
+    setTimeout(() => el.remove(), 3000);
+}
+
+function toggleFormPanel(panelId, btnId) {
+    const p = document.getElementById(panelId);
+    const b = document.getElementById(btnId);
+    const isHidden = p.style.display === 'none' || p.style.display === '';
+    
+    // Reset others
+    document.querySelectorAll('.hidden-panel').forEach(el => el.style.display = 'none');
+    document.querySelectorAll('.btn-grid-action').forEach(el => el.classList.remove('active'));
+
+    if (isHidden) {
+        p.style.display = 'block';
+        b.classList.add('active');
+    }
 }
 
 function updateTotalHadir() {
-    const count = document.querySelectorAll(".status-sel option[value='1']:checked").length;
+    const count = document.querySelectorAll('.tap-cell[data-type="status"][data-val="1"]').length;
     document.getElementById("total-hadir").textContent = count;
 }
 
-function renderTargetListUI() {
-    const container = document.getElementById("target-list-preview");
-    if (!container) return;
-    container.innerHTML = currentTargets.map((t, i) => `
-        <div style="padding:8px; border-bottom:1px solid #f1f5f9; display:flex; justify-content:space-between; align-items:center; font-size:0.85rem;">
-            <span><strong style="color:#f97316">Target ${i+1}:</strong> ${t.main} (${t.sub})</span>
-            <button onclick="window.hapusTarget(${i})" style="border:none; background:none; color:#ef4444; cursor:pointer; font-size:1.1rem;">&times;</button>
-        </div>
-    `).join("");
+function resetFormMateri() {
+    isEditMode = false; selectedPertemuanId = null;
+    document.getElementById("materi-form").reset();
+    document.getElementById("materi-date").valueAsDate = new Date();
+    currentTargets = [];
+    renderTargetListUI();
+    // Tabel kosong
+    document.querySelector("#absensi-table tbody").innerHTML = `<tr><td colspan="100%" style="padding:20px; text-align:center;">Form Pertemuan Baru Siap Diisi. Simpan dulu untuk input nilai.</td></tr>`;
 }
 
-window.hapusTarget = async (index) => {
-    const t = currentTargets[index];
-    if(t.id) {
-        if(!confirm("Hapus target dari database?")) return;
-        await supabase.from("achievement_kelas").delete().eq("id", t.id);
-    }
-    currentTargets.splice(index, 1);
-    renderTargetListUI();
-    if(selectedPertemuanId) initTable(selectedPertemuanId);
-};
-
-function addTargetToUI() {
-    const main = document.getElementById("input-ach-main").value;
-    const sub = document.getElementById("input-ach-sub").value;
-    if(!main || !sub) return alert("Isi Topik dan Detail Target!");
-    currentTargets.push({ main, sub, id: null });
-    renderTargetListUI();
-    document.getElementById("input-ach-sub").value = "";
-}
-
-// Data Loaders (Header, Guru, History, dll)
+// --- LOADERS & DROPDOWNS ---
 async function renderHeader() {
     const classId = localStorage.getItem("activeClassId");
-    const { data: kelas } = await supabase.from("classes").select(`name, jadwal, schools (id, name), academic_years (year)`).eq("id", classId).single();
-    if (kelas) {
-        document.getElementById("header-kelas").textContent = kelas.name;
-        document.getElementById("header-sekolah").textContent = kelas.schools?.name;
-        document.getElementById("header-tahun").textContent = kelas.academic_years?.year;
-        document.getElementById("header-jadwal").textContent = kelas.jadwal;
-        localStorage.setItem("activeSchoolId", kelas.schools?.id || "");
+    const { data } = await supabase.from("classes").select(`name, schools(name, id)`).eq("id", classId).single();
+    if (data) {
+        document.getElementById("header-kelas").textContent = data.name;
+        document.getElementById("header-sekolah").textContent = data.schools?.name;
+        localStorage.setItem("activeSchoolId", data.schools?.id || "");
     }
 }
 async function loadLevelOptions() {
     const { data } = await supabase.from("levels").select("id, kode").order("kode");
-    const select = document.getElementById("materi-level-filter");
-    select.innerHTML = '<option value="">-- Level --</option>';
-    (data || []).forEach(l => select.add(new Option(l.kode, l.id)));
+    const s = document.getElementById("materi-level-filter"); s.innerHTML='<option value="">Level</option>';
+    (data||[]).forEach(l=>s.add(new Option(l.kode, l.id)));
 }
 async function loadGuruDropdowns() {
     const { data } = await supabase.from("teachers").select("id, name").order("name");
     const g = document.getElementById("materi-guru"), a = document.getElementById("materi-asisten");
-    g.innerHTML = '<option value="">-- Guru --</option>'; a.innerHTML = '<option value="">-- Asisten --</option>';
-    (data || []).forEach(t => { g.add(new Option(t.name, t.id)); a.add(new Option(t.name, t.id)); });
+    g.innerHTML='<option value="">Guru</option>'; a.innerHTML='<option value="">Asisten</option>';
+    (data||[]).forEach(t=>{ g.add(new Option(t.name, t.id)); a.add(new Option(t.name, t.id)); });
 }
 async function loadAchievementSuggestions() {
     const { data } = await supabase.from("achievement_sekolah").select("main_achievement");
-    const list = document.getElementById("list-ach-saran");
-    if(data && list) {
-        const unique = [...new Set(data.map(i=>i.main_achievement))];
-        list.innerHTML = unique.map(v => `<option value="${v}">`).join("");
-    }
+    if(data) document.getElementById("list-ach-saran").innerHTML = [...new Set(data.map(i=>i.main_achievement))].map(v=>`<option value="${v}">`).join("");
 }
 async function loadPertemuanOptions() {
     const { data } = await supabase.from("pertemuan_kelas").select("id, tanggal, materi(title)").eq("class_id", localStorage.getItem("activeClassId")).order("tanggal", {ascending:false});
-    const sel = document.getElementById("pertemuan-selector");
-    sel.innerHTML = '<option value="">-- Pilih Sesi --</option>';
-    (data || []).forEach(p => sel.add(new Option(`${new Date(p.tanggal).toLocaleDateString('id-ID')} - ${p.materi?.title}`, p.id)));
+    const s = document.getElementById("pertemuan-selector"); s.innerHTML='<option value="">-- Pilih Sesi --</option>';
+    (data||[]).forEach(p=>s.add(new Option(`${new Date(p.tanggal).toLocaleDateString('id-ID')} - ${p.materi?.title?.substring(0,15)}...`, p.id)));
 }
 async function tampilkanDaftarMateri() {
-    const classId = localStorage.getItem("activeClassId");
-    const grid = document.getElementById("materi-history-list");
+    const { data } = await supabase.from("pertemuan_kelas").select("id, tanggal, materi(title)").eq("class_id", localStorage.getItem("activeClassId")).order("tanggal", {ascending:false});
+    const div = document.getElementById("materi-history-list");
+    if(!data.length) { div.innerHTML='<div style="font-size:0.8rem; color:#ccc;">Belum ada riwayat.</div>'; return; }
     
-    // Ambil data
-    const { data } = await supabase.from("pertemuan_kelas")
-        .select("id, tanggal, materi(title), teachers!guru_id(name)")
-        .eq("class_id", classId)
-        .order("tanggal", {ascending:false});
-    
-    if (!data || !data.length) {
-        grid.innerHTML = `<div style="color:#94a3b8; grid-column:1/-1; text-align:center; padding:30px; font-weight:500;">Belum ada riwayat pertemuan.</div>`;
-        return;
-    }
-
-    // Render dengan Cycle Color VIBRANT
-    grid.innerHTML = data.map((p, index) => {
-        const colorClass = `card-color-${index % 5}`; 
-        const tgl = new Date(p.tanggal).toLocaleDateString('id-ID', {day:'numeric', month:'short'});
-        
-        return `
-        <div class="history-card ${colorClass}" onclick="window.editPertemuan('${p.id}')">
-            <div>
-                <div class="h-date">${tgl}</div>
-                <div class="h-materi">${p.materi?.title || 'Tanpa Judul Materi'}</div>
-            </div>
-            <div class="h-teacher"><i class="fas fa-user-circle"></i> ${p.teachers?.name || '-'}</div>
-        </div>`;
-    }).join("");
+    div.innerHTML = data.map((p,i) => `
+        <div class="history-card card-c${i%3}" onclick="window.historyClick('${p.id}')">
+            <div style="font-weight:700; font-size:0.9rem;">${new Date(p.tanggal).toLocaleDateString('id-ID', {day:'numeric', month:'short'})}</div>
+            <div style="font-size:0.8rem; opacity:0.9; line-height:1.2;">${p.materi?.title || 'No Title'}</div>
+        </div>
+    `).join("");
 }
-async function loadMateriSuggestions(kw, lid) {
-    const box = document.getElementById("materi-suggestion-box");
-    if (!lid || kw.length < 2) { box.style.display = "none"; return; }
-    // FIX: ilike for materi search
-    const { data } = await supabase.from("materi").select("title").eq("level_id", lid).ilike("title", `%${kw}%`).limit(5);
-    if(data && data.length) {
-        box.innerHTML = data.map(m => `<div class="suggestion-item" style="padding:10px; cursor:pointer; border-bottom:1px solid #eee;" onclick="document.getElementById('materi-title').value='${m.title}'; this.parentElement.style.display='none';">${m.title}</div>`).join("");
-        box.style.display = "block"; 
-    } else box.style.display = "none";
-}
-function renderSubSelector(main, subs) {
-    const area = document.getElementById("sub-achievement-injector-area");
-    area.innerHTML = `<select id="smart-sub-select" class="input-modern" onchange="document.getElementById('input-ach-sub').value=this.value; document.getElementById('input-ach-sub').focus();"><option value="">-- Pilih Detail Tersimpan --</option>${subs.map(s=>`<option>${s}</option>`).join('')}</select>`;
-}
-function toggleAccordion(cid, iid) {
-    const c = document.getElementById(cid), i = document.getElementById(iid);
-    c.style.display = c.style.display === "none" ? "grid" : "none";
-    i.classList.toggle("rotate-icon");
-}
-function resetFormMateri() { isEditMode = false; selectedPertemuanId = null; document.getElementById("materi-form").reset(); currentTargets = []; renderTargetListUI(); }
-
-window.editPertemuan = async (id) => {
-    const { data } = await supabase.from("pertemuan_kelas").select("*, materi(title, level_id)").eq("id", id).single();
-    if(data) {
-        isEditMode = true; selectedPertemuanId = id;
-        document.getElementById("materi-date").value = data.tanggal;
-        document.getElementById("materi-title").value = data.materi?.title;
-        document.getElementById("materi-level-filter").value = data.materi?.level_id;
-        document.getElementById("materi-guru").value = data.guru_id;
-        document.getElementById("materi-asisten").value = data.asisten_id || "";
-        document.getElementById("materi-form").style.display = "grid";
-        
-        // Auto open accordion
-        document.getElementById("icon-materi").classList.add("rotate-icon");
-        
-        initTable(id);
-        document.querySelector('.class-info-card').scrollIntoView({behavior:'smooth'});
-    }
+window.historyClick = (id) => {
+    loadSesiPenuh(id);
+    document.getElementById("table-section").scrollIntoView({behavior:"smooth"});
 };
 
+// --- SEARCH & TARGET LOGIC ---
+async function loadMateriSuggestions(kw, lid) {
+    const box = document.getElementById("materi-suggestion-box");
+    if(!lid || kw.length<2) { box.style.display="none"; return; }
+    const { data } = await supabase.from("materi").select("title").eq("level_id", lid).ilike("title", `%${kw}%`).limit(5);
+    if(data?.length) {
+        box.innerHTML = data.map(m => `<div onclick="document.getElementById('materi-title').value='${m.title}'; this.parentElement.style.display='none';" style="padding:10px; border-bottom:1px solid #eee;">${m.title}</div>`).join("");
+        box.style.display="block";
+    } else box.style.display="none";
+}
 async function handleMateriSubmit(e) {
     e.preventDefault();
-    const btn = document.getElementById("btn-submit-materi");
-    const oriText = btn.innerText;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
-    
+    const btn=document.getElementById("btn-submit-materi"); btn.innerText="Saving...";
+    // (Logic simpan materi sama seperti sebelumnya, disederhanakan)
     const title = document.getElementById("materi-title").value.trim();
-    const levelId = document.getElementById("materi-level-filter").value;
+    const lid = document.getElementById("materi-level-filter").value;
     try {
-        // FIX: ilike for duplicate check
-        let { data: materi } = await supabase.from("materi").select("id").ilike("title", title).eq("level_id", levelId).maybeSingle();
-        if (!materi) {
-            const res = await supabase.from("materi").insert({ title, level_id: levelId }).select().single();
-            materi = res.data;
-        }
+        let {data:m} = await supabase.from("materi").select("id").eq("level_id",lid).ilike("title",title).maybeSingle();
+        if(!m) { const res = await supabase.from("materi").insert({title, level_id:lid}).select().single(); m=res.data; }
+        
         const payload = {
-            school_id: localStorage.getItem("activeSchoolId"), class_id: localStorage.getItem("activeClassId"),
-            tanggal: document.getElementById("materi-date").value, materi_id: materi.id,
+            class_id: localStorage.getItem("activeClassId"), school_id: localStorage.getItem("activeSchoolId"),
+            tanggal: document.getElementById("materi-date").value, materi_id: m.id,
             guru_id: document.getElementById("materi-guru").value, asisten_id: document.getElementById("materi-asisten").value || null
         };
-        if (isEditMode && selectedPertemuanId) await supabase.from("pertemuan_kelas").update(payload).eq("id", selectedPertemuanId);
-        else {
-            const res = await supabase.from("pertemuan_kelas").insert(payload).select("id").single();
-            selectedPertemuanId = res.data.id;
-        }
+
+        if(isEditMode && selectedPertemuanId) await supabase.from("pertemuan_kelas").update(payload).eq("id", selectedPertemuanId);
+        else { const res = await supabase.from("pertemuan_kelas").insert(payload).select().single(); selectedPertemuanId = res.data.id; }
         
-        await loadPertemuanOptions(); 
-        document.getElementById("pertemuan-selector").value = selectedPertemuanId; 
-        initTable(selectedPertemuanId);
-        
-        // Close accordion after save to focus on targets
-        toggleAccordion("materi-form", "icon-materi");
-        document.getElementById("target-container").style.display = "grid"; // Open Target
-        document.getElementById("icon-target").classList.add("rotate-icon");
-        
-    } catch (err) { alert(err.message); }
-    finally { btn.innerText = oriText; }
+        showToast("Data Pertemuan Tersimpan!");
+        toggleFormPanel('materi-form-container', 'toggle-form-btn'); // Tutup form
+        toggleFormPanel('target-container', 'toggle-target-btn'); // Buka target (Workflow)
+        loadSesiPenuh(selectedPertemuanId);
+    } catch(err) { showToast(err.message, 'error'); } 
+    finally { btn.innerText = "Simpan Data Pertemuan"; }
 }
+function addTargetToUI() {
+    const m=document.getElementById("input-ach-main").value, s=document.getElementById("input-ach-sub").value;
+    if(m && s) { currentTargets.push({main:m, sub:s, id:null}); renderTargetListUI(); document.getElementById("input-ach-sub").value=""; }
+}
+function renderTargetListUI() {
+    document.getElementById("target-list-preview").innerHTML = currentTargets.map((t,i)=>
+        `<div style="display:flex; justify-content:space-between; padding:8px; border-bottom:1px solid #eee; font-size:0.8rem;"><span><b>T${i+1}:</b> ${t.main}</span> <span onclick="window.delTarget(${i})" style="color:red; cursor:pointer;">&times;</span></div>`
+    ).join("");
+}
+window.delTarget = async (i) => {
+    if(currentTargets[i].id) await supabase.from("achievement_kelas").delete().eq("id", currentTargets[i].id);
+    currentTargets.splice(i,1); renderTargetListUI(); loadSesiPenuh(selectedPertemuanId);
+};
+async function saveTargetsToDB() {
+    if(!selectedPertemuanId) return showToast("Simpan pertemuan dulu!", "error");
+    for(let t of currentTargets) {
+        if(t.id) continue;
+        let mid;
+        let {data:ex} = await supabase.from("achievement_sekolah").select("id").ilike("main_achievement", t.main).ilike("sub_achievement", t.sub).maybeSingle();
+        if(ex) mid=ex.id; else { const {data:n} = await supabase.from("achievement_sekolah").insert({main_achievement:t.main, sub_achievement:t.sub}).select().single(); mid=n.id; }
+        await supabase.from("achievement_kelas").insert({pertemuan_id:selectedPertemuanId, class_id:localStorage.getItem("activeClassId"), achievement_sekolah_id:mid});
+    }
+    showToast("Target Disimpan!");
+    toggleFormPanel('target-container', 'toggle-target-btn'); // Tutup form target
+    loadSesiPenuh(selectedPertemuanId); // Refresh table
+}
+function renderSubSelector(m,subs){ document.getElementById("sub-achievement-injector-area").innerHTML=`<select onchange="document.getElementById('input-ach-sub').value=this.value" class="input-modern" style="margin-bottom:5px;"><option value="">Pilih Sub...</option>${subs.map(s=>`<option>${s}</option>`).join('')}</select>`; }
