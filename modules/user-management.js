@@ -26,7 +26,14 @@ const iconLibrary = [
 
 // ==========================================
 // 1. INITIALIZATION
-// ==========================================
+/**
+ * Initialize and render the Menu Navigator UI inside the given container element.
+ *
+ * Injects required styles, mounts the full interface (header, main content, and modals),
+ * wires up UI event handlers, and loads initial menu/category/level data into memory.
+ *
+ * @param {HTMLElement} canvas - Root DOM element where the Menu Navigator UI will be rendered.
+ */
 export async function init(canvas) {
     injectStyles();
 
@@ -162,7 +169,11 @@ export async function init(canvas) {
 
 // ==========================================
 // 2. DATA HANDLERS
-// ==========================================
+/**
+ * Load menus, categories, and levels from the backend, update in-memory state, and render the menu UI.
+ *
+ * Fetches the app menus, menu categories, and levels, updates the module-level arrays (allMenus, allCategories, allLevels), and calls renderMenuUI to refresh the interface. Any load errors are caught and logged to the console.
+ */
 
 async function loadInitialData() {
     try {
@@ -182,6 +193,11 @@ async function loadInitialData() {
     }
 }
 
+/**
+ * Render the main menu area by populating the #mm-main-content element with sections for each category.
+ *
+ * Creates a section for every category using in-memory menu and category state; each section shows the category header and its menu cards. If no categories exist, displays an empty-state message. If a category contains no menus, displays a "no data" message inside that section.
+ */
 function renderMenuUI() {
     const container = document.getElementById('mm-main-content');
     container.innerHTML = '';
@@ -205,6 +221,22 @@ function renderMenuUI() {
     });
 }
 
+/**
+ * Build an HTML string for a single menu card used in the UI.
+ *
+ * Renders the menu's icon, title, route, role badges, level badges (mapped from `allLevels` by id),
+ * and edit/delete controls; applies a `disabled` CSS class when the menu is not active.
+ *
+ * @param {Object} menu - Menu record object.
+ * @param {string} menu.id - Menu UUID.
+ * @param {string} menu.title - Display title of the menu.
+ * @param {string} menu.route - Route or path associated with the menu.
+ * @param {string} menu.icon_class - CSS class for the menu icon.
+ * @param {boolean} [menu.is_active=true] - Whether the menu is active; when false the card is marked disabled.
+ * @param {string[]} [menu.allowed_roles=[]] - Array of role keys to render as role badges.
+ * @param {string[]} [menu.allowed_level_ids=[]] - Array of level UUIDs which are mapped to level `kode` using `allLevels` and rendered as level badges.
+ * @returns {string} HTML markup for the menu card.
+ */
 function renderMenuCard(menu) {
     const roleBadges = (menu.allowed_roles || []).map(r => `<span class="badge role ${r}">${r}</span>`).join('');
     
@@ -255,6 +287,15 @@ window.editMenu = (id) => {
     openModal('modal-menu');
 };
 
+/**
+ * Create or update a menu record from the menu form and refresh the UI.
+ *
+ * Reads form fields (title, route, category, order, icon, active), selected role and level checkboxes,
+ * builds the payload, inserts a new row or updates the existing row in the `app_menus` table,
+ * closes the menu modal, and reloads in-memory menu/category/level data.
+ *
+ * @param {Event} e - The form submit event from the menu configuration modal.
+ */
 async function handleMenuSubmit(e) {
     e.preventDefault();
     const id = document.getElementById('menu-id').value;
@@ -287,7 +328,14 @@ async function handleMenuSubmit(e) {
 
 // ==========================================
 // 4. UI LOGICS (MODALS, PICKERS)
-// ==========================================
+/**
+ * Render role and level access checkbox controls into the UI and apply checked states from the given selections.
+ *
+ * Renders role checkboxes for the fixed set ['super_admin', 'pic', 'teacher', 'student'] into the element with id "role-checks", and renders level checkboxes based on the global `allLevels` array into the element with id "level-checks". Each checkbox is marked checked when its value appears in the corresponding selection array.
+ *
+ * @param {string[]} selectedRoles - Array of role identifiers to mark as checked (e.g., ['super_admin', 'teacher']).
+ * @param {(number|string)[]} selectedLevels - Array of level ids to mark as checked; values are matched against `allLevels[].id`.
+ */
 
 function renderAccessCheckboxes(selectedRoles = [], selectedLevels = []) {
     // 1. Render Roles
@@ -308,6 +356,13 @@ function renderAccessCheckboxes(selectedRoles = [], selectedLevels = []) {
     `).join('');
 }
 
+/**
+ * Attach UI event listeners for modal controls, the menu form, and the icon picker.
+ *
+ * Registers handlers that open the "new menu" and "category manager" modals (resetting and preparing the menu form),
+ * bind close buttons to hide modals, wire the menu form submission to its handler, and enable opening and live-search
+ * filtering of the icon picker.
+ */
 function setupEvents() {
     // Modal Openers
     document.getElementById('open-new-menu').onclick = () => {
@@ -339,6 +394,12 @@ function setupEvents() {
     document.getElementById('search-icon').oninput = (e) => renderIconGrid(e.target.value);
 }
 
+/**
+ * Render the icon picker grid into the '#icon-grid-render' element, optionally showing only icons whose class names contain the given substring.
+ *
+ * Populates the grid with clickable icon items; clicking an item selects that icon.
+ * @param {string} filter - Substring to filter icon class names by (case-insensitive). Empty string shows all icons.
+ */
 function renderIconGrid(filter = '') {
     const grid = document.getElementById('icon-grid-render');
     const filtered = iconLibrary.filter(i => i.includes(filter.toLowerCase()));
@@ -357,7 +418,11 @@ window.selectIcon = (icon) => {
 
 // ==========================================
 // 5. STYLING (ADMIN REPO STANDARD)
-// ==========================================
+/**
+ * Injects the master stylesheet for the menu manager into the document head if not already present.
+ *
+ * Adds a <style> element with id "mm-master-css" containing layout, component, modal, and utility CSS used by the menu UI.
+ */
 
 function injectStyles() {
     if (document.getElementById('mm-master-css')) return;
@@ -450,6 +515,13 @@ function injectStyles() {
     document.head.appendChild(s);
 }
 
-// Global Helper Modals
+/**
+ * Show a modal element by setting its display to "flex".
+ * @param {string} id - The id of the modal DOM element to show.
+ */
 function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+/**
+ * Hide the modal element identified by the given DOM id.
+ * @param {string} id - The DOM id of the modal element to hide.
+ */
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }

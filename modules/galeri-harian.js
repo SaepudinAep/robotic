@@ -27,7 +27,15 @@ const JPG_QUALITY = 0.8;
 
 // ==========================================
 // 1. INITIALIZATION & SECURITY
-// ==========================================
+/**
+ * Initialize and render the gallery admin UI into the provided container.
+ *
+ * Detects class context (school or private) from localStorage, loads the current user's profile
+ * and class metadata for folder naming, renders the main layout into the given canvas, and
+ * loads the session list.
+ *
+ * @param {HTMLElement} canvas - The DOM element where the gallery UI will be rendered.
+ */
 export async function init(canvas) {
     injectStyles();
     
@@ -67,7 +75,12 @@ export async function init(canvas) {
 
 // ==========================================
 // 2. DATA LOADERS (SECURITY FILTERED)
-// ==========================================
+/**
+ * Load and render session list into the session sidebar based on the current context.
+ *
+ * Fetches sessions for the active class (school or private), applies a teacher-level filter when applicable,
+ * and updates the '#session-sidebar' element with session cards or an empty state message.
+ */
 
 async function loadSessions() {
     const sidebar = document.getElementById('session-sidebar');
@@ -119,6 +132,11 @@ window.selectSession = async (id, date, title) => {
     await loadPhotos();
 };
 
+/**
+ * Loads photos for the currently active session, updates loading/empty UI states, synchronizes the bulk-publish toggle, and renders the gallery grid.
+ *
+ * Fetches non-deleted gallery items for the active session; if none are found it displays an empty state and unchecks the bulk toggle. If items exist, it sets the bulk toggle checked when every item is published and passes the items to renderGrid for display.
+ */
 async function loadPhotos() {
     const grid = document.getElementById('gallery-grid');
     grid.innerHTML = '<div class="load-mini">Memuat Dokumentasi...</div>';
@@ -142,6 +160,18 @@ async function loadPhotos() {
     renderGrid(photos, grid);
 }
 
+/**
+ * Render a gallery grid of photo/video items into the provided container.
+ *
+ * For each photo record this sets the container's innerHTML to a card that includes a generated thumbnail
+ * (YouTube `mqdefault` thumbnail for `media_type === 'youtube'`, otherwise an upload URL with rotation and
+ * resizing transforms), a type badge (YT or VID), a status pill showing LIVE or DRAFT, and control buttons.
+ * Media clicks open the lightbox via `window.openLightbox`, publish buttons call `window.togglePublish`, and
+ * delete buttons call `window.deleteItem`.
+ *
+ * @param {Array<Object>} photos - Array of gallery records. Expected fields used: `media_type`, `file_url`, `id`, `rotation`, `is_published`, `public_id`.
+ * @param {HTMLElement} container - DOM element whose innerHTML will be replaced with the rendered grid.
+ */
 function renderGrid(photos, container) {
     container.innerHTML = photos.map(p => {
         const isVid = p.media_type === 'video';
@@ -306,7 +336,14 @@ window.executeUpload = async () => {
 
 // ==========================================
 // 5. UI LAYOUT & STYLES (COMPACT TABLET)
-// ==========================================
+/**
+ * Render the gallery master UI into the provided container element.
+ *
+ * Injects the full application layout for the admin gallery (header, session sidebar,
+ * main gallery grid and toolbar, upload modal, and lightbox) into the given canvas.
+ *
+ * @param {HTMLElement} canvas - DOM element that will receive the rendered UI markup.
+ */
 
 function renderMainLayout(canvas) {
     canvas.innerHTML = `
@@ -398,7 +435,11 @@ function renderMainLayout(canvas) {
 
 // ==========================================
 // 6. HELPERS (RESIZE, SANITIZE, ETC)
-// ==========================================
+/**
+ * Create a resized JPEG version of an image file constrained to MAX_WIDTH.
+ * @param {File} file - The input file; if not an image file, it is returned unchanged.
+ * @returns {File} A File containing the JPEG-compressed image resized to at most MAX_WIDTH width, or the original file if the input was not an image.
+ */
 
 function compressImage(file) {
     return new Promise((resolve) => {
@@ -446,9 +487,26 @@ window.closeModal = (id) => {
     if(id === 'lightbox') document.getElementById('lb-vid').innerHTML = '';
 };
 
+/**
+ * Extracts the YouTube video ID from a URL.
+ * @param {string} url - A YouTube URL in any common format (watch, share, embed, etc.).
+ * @returns {string|null} The 11-character YouTube video ID if found, `null` otherwise.
+ */
 function getYoutubeId(url) { const m = url.match(/(?:youtu\.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/); return m && m[1].length==11 ? m[1] : null; }
+/**
+ * Normalize a string to a lowercase, filesystem/identifier-safe form.
+ * Replaces any non-alphanumeric character with an underscore and lowercases the result.
+ * @param {string} s - The input string to sanitize; may be falsy.
+ * @returns {string} The sanitized lowercase string, or `'u'` when `s` is falsy.
+ */
 function sanitize(s) { return s ? s.replace(/[^a-z0-9]/gi, '_').toLowerCase() : 'u'; }
 
+/**
+ * Injects the gallery module's CSS into the document head.
+ *
+ * If the styles are already present (element id "gm-master-css"), the function does nothing.
+ * Otherwise it creates a <style> element containing the module's complete stylesheet and appends it to document.head.
+ */
 function injectStyles() {
     if (document.getElementById('gm-master-css')) return;
     const s = document.createElement('style');
