@@ -96,9 +96,10 @@ async function initSidebar() {
 
     try {
         // Ambil Menu Khusus Admin/Guru
-        // Kita filter di query database sekalian biar hemat bandwidth (Optional optimization)
+        // [UPDATE] Tambahkan filter .in('target_app', ...) agar kategori versi lama (v1) tidak muncul
         const { data: categories } = await supabase.from('menu_categories')
             .select('*')
+            .in('target_app', ['admin_v2', 'all']) // Hanya ambil kategori V2
             .order('order_index');
             
         const { data: menus } = await supabase.from('app_menus')
@@ -118,15 +119,32 @@ async function initSidebar() {
                     // Admin lihat semua
                     if (userProfile.role === 'super_admin') return true;
                     
-                    // Cek izin JSON
+                    // Cek izin Role JSON
                     let allowedRoles = [];
                     try { 
                         allowedRoles = typeof m.allowed_roles === 'string' 
                             ? JSON.parse(m.allowed_roles) 
                             : m.allowed_roles; 
-                    } catch(e){}
+                    } catch(e){ allowedRoles = []; }
                     
-                    return Array.isArray(allowedRoles) && allowedRoles.includes(userProfile.role);
+                    // Jika role user tidak ada di daftar izin, skip
+                    if (!Array.isArray(allowedRoles) || !allowedRoles.includes(userProfile.role)) return false;
+
+                    // Sync: Filter level_id untuk Guru (meniru overview.js)
+                    if (userProfile.role === 'teacher') {
+                        let allowedLevels = [];
+                        try {
+                            allowedLevels = typeof m.allowed_level_ids === 'string' 
+                                ? JSON.parse(m.allowed_level_ids) 
+                                : m.allowed_level_ids;
+                        } catch(e){ allowedLevels = []; }
+                        
+                        // Jika menu membatasi level (array ada isi), cek kecocokan level guru
+                        if (Array.isArray(allowedLevels) && allowedLevels.length > 0) {
+                            if (!allowedLevels.includes(userProfile.level_id)) return false;
+                        }
+                    }
+                    return true;
                 });
 
                 if (allowedMenus.length === 0) return;
@@ -134,18 +152,22 @@ async function initSidebar() {
                 // Render Judul Group
                 const groupTitle = document.createElement('div');
                 groupTitle.className = 'nav-group-title';
-                groupTitle.textContent = cat.title; // e.g., "AKADEMIK"
+                groupTitle.textContent = cat.title; 
                 sidebarMenuContainer.appendChild(groupTitle);
 
                 // Render Item
                 allowedMenus.forEach(m => {
                     const item = document.createElement('div');
                     item.className = 'nav-item';
-                    item.innerHTML = `<i class="${m.icon_class}"></i> <span>${m.title}</span>`;
+                    
+                    // Label Dashboard untuk rute overview
+                    const displayTitle = (m.route === 'overview') ? 'Dashboard' : m.title;
+                    
+                    item.innerHTML = `<i class="${m.icon_class}"></i> <span>${displayTitle}</span>`;
                     item.onclick = () => {
                         document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
                         item.classList.add('active');
-                        loadModule(m.route, m.title, cat.title);
+                        loadModule(m.route, displayTitle, cat.title);
                         
                         // Tutup sidebar di mobile
                         const sb = document.getElementById('sidebar');
@@ -162,14 +184,26 @@ async function initSidebar() {
     }
 }
 
-// --- 5. MODUL LOADER (Sama seperti sebelumnya) ---
+// --- 5. MODUL LOADER ---
 async function loadModule(route, title, category) {
-    // Render Breadcrumb
+    // Render Breadcrumb (Clean UI Structure + ACTIVE HOME BUTTON)
     if(breadcrumbContainer) {
         breadcrumbContainer.innerHTML = `
             <div style="display:flex; align-items:center; gap:8px; font-size:0.9rem;">
-                <span style="color:#64748b;">${category}</span>
+                
+                <div onclick="window.loadAdminModule('overview', 'Dashboard', 'Home')" 
+                     style="cursor:pointer; display:flex; align-items:center; gap:6px; color:#3b82f6; font-weight:600; transition:0.2s;"
+                     title="Kembali ke Dashboard">
+                    <i class="fa-solid fa-house"></i>
+                    <span>Home</span>
+                </div>
+
                 <i class="fa-solid fa-chevron-right" style="font-size:0.7rem; color:#cbd5e1;"></i>
+                
+                <span style="color:#64748b;">${category}</span>
+                
+                <i class="fa-solid fa-chevron-right" style="font-size:0.7rem; color:#cbd5e1;"></i>
+                
                 <span style="color:#1e293b; font-weight:600;">${title}</span>
             </div>`;
     }
@@ -181,7 +215,7 @@ async function loadModule(route, title, category) {
         </div>`;
 
     try {
-        // Import Dinamis
+        // Import Dinamis (Menggunakan path asli)
         const module = await import(`../../modules/${route}.js?v=${Date.now()}`); 
         contentCanvas.innerHTML = '';
         
@@ -231,5 +265,5 @@ function setupGlobalEvents() {
     }
 }
 
-// Expose fungsi ke window agar bisa dipanggil dari HTML (misal breadcrumb)
+// Expose fungsi ke window agar bisa dipanggil dari HTML (misal breadcrumb & onclick)
 window.loadAdminModule = loadModule;
