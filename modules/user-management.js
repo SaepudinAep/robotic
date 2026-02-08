@@ -1,455 +1,732 @@
-/**
- * Project: Unified Menu Manager (Admin Repo)
- * Features: Level-Based Security, Role Access, Category Management, Icon Picker
- * Relevancy: Handling allowed_level_ids for Teacher/Admin Security
- */
-
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
-import { supabaseUrl, supabaseKey } from '../assets/js/config.js';
-
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-// --- STATE GLOBAL ---
-let allMenus = [];
-let allCategories = [];
-let allLevels = [];
-let editCategoryId = null;
-
-// Library Ikon Populer
-const iconLibrary = [
-    "fa-solid fa-house", "fa-solid fa-gauge", "fa-solid fa-chart-line", "fa-solid fa-school", 
-    "fa-solid fa-graduation-cap", "fa-solid fa-chalkboard-user", "fa-solid fa-book", 
-    "fa-solid fa-users", "fa-solid fa-calendar-days", "fa-solid fa-images", 
-    "fa-solid fa-folder-open", "fa-solid fa-medal", "fa-solid fa-gear", "fa-solid fa-lock", 
-    "fa-solid fa-robot", "fa-solid fa-database", "fa-solid fa-shield-halved", "fa-solid fa-file-lines"
-];
-
-// ==========================================
-// 1. INITIALIZATION
-// ==========================================
-export async function init(canvas) {
-    injectStyles();
-
-    canvas.innerHTML = `
-        <div class="mm-master-container fade-in">
-            <!-- Header Section -->
-            <div class="mm-header-card">
-                <div class="header-info">
-                    <h1>Menu Navigator</h1>
-                    <p>Konfigurasi hak akses Role & Level (Repo Admin)</p>
-                </div>
-                <div class="header-actions">
-                    <button class="btn-outline" id="open-cat-mgr">
-                        <i class="fa-solid fa-layer-group"></i> Kelola Kategori
-                    </button>
-                    <button class="btn-primary" id="open-new-menu">
-                        <i class="fa-solid fa-plus"></i> Tambah Menu Baru
-                    </button>
-                </div>
-            </div>
-
-            <!-- Content Section -->
-            <div id="mm-main-content" class="mm-grid">
-                <div class="loading-state"><i class="fa-solid fa-spinner fa-spin"></i> Menyiapkan Jantung Navigasi...</div>
-            </div>
-        </div>
-
-        <!-- MODAL MENU (The Core Configurator) -->
-        <div id="modal-menu" class="modal-overlay">
-            <div class="modal-card bounce-in">
-                <div class="modal-head">
-                    <h3 id="menu-modal-title">Konfigurasi Menu</h3>
-                    <span class="close-modal">&times;</span>
-                </div>
-                <div class="modal-body">
-                    <form id="form-menu">
-                        <input type="hidden" id="menu-id">
-                        
-                        <div class="form-grid-2">
-                            <div class="form-group">
-                                <label>Nama Menu</label>
-                                <input type="text" id="menu-title" class="input-flat" placeholder="Contoh: Galeri Sekolah" required>
-                            </div>
-                            <div class="form-group">
-                                <label>Route (Modul)</label>
-                                <input type="text" id="menu-route" class="input-flat" placeholder="galeri-sekolah" required>
-                            </div>
-                        </div>
-
-                        <div class="form-grid-2">
-                            <div class="form-group">
-                                <label>Kategori</label>
-                                <select id="menu-category" class="input-flat"></select>
-                            </div>
-                            <div class="form-group">
-                                <label>Urutan Tampil</label>
-                                <input type="number" id="menu-order" class="input-flat" value="0">
-                            </div>
-                        </div>
-
-                        <div class="form-group">
-                            <label>Visual Ikon</label>
-                            <div class="icon-picker-box">
-                                <div id="icon-preview"><i class="fa-solid fa-circle"></i></div>
-                                <input type="text" id="menu-icon" class="input-flat" readonly>
-                                <button type="button" id="btn-pick-icon" class="btn-small">Pilih Ikon</button>
-                            </div>
-                        </div>
-
-                        <!-- SECURITY DOUBLE LOCK -->
-                        <div class="security-box">
-                            <div class="security-section">
-                                <label><i class="fa-solid fa-user-shield"></i> Izin Role (Allowed Roles)</label>
-                                <div id="role-checks" class="checks-grid"></div>
-                            </div>
-                            <div class="security-section">
-                                <label><i class="fa-solid fa-medal"></i> Izin Level (Allowed Levels)</label>
-                                <div id="level-checks" class="checks-grid"></div>
-                                <span class="helper">*Jika kosong, semua level diizinkan.</span>
-                            </div>
-                        </div>
-
-                        <div class="form-group-row">
-                            <label class="toggle">
-                                <input type="checkbox" id="menu-active" checked>
-                                <span class="toggle-slider"></span>
-                                <span class="toggle-label">Status Menu Aktif</span>
-                            </label>
-                        </div>
-
-                        <button type="submit" class="btn-submit-full">Simpan Konfigurasi</button>
-                    </form>
-                </div>
-            </div>
-        </div>
-
-        <!-- MODAL KATEGORI -->
-        <div id="modal-cat" class="modal-overlay">
-            <div class="modal-card mini">
-                <div class="modal-head">
-                    <h3>Kategori Menu</h3>
-                    <span class="close-modal">&times;</span>
-                </div>
-                <div class="modal-body">
-                    <div class="cat-form">
-                        <input type="text" id="cat-title" placeholder="Nama Kategori" class="input-flat">
-                        <input type="text" id="cat-key" placeholder="Key (unik)" class="input-flat">
-                        <button id="btn-save-cat" class="btn-primary">Tambah</button>
-                    </div>
-                    <div id="cat-list-items" class="cat-list"></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- MODAL ICON PICKER -->
-        <div id="modal-icons" class="modal-overlay">
-            <div class="modal-card">
-                <div class="modal-head">
-                    <h3>Pilih Ikon</h3>
-                    <input type="text" id="search-icon" placeholder="Cari..." class="input-flat-small">
-                    <span class="close-modal">&times;</span>
-                </div>
-                <div class="modal-body">
-                    <div id="icon-grid-render" class="icon-grid"></div>
-                </div>
-            </div>
-        </div>
-    `;
-
-    setupEvents();
-    await loadInitialData();
+/**
+ * Project: User Management Module (SPA)
+ * Description: Modul manajemen user dengan CSS Injection yang benar (ke Head) dan Tampilan Compact.
+ */
+
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+import { supabaseUrl, supabaseKey } from '../assets/js/config.js';
+
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+// URL Edge Function (Sesuaikan jika URL project Bapak berbeda)
+const EDGE_URL = 'https://aedtrwpomswdqxarvsrg.supabase.co/functions/v1/add-user';
+
+// State Global Modul
+let allUsers = [];
+let allLevels = [];
+let currentUserId = null; 
+let loggedInUserRole = null;
+
+// ==========================================
+// 1. INITIALIZATION (Entry Point)
+// ==========================================
+
+export async function init(canvas) {
+    // 1. Inject CSS ke HEAD (Supaya tidak terhapus saat render ulang)
+    injectStyles();
+
+    // 2. Render Skeleton HTML
+    canvas.innerHTML = `
+        <div class="um-container">
+            
+            <div class="um-header">
+                <div>
+                    <h2>User Management</h2>
+                    <p>Kelola Akun, Mapping Area, dan Level Guru</p>
+                </div>
+                <div class="um-search-box">
+                    <i class="fa-solid fa-search"></i>
+                    <input type="text" id="searchUser" placeholder="Cari nama atau email...">
+                </div>
+            </div>
+
+            <div class="um-tabs">
+                <button class="tab-btn active" id="tab-reg"><i class="fa-solid fa-user-plus"></i> Registrasi</button>
+                <button class="tab-btn" id="tab-scope"><i class="fa-solid fa-map-location-dot"></i> Mapping Area</button>
+                <button class="tab-btn" id="tab-teacher"><i class="fa-solid fa-chalkboard-user"></i> Level Guru</button>
+            </div>
+
+            <div id="reg-user-content" class="tab-panel active">
+                
+                <div class="form-compact-wrapper">
+                    <div class="form-compact-grid">
+                        <input type="hidden" id="userId">
+                        
+                        <div class="form-group">
+                            <label>Nama Lengkap</label>
+                            <input type="text" id="fullName" placeholder="Nama User">
+                        </div>
+                        <div class="form-group">
+                            <label>Email Login</label>
+                            <input type="email" id="email" placeholder="email@sekolah.com">
+                        </div>
+                        <div class="form-group">
+                            <label>Password</label>
+                            <input type="password" id="password" placeholder="(Min. 6 Karakter)">
+                        </div>
+                        <div class="form-group">
+                            <label>Role</label>
+                            <select id="role">
+                                <option value="student">Student</option>
+                                <option value="teacher">Teacher</option>
+                                <option value="pic">PIC/Admin</option>
+                                <option value="super_admin">Super Admin</option>
+                            </select>
+                        </div>
+                        <div class="action-group">
+                            <button class="btn-compact save" id="btn-save-user">
+                                <i class="fa-solid fa-save"></i> Simpan
+                            </button>
+                            <button class="btn-compact cancel" id="btn-cancel" style="display:none;">Batal</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th width="25%">Nama</th>
+                                <th width="30%">Email</th>
+                                <th width="15%">Role</th>
+                                <th width="30%" style="text-align:right;">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="user-table-body">
+                            <tr><td colspan="4" class="loading-cell">Memuat data...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="scope-content" class="tab-panel" style="display:none;">
+                <div class="info-box">
+                    <i class="fa-solid fa-info-circle"></i> 
+                    <span><strong>Mapping Area:</strong> Tentukan sekolah atau kelas mana yang menjadi milik user ini.</span>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Nama User</th>
+                                <th>Email</th>
+                                <th>Role</th>
+                                <th>Wilayah/Scope</th>
+                                <th style="text-align:right;">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="scope-table-body"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="teacher-content" class="tab-panel" style="display:none;">
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Nama Guru</th>
+                                <th>Email</th>
+                                <th>Level Mengajar</th>
+                                <th style="text-align:right;">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="teacher-table-body"></tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+
+        <div id="modal-scope" class="mm-modal">
+            <div class="mm-modal-content">
+                <div class="mm-modal-header">
+                    <h3 id="modal-scope-title">Atur Akses</h3>
+                    <span id="btn-close-modal">&times;</span>
+                </div>
+                <div id="modal-body-content" class="mm-modal-body"></div>
+                <div id="modal-footer-content" class="mm-modal-footer"></div>
+            </div>
+        </div>
+
+        <div id="toast" class="toast" style="display:none;"></div>
+    `;
+
+    // 3. Logic & Event Binding
+    await setupLogic();
+}
+
+/**
+ * Menyuntikkan CSS ke document.head agar permanen
+ */
+function injectStyles() {
+    const styleId = 'user-management-css';
+    if (document.getElementById(styleId)) return; // Cegah duplikasi
+
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = `
+        /* --- CONTAINER UTAMA --- */
+        .um-container { max-width: 1200px; margin: 0 auto; padding-bottom: 80px; font-family: 'Roboto', sans-serif; }
+
+        /* --- HEADER & SEARCH --- */
+        .um-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; flex-wrap: wrap; gap: 15px; }
+        .um-header h2 { margin: 0; font-family: 'Fredoka One', cursive; color: #333; font-size: 1.8rem; letter-spacing: 0.5px; }
+        .um-header p { margin: 5px 0 0 0; color: #64748b; font-size: 0.9rem; }
+        
+        .um-search-box { position: relative; width: 100%; max-width: 300px; }
+        .um-search-box i { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #94a3b8; }
+        .um-search-box input { width: 100%; padding: 10px 10px 10px 38px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.9rem; transition: 0.2s; }
+        .um-search-box input:focus { border-color: #4d97ff; outline: none; box-shadow: 0 0 0 3px rgba(77,151,255,0.1); }
+
+        /* --- TABS --- */
+        .um-tabs { display: flex; gap: 5px; border-bottom: 2px solid #e2e8f0; margin-bottom: 25px; overflow-x: auto; }
+        .tab-btn { background: none; border: none; padding: 12px 20px; cursor: pointer; font-weight: 600; color: #64748b; font-size: 0.95rem; border-bottom: 3px solid transparent; transition: 0.2s; white-space: nowrap; display: flex; align-items: center; gap: 8px; }
+        .tab-btn:hover { color: #4d97ff; background: #f8fafc; border-radius: 8px 8px 0 0; }
+        .tab-btn.active { color: #4d97ff; border-bottom-color: #4d97ff; }
+
+        /* --- INFO BOX --- */
+        .info-box { background: #eff6ff; border: 1px solid #dbeafe; color: #1e40af; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-size: 0.9rem; display: flex; align-items: center; gap: 10px; }
+
+        /* --- FORM COMPACT --- */
+        .form-compact-wrapper { background: #fff; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03); margin-bottom: 30px; border-left: 5px solid #4d97ff; }
+        .form-compact-grid { display: grid; grid-template-columns: 1.5fr 1.5fr 1.2fr 1fr auto; gap: 15px; align-items: end; }
+        .form-group label { font-size: 0.75rem; font-weight: 700; margin-bottom: 6px; display: block; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; }
+        .form-group input, .form-group select { width: 100%; padding: 0 12px; height: 42px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.9rem; background: #f8fafc; color: #334155; transition: all 0.2s; }
+        .form-group input:focus, .form-group select:focus { border-color: #4d97ff; background: #fff; box-shadow: 0 0 0 3px rgba(77,151,255,0.1); outline: none; }
+        
+        .action-group { display: flex; gap: 8px; }
+        .btn-compact { height: 42px; padding: 0 20px; font-size: 0.9rem; border-radius: 6px; cursor: pointer; font-weight: 600; border: none; display: flex; align-items: center; gap: 8px; transition: 0.2s; justify-content: center; }
+        .btn-compact.save { background: #4d97ff; color: white; box-shadow: 0 2px 4px rgba(77,151,255,0.2); }
+        .btn-compact.save:hover { background: #2563eb; transform: translateY(-1px); }
+        .btn-compact.cancel { background: #f1f5f9; color: #64748b; }
+        .btn-compact.cancel:hover { background: #e2e8f0; color: #334155; }
+
+        /* --- TABLE --- */
+        .table-container { background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); overflow-x: auto; border: 1px solid #e2e8f0; }
+        .data-table { width: 100%; border-collapse: collapse; min-width: 600px; }
+        .data-table th { background: #f8fafc; text-align: left; padding: 16px 20px; font-weight: 700; color: #475569; border-bottom: 1px solid #e2e8f0; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; }
+        .data-table td { padding: 16px 20px; border-bottom: 1px solid #f1f5f9; color: #334155; font-size: 0.9rem; vertical-align: middle; }
+        .data-table tr:hover { background: #f8fafc; }
+        .data-table tr:last-child td { border-bottom: none; }
+        .loading-cell { text-align: center; color: #94a3b8; font-style: italic; padding: 30px; }
+
+        /* --- BADGES --- */
+        .badge { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 20px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; line-height: 1; }
+        .badge.super_admin { background: #fee2e2; color: #991b1b; }
+        .badge.teacher { background: #dbeafe; color: #1e40af; }
+        .badge.student { background: #dcfce7; color: #166534; }
+        .badge.pic { background: #fef3c7; color: #92400e; }
+
+        /* --- MODAL --- */
+        .mm-modal { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); animation: fadeIn 0.2s; }
+        .mm-modal-content { background-color: #fff; margin: 8vh auto; border-radius: 16px; width: 500px; max-width: 90%; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); overflow: hidden; }
+        .mm-modal-header { padding: 20px 25px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; }
+        .mm-modal-header h3 { margin: 0; font-size: 1.1rem; color: #334155; }
+        .mm-modal-header span { font-size: 1.5rem; cursor: pointer; color: #94a3b8; transition: 0.2s; }
+        .mm-modal-header span:hover { color: #ef4444; }
+        .mm-modal-body { padding: 25px; }
+        .mm-modal-footer { padding: 20px 25px; border-top: 1px solid #e2e8f0; text-align: right; background: #f8fafc; }
+
+        /* --- TOAST --- */
+        .toast { position: fixed; bottom: 30px; right: 30px; background: #1e293b; color: #fff; padding: 12px 24px; border-radius: 8px; z-index: 10000; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); font-size: 0.9rem; font-weight: 500; display: flex; align-items: center; gap: 10px; animation: slideLeft 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        .toast.error { background: #ef4444; }
+
+        /* --- ANIMATIONS --- */
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        @keyframes slideLeft { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+
+        /* --- RESPONSIVE --- */
+        @media (max-width: 1024px) { 
+            .form-compact-grid { grid-template-columns: 1fr 1fr; } 
+            .action-group { grid-column: span 2; justify-content: flex-end; } 
+        }
+        @media (max-width: 640px) { 
+            .form-compact-grid { grid-template-columns: 1fr; gap: 10px; } 
+            .action-group { grid-column: span 1; width: 100%; }
+            .btn-compact { width: 100%; }
+            .um-header { flex-direction: column; align-items: flex-start; }
+            .um-search-box { max-width: 100%; }
+            .data-table th, .data-table td { padding: 12px 15px; }
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+// ==========================================
+// 2. LOGIC & EVENTS
+// ==========================================
+
+async function setupLogic() {
+    // 1. Ambil Data User Login & Role
+    const { data: { user } } = await supabase.auth.getUser();
+    currentUserId = user?.id || null;
+    
+    // Cek Role di DB (Lebih aman)
+    const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', currentUserId).single();
+    loggedInUserRole = profile?.role || 'student';
+
+    // 2. Security Guard
+    if (loggedInUserRole !== 'super_admin' && loggedInUserRole !== 'teacher' && loggedInUserRole !== 'pic') {
+        document.getElementById('reg-user-content').innerHTML = `
+            <div style="padding:40px; text-align:center; color:#ef4444; background:white; border-radius:12px; border:1px solid #fecaca;">
+                <i class="fa-solid fa-ban" style="font-size:3rem; margin-bottom:15px;"></i>
+                <h3>Akses Ditolak</h3>
+                <p>Anda tidak memiliki izin mengelola user.</p>
+            </div>`;
+        return;
+    }
+
+    // 3. UI Adjustments based on Role
+    if (loggedInUserRole !== 'super_admin') {
+        document.getElementById('tab-teacher').style.display = 'none'; // Sembunyikan tab level guru
+        const roleSelect = document.getElementById('role');
+        if (roleSelect) {
+            // Hapus opsi super_admin jika bukan super_admin
+            for (let i = 0; i < roleSelect.options.length; i++) {
+                if (roleSelect.options[i].value === 'super_admin') {
+                    roleSelect.remove(i);
+                    break;
+                }
+            }
+        }
+    }
+
+    // 4. Initial Fetch
+    await fetchLevels();
+    await fetchUsers();
+
+    // 5. Setup Events
+    setupEvents();
+}
+
+function setupEvents() {
+    // Tabs Navigation
+    const tabs = ['reg', 'scope', 'teacher'];
+    tabs.forEach(t => {
+        const btn = document.getElementById(`tab-${t}`);
+        if(btn) btn.onclick = () => switchTab(t);
+    });
+
+    // Form Events
+    document.getElementById('btn-save-user').onclick = saveUser;
+    document.getElementById('btn-cancel').onclick = resetForm;
+    document.getElementById('searchUser').oninput = renderRegTable;
+
+    // Table Delegation (Edit/Delete)
+    document.getElementById('user-table-body').onclick = handleUserTableClick;
+    document.getElementById('scope-table-body').onclick = handleScopeTableClick;
+    document.getElementById('teacher-table-body').onclick = handleTeacherTableClick;
+
+    // Modal Events
+    document.getElementById('btn-close-modal').onclick = closeModal;
+}
+
+function switchTab(tabName) {
+    document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+
+    let contentId = '';
+    if (tabName === 'reg') contentId = 'reg-user-content';
+    if (tabName === 'scope') contentId = 'scope-content';
+    if (tabName === 'teacher') contentId = 'teacher-content';
+
+    const panel = document.getElementById(contentId);
+    if(panel) panel.style.display = 'block';
+    
+    const btn = document.getElementById(`tab-${tabName}`);
+    if(btn) btn.classList.add('active');
+}
+
+// ==========================================
+// 3. DATA FETCHING
+// ==========================================
+
+async function fetchLevels() {
+    const { data } = await supabase.from('levels').select('id, kode').order('kode');
+    if (data) allLevels = data;
+}
+
+async function fetchUsers() {
+    const { data, error } = await supabase
+        .from('user_profiles')
+        .select(`
+            id, name, role, email, is_active, school_id, class_id, group_id, class_private_id, level_id,
+            schools(name), group_private(code), classes(name), class_private(name), levels(kode) 
+        `);
+
+    if (error) return showToast("Gagal sinkron: " + error.message, true);
+
+    allUsers = data.map(u => ({
+        ...u,
+        email: u.email || "(Belum Sinkron)",
+        role: u.role || "student",
+        displayScope: formatScopeText(u),
+        levelName: Array.isArray(u.levels) ? u.levels[0]?.kode : u.levels?.kode || "-"
+    }));
+
+    renderRegTable(); 
+    renderScopeTable(); 
+    if (loggedInUserRole === 'super_admin') renderTeacherTable(); 
+}
+
+function formatScopeText(u) {
+    const getVal = (obj, prop) => (Array.isArray(obj) ? obj[0]?.[prop] : obj?.[prop]);
+    if (u.role === 'pic') {
+        const instansi = getVal(u.schools, 'name') || getVal(u.group_private, 'code') || "Belum diatur";
+        return `<strong style="color:#0f172a;">${instansi}</strong>`;
+    } else if (u.role === 'student') {
+        const instansi = getVal(u.schools, 'name') || getVal(u.group_private, 'code');
+        const unit = getVal(u.classes, 'name') || getVal(u.class_private, 'name') || "Belum diatur";
+        return instansi ? `${instansi} <i class="fa-solid fa-chevron-right" style="font-size:0.7em; color:#94a3b8; margin:0 5px;"></i> ${unit}` : '<span style="color:#94a3b8; font-style:italic;">Belum diatur</span>';
+    }
+    return "-";
+}
+
+// ==========================================
+// 4. RENDERING TABLES
+// ==========================================
+
+function renderRegTable() {
+    const search = document.getElementById('searchUser').value.toLowerCase();
+    const tbody = document.getElementById('user-table-body');
+    
+    const filtered = allUsers.filter(u => {
+        // Filter Privasi: Guru tidak bisa lihat Super Admin
+        if (loggedInUserRole === 'teacher' && u.role === 'super_admin') return false;
+        
+        return (u.name?.toLowerCase().includes(search) || u.email.toLowerCase().includes(search));
+    });
+
+    if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:30px; color:#94a3b8;">Tidak ditemukan data yang cocok.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = filtered.map(u => {
+        let actionButtons = '';
+        if (loggedInUserRole === 'super_admin') {
+            actionButtons = `
+                <button class="btn-compact save btn-edit" data-id="${u.id}" style="height:34px; padding:0 12px; background:#fff; border:1px solid #e2e8f0; color:#333; box-shadow:none;">
+                    <i class="fa-solid fa-pen" style="color:#f59e0b;"></i> Edit
+                </button>
+                <button class="btn-compact cancel btn-delete" data-id="${u.id}" style="height:34px; padding:0 12px; background:#fff; border:1px solid #fee2e2; color:#ef4444;">
+                    <i class="fa-solid fa-trash"></i>
+                </button>
+            `;
+        } else {
+            // Guru hanya bisa edit
+            actionButtons = `
+                <button class="btn-compact save btn-edit" data-id="${u.id}" style="height:34px; background:#fff; border:1px solid #e2e8f0; color:#333; box-shadow:none;">Edit</button>
+            `;
+        }
+
+        const opacity = u.is_active ? '1' : '0.5';
+        const bgRow = u.is_active ? '' : 'background:#fef2f2;';
+
+        return `
+            <tr style="${bgRow} opacity:${opacity};">
+                <td>
+                    <div style="font-weight:600; color:#1e293b;">${u.name || '-'}</div>
+                    ${!u.is_active ? '<div style="color:#ef4444; font-size:0.75rem; font-weight:bold; margin-top:2px;">NON-AKTIF</div>' : ''}
+                </td>
+                <td>${u.email}</td>
+                <td><span class="badge ${u.role}">${u.role.replace('_', ' ')}</span></td>
+                <td style="text-align:right; display:flex; justify-content:flex-end; gap:8px;">${actionButtons}</td>
+            </tr>`;
+    }).join('');
+}
+
+function renderScopeTable() {
+    const tbody = document.getElementById('scope-table-body');
+    const scopeUsers = allUsers.filter(u => u.role === 'pic' || u.role === 'student');
+    
+    if (scopeUsers.length === 0) return tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:30px; color:#94a3b8;">Belum ada data PIC/Siswa.</td></tr>';
+
+    tbody.innerHTML = scopeUsers.map(u => `
+        <tr>
+            <td style="font-weight:600;">${u.name || '-'}</td>
+            <td>${u.email}</td>
+            <td><span class="badge ${u.role}">${u.role}</span></td>
+            <td>${u.displayScope}</td>
+            <td style="text-align:right;">
+                <button class="btn-compact save btn-set-scope" data-id="${u.id}" style="display:inline-flex; height:34px; font-size:0.8rem;">
+                    <i class="fa-solid fa-gear"></i> Mapping
+                </button>
+            </td>
+        </tr>`).join('');
+}
+
+function renderTeacherTable() {
+    const tbody = document.getElementById('teacher-table-body');
+    const teachers = allUsers.filter(u => u.role === 'teacher');
+
+    if (teachers.length === 0) return tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:30px; color:#94a3b8;">Tidak ada data Guru.</td></tr>';
+
+    tbody.innerHTML = teachers.map(u => `
+        <tr>
+            <td style="font-weight:600;">${u.name || '-'}</td>
+            <td>${u.email}</td>
+            <td><span style="font-weight:bold; color:#4d97ff; background:#eff6ff; padding:4px 8px; border-radius:4px;">${u.levelName}</span></td>
+            <td style="text-align:right;">
+                <button class="btn-compact save btn-set-level" data-id="${u.id}" style="display:inline-flex; height:34px; font-size:0.8rem;">
+                    <i class="fa-solid fa-layer-group"></i> Level
+                </button>
+            </td>
+        </tr>`).join('');
+}
+
+// ==========================================
+// 5. ACTIONS (CRUD)
+// ==========================================
+
+async function saveUser() {
+    const id = document.getElementById('userId').value;
+    const name = document.getElementById('fullName').value;
+    const email = document.getElementById('email').value;
+    const password = document.getElementById('password').value;
+    const role = document.getElementById('role').value;
+
+    if (!email || (!id && !password) || !name) return showToast("Nama, Email & Password wajib diisi!", true);
+
+    const btn = document.getElementById('btn-save-user');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Loading...';
+    btn.disabled = true;
+
+    try {
+        const response = await fetch(EDGE_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` },
+            body: JSON.stringify({ action: id ? 'UPDATE' : 'CREATE', userId: id, name, email, password, role })
+        });
+
+        if (response.ok) { 
+            showToast("User berhasil disimpan"); 
+            resetForm(); 
+            await fetchUsers(); 
+        } else { 
+            const msg = await response.text();
+            showToast("Gagal: " + msg, true); 
+        }
+    } catch (e) { 
+        showToast("Kesalahan Koneksi", true); 
+    } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+}
+
+async function deleteUser(id) {
+    if (!confirm("Hapus user ini PERMANEN dari database?")) return;
+    
+    showToast("Menghapus user...");
+    try {
+        const response = await fetch(EDGE_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` },
+            body: JSON.stringify({ action: 'DELETE', userId: id })
+        });
+        if (response.ok) { showToast("User terhapus"); await fetchUsers(); }
+        else { showToast("Gagal menghapus", true); }
+    } catch (e) { showToast("Error sistem", true); }
+}
+
+function handleUserTableClick(e) {
+    const target = e.target.closest('button');
+    if (!target) return;
+    const id = target.dataset.id;
+
+    if (target.classList.contains('btn-edit')) {
+        const u = allUsers.find(user => user.id === id);
+        if (u) {
+            document.getElementById('userId').value = u.id;
+            document.getElementById('fullName').value = u.name || '';
+            document.getElementById('email').value = u.email;
+            document.getElementById('role').value = u.role;
+            document.getElementById('password').placeholder = "(Kosongkan jika tidak ubah)";
+            
+            document.getElementById('btn-save-user').innerHTML = '<i class="fa-solid fa-check"></i> Update';
+            document.getElementById('btn-cancel').style.display = 'inline-flex';
+            
+            // Scroll ke form
+            document.querySelector('.form-compact-wrapper').scrollIntoView({behavior: 'smooth'});
+        }
+    }
+    if (target.classList.contains('btn-delete')) {
+        deleteUser(id);
+    }
+}
+
+function resetForm() {
+    document.getElementById('userId').value = '';
+    document.getElementById('fullName').value = '';
+    document.getElementById('email').value = '';
+    document.getElementById('password').value = '';
+    document.getElementById('role').value = 'student';
+    document.getElementById('password').placeholder = "(Min. 6 Karakter)";
+    
+    document.getElementById('btn-save-user').innerHTML = '<i class="fa-solid fa-save"></i> Simpan';
+    document.getElementById('btn-cancel').style.display = 'none';
+}
+
+// ==========================================
+// 6. MODAL HANDLERS
+// ==========================================
+
+function closeModal() {
+    document.getElementById('modal-scope').style.display = 'none';
+}
+
+// --- SCOPE HANDLER ---
+function handleScopeTableClick(e) {
+    const target = e.target.closest('button');
+    if (target && target.classList.contains('btn-set-scope')) {
+        openScopeModal(target.dataset.id);
+    }
+}
+
+async function openScopeModal(userId) {
+    const user = allUsers.find(u => u.id === userId);
+    if (!user) return;
+
+    document.getElementById('modal-scope-title').innerText = "Atur Mapping: " + (user.name || user.email);
+    
+    // Inject Form Scope ke Modal Body
+    document.getElementById('modal-body-content').innerHTML = `
+        <input type="hidden" id="modal-user-id" value="${user.id}">
+        <input type="hidden" id="modal-user-role" value="${user.role}">
+        <div style="margin-bottom:15px;">
+            <label style="display:block; margin-bottom:8px; font-weight:bold; font-size:0.9rem;">Tipe Program</label>
+            <select id="scope-type" style="width:100%; padding:10px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.9rem;">
+                <option value="">-- Pilih Tipe --</option>
+                <option value="sekolah">Jalur Sekolah</option>
+                <option value="private">Jalur Private</option>
+            </select>
+        </div>
+        <div style="margin-bottom:15px;">
+            <label style="display:block; margin-bottom:8px; font-weight:bold; font-size:0.9rem;">Lembaga/Institusi</label>
+            <select id="scope-induk" style="width:100%; padding:10px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.9rem;"><option value="">-- Pilih Tipe Dulu --</option></select>
+        </div>
+        <div id="group-scope-anak" style="margin-bottom:15px; display:${user.role === 'student' ? 'block' : 'none'};">
+            <label style="display:block; margin-bottom:8px; font-weight:bold; font-size:0.9rem;">Unit/Kelas</label>
+            <select id="scope-anak" style="width:100%; padding:10px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.9rem;"><option value="">-- Pilih Lembaga Dulu --</option></select>
+        </div>
+    `;
+
+    document.getElementById('modal-footer-content').innerHTML = `
+        <button id="btn-do-save-scope" class="btn-compact save" style="display:inline-flex; width:auto; padding:0 20px;">Simpan Mapping</button>
+    `;
+
+    document.getElementById('modal-scope').style.display = 'block';
+
+    // Bind Event di dalam modal
+    document.getElementById('scope-type').onchange = (e) => handleScopeTypeChange(e.target.value);
+    document.getElementById('scope-induk').onchange = (e) => handleScopeIndukChange(e.target.value);
+    document.getElementById('btn-do-save-scope').onclick = saveScope;
+}
+
+async function handleScopeTypeChange(type) {
+    const select = document.getElementById('scope-induk');
+    select.innerHTML = '<option value="">-- Memuat... --</option>';
+    if (type === 'sekolah') {
+        const { data } = await supabase.from('schools').select('id, name').order('name');
+        select.innerHTML = '<option value="">-- Pilih Sekolah --</option>' + data.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+    } else if (type === 'private') {
+        const { data } = await supabase.from('group_private').select('id, code').order('code');
+        select.innerHTML = '<option value="">-- Pilih Group --</option>' + data.map(d => `<option value="${d.id}">${d.code}</option>`).join('');
+    }
+}
+
+async function handleScopeIndukChange(idInduk) {
+    const role = document.getElementById('modal-user-role').value;
+    const type = document.getElementById('scope-type').value;
+    const select = document.getElementById('scope-anak');
+    if (role !== 'student' || !idInduk) return;
+    
+    select.innerHTML = '<option value="">-- Memuat... --</option>';
+    const table = type === 'sekolah' ? 'classes' : 'class_private';
+    const filter = type === 'sekolah' ? 'school_id' : 'group_id';
+    
+    const { data } = await supabase.from(table).select('id, name').eq(filter, idInduk).order('name');
+    select.innerHTML = '<option value="">-- Pilih Kelas --</option>' + data.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+}
+
+async function saveScope() {
+    const userId = document.getElementById('modal-user-id').value;
+    const role = document.getElementById('modal-user-role').value;
+    const type = document.getElementById('scope-type').value;
+    const idInduk = document.getElementById('scope-induk').value;
+    const idAnak = document.getElementById('scope-anak')?.value;
+
+    if (!userId || !type || !idInduk) return showToast("Lengkapi data!", true);
+    if (role === 'student' && !idAnak) return showToast("Siswa wajib pilih kelas!", true);
+    
+    showToast("Menyimpan mapping...");
+    const payload = { 
+        id: userId, 
+        role: role, 
+        school_id: type === 'sekolah' ? idInduk : null, 
+        class_id: type === 'sekolah' ? (idAnak || null) : null, 
+        group_id: type === 'private' ? idInduk : null, 
+        class_private_id: type === 'private' ? (idAnak || null) : null 
+    };
+    
+    const { error } = await supabase.from('user_profiles').upsert(payload, { onConflict: 'id' });
+    if (error) showToast("Gagal: " + error.message, true); else { showToast("Mapping tersimpan!"); closeModal(); await fetchUsers(); }
+}
+
+// --- TEACHER LEVEL HANDLER ---
+function handleTeacherTableClick(e) {
+    const target = e.target.closest('button');
+    if (target && target.classList.contains('btn-set-level')) {
+        openLevelModal(target.dataset.id);
+    }
+}
+
+function openLevelModal(userId) {
+    const user = allUsers.find(u => u.id === userId);
+    if (!user) return;
+
+    document.getElementById('modal-scope-title').innerText = "Atur Level Guru: " + (user.name || user.email);
+    
+    document.getElementById('modal-body-content').innerHTML = `
+        <div class="form-group">
+            <label style="font-weight:bold; margin-bottom:10px; display:block;">Pilih Level Mengajar</label>
+            <select id="select-level-guru" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:5px; font-size:0.9rem;">
+                <option value="">-- Pilih Level --</option>
+                ${allLevels.map(lvl => `
+                    <option value="${lvl.id}" ${user.level_id === lvl.id ? 'selected' : ''}>${lvl.kode}</option>
+                `).join('')}
+            </select>
+        </div>
+    `;
+
+    document.getElementById('modal-footer-content').innerHTML = `
+        <button id="btn-do-save-level" class="btn-compact save" style="display:inline-flex; width:auto; padding:0 20px;">Simpan Level</button>
+    `;
+
+    document.getElementById('modal-scope').style.display = 'block';
+    document.getElementById('btn-do-save-level').onclick = () => saveLevel(user.id);
+}
+
+async function saveLevel(userId) {
+    const levelId = document.getElementById('select-level-guru').value;
+    if (!levelId) return showToast("Pilih level terlebih dahulu!", true);
+    
+    showToast("Menyimpan level...");
+    const { error } = await supabase.from('user_profiles').update({ level_id: levelId }).eq('id', userId);
+    
+    if (error) { showToast("Gagal: " + error.message, true); } 
+    else { showToast("Level tersimpan!"); closeModal(); fetchUsers(); }
+}
+
+function showToast(msg, isError = false) {
+    const t = document.getElementById('toast');
+    if (!t) return;
+    t.innerHTML = `<i class="fa-solid ${isError ? 'fa-circle-exclamation' : 'fa-circle-check'}"></i> ${msg}`;
+    t.className = isError ? 'toast error' : 'toast';
+    t.style.display = 'flex';
+    setTimeout(() => t.style.display = 'none', 3000);
 }
-
-// ==========================================
-// 2. DATA HANDLERS
-// ==========================================
-
-async function loadInitialData() {
-    try {
-        const [resMenu, resCat, resLvl] = await Promise.all([
-            supabase.from('app_menus').select('*').order('order_index'),
-            supabase.from('menu_categories').select('*').order('order_index'),
-            supabase.from('levels').select('id, kode').order('kode')
-        ]);
-
-        allMenus = resMenu.data || [];
-        allCategories = resCat.data || [];
-        allLevels = resLvl.data || [];
-
-        renderMenuUI();
-    } catch (err) {
-        console.error("Critical Load Error", err);
-    }
-}
-
-function renderMenuUI() {
-    const container = document.getElementById('mm-main-content');
-    container.innerHTML = '';
-
-    if (allCategories.length === 0) {
-        container.innerHTML = '<div class="empty-state">Belum ada kategori. Tambah kategori dulu ya Pak.</div>';
-        return;
-    }
-
-    allCategories.forEach(cat => {
-        const menus = allMenus.filter(m => m.category === cat.id);
-        const section = document.createElement('div');
-        section.className = 'menu-section';
-        section.innerHTML = `
-            <h2 class="cat-title"><i class="fa-solid fa-folder-tree"></i> ${cat.title} <small>${cat.category_key}</small></h2>
-            <div class="menu-cards-container">
-                ${menus.length ? menus.map(m => renderMenuCard(m)).join('') : '<div class="no-data">Belum ada menu di kategori ini.</div>'}
-            </div>
-        `;
-        container.appendChild(section);
-    });
-}
-
-function renderMenuCard(menu) {
-    const roleBadges = (menu.allowed_roles || []).map(r => `<span class="badge role ${r}">${r}</span>`).join('');
-    
-    // Logika Relevansi: Mencocokkan UUID level dengan Kode level untuk tampilan Admin
-    const levelBadges = (menu.allowed_level_ids || []).map(id => {
-        const found = allLevels.find(l => l.id === id);
-        return found ? `<span class="badge level">${found.kode}</span>` : '';
-    }).join('');
-
-    return `
-        <div class="menu-card ${menu.is_active ? '' : 'disabled'}">
-            <div class="card-icon"><i class="${menu.icon_class}"></i></div>
-            <div class="card-info">
-                <h3>${menu.title}</h3>
-                <code class="route-tag">${menu.route}</code>
-                <div class="access-row">
-                    ${roleBadges}
-                    ${levelBadges ? '<span class="divider"></span>' + levelBadges : ''}
-                </div>
-            </div>
-            <div class="card-ctrl">
-                <button class="btn-icon edit" onclick="window.editMenu('${menu.id}')"><i class="fa-solid fa-pen-to-square"></i></button>
-                <button class="btn-icon del" onclick="window.deleteMenu('${menu.id}')"><i class="fa-solid fa-trash-can"></i></button>
-            </div>
-        </div>
-    `;
-}
-
-// ==========================================
-// 3. CORE FUNCTIONS (CRUD)
-// ==========================================
-
-window.editMenu = (id) => {
-    const menu = allMenus.find(m => m.id === id);
-    if (!menu) return;
-
-    // Set Form
-    document.getElementById('menu-id').value = menu.id;
-    document.getElementById('menu-title').value = menu.title;
-    document.getElementById('menu-route').value = menu.route;
-    document.getElementById('menu-category').value = menu.category;
-    document.getElementById('menu-order').value = menu.order_index;
-    document.getElementById('menu-icon').value = menu.icon_class;
-    document.getElementById('menu-active').checked = menu.is_active;
-    document.getElementById('icon-preview').innerHTML = `<i class="${menu.icon_class}"></i>`;
-
-    renderAccessCheckboxes(menu.allowed_roles, menu.allowed_level_ids);
-    openModal('modal-menu');
-};
-
-async function handleMenuSubmit(e) {
-    e.preventDefault();
-    const id = document.getElementById('menu-id').value;
-    
-    // Ambil Nilai Checkbox Role
-    const roles = Array.from(document.querySelectorAll('input[name="roles"]:checked')).map(i => i.value);
-    // Ambil Nilai Checkbox Level (Ini Fitur Utama yang tadi Hilang)
-    const levels = Array.from(document.querySelectorAll('input[name="levels"]:checked')).map(i => i.value);
-
-    const payload = {
-        title: document.getElementById('menu-title').value,
-        route: document.getElementById('menu-route').value,
-        category: document.getElementById('menu-category').value,
-        order_index: document.getElementById('menu-order').value,
-        icon_class: document.getElementById('menu-icon').value || 'fa-solid fa-circle',
-        is_active: document.getElementById('menu-active').checked,
-        allowed_roles: roles,
-        allowed_level_ids: levels
-    };
-
-    if (id) {
-        await supabase.from('app_menus').update(payload).eq('id', id);
-    } else {
-        await supabase.from('app_menus').insert(payload);
-    }
-
-    closeModal('modal-menu');
-    await loadInitialData();
-}
-
-// ==========================================
-// 4. UI LOGICS (MODALS, PICKERS)
-// ==========================================
-
-function renderAccessCheckboxes(selectedRoles = [], selectedLevels = []) {
-    // 1. Render Roles
-    const roles = ['super_admin', 'pic', 'teacher', 'student'];
-    document.getElementById('role-checks').innerHTML = roles.map(r => `
-        <label class="check-item">
-            <input type="checkbox" name="roles" value="${r}" ${selectedRoles.includes(r) ? 'checked' : ''}>
-            <span>${r.replace('_', ' ').toUpperCase()}</span>
-        </label>
-    `).join('');
-
-    // 2. Render Levels (Sync dengan Database Levels)
-    document.getElementById('level-checks').innerHTML = allLevels.map(l => `
-        <label class="check-item">
-            <input type="checkbox" name="levels" value="${l.id}" ${selectedLevels.includes(l.id) ? 'checked' : ''}>
-            <span>${l.kode}</span>
-        </label>
-    `).join('');
-}
-
-function setupEvents() {
-    // Modal Openers
-    document.getElementById('open-new-menu').onclick = () => {
-        document.getElementById('form-menu').reset();
-        document.getElementById('menu-id').value = '';
-        renderAccessCheckboxes();
-        openModal('modal-menu');
-    };
-
-    document.getElementById('open-cat-mgr').onclick = () => {
-        renderCatList();
-        openModal('modal-cat');
-    };
-
-    // Close Modals
-    document.querySelectorAll('.close-modal').forEach(btn => {
-        btn.onclick = () => closeModal(btn.closest('.modal-overlay').id);
-    });
-
-    // Form Submit
-    document.getElementById('form-menu').onsubmit = handleMenuSubmit;
-
-    // Icon Picker
-    document.getElementById('btn-pick-icon').onclick = () => {
-        renderIconGrid();
-        openModal('modal-icons');
-    };
-
-    document.getElementById('search-icon').oninput = (e) => renderIconGrid(e.target.value);
-}
-
-function renderIconGrid(filter = '') {
-    const grid = document.getElementById('icon-grid-render');
-    const filtered = iconLibrary.filter(i => i.includes(filter.toLowerCase()));
-    grid.innerHTML = filtered.map(icon => `
-        <div class="icon-item" onclick="selectIcon('${icon}')">
-            <i class="${icon}"></i>
-        </div>
-    `).join('');
-}
-
-window.selectIcon = (icon) => {
-    document.getElementById('menu-icon').value = icon;
-    document.getElementById('icon-preview').innerHTML = `<i class="${icon}"></i>`;
-    closeModal('modal-icons');
-};
-
-// ==========================================
-// 5. STYLING (ADMIN REPO STANDARD)
-// ==========================================
-
-function injectStyles() {
-    if (document.getElementById('mm-master-css')) return;
-    const s = document.createElement('style');
-    s.id = 'mm-master-css';
-    s.textContent = `
-        .mm-master-container { padding: 30px; background: #f1f5f9; min-height: 100vh; font-family: 'Inter', sans-serif; }
-        .mm-header-card { background: white; padding: 25px; border-radius: 16px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); margin-bottom: 30px; }
-        .header-info h1 { margin: 0; font-size: 1.5rem; color: #1e293b; font-weight: 800; }
-        .header-info p { margin: 5px 0 0; color: #64748b; font-size: 0.9rem; }
-        .header-actions { display: flex; gap: 12px; }
-
-        /* BUTTONS */
-        .btn-primary { background: #3b82f6; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; }
-        .btn-outline { background: white; color: #475569; border: 1px solid #e2e8f0; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; }
-        .btn-submit-full { width: 100%; background: #10b981; color: white; border: none; padding: 14px; border-radius: 10px; font-weight: 700; cursor: pointer; margin-top: 20px; }
-
-        /* MENU SECTIONS */
-        .menu-section { margin-bottom: 40px; }
-        .cat-title { font-size: 1rem; color: #475569; font-weight: 700; display: flex; align-items: center; gap: 10px; margin-bottom: 15px; border-left: 4px solid #3b82f6; padding-left: 15px; }
-        .cat-title small { font-weight: 400; color: #94a3b8; margin-left: 10px; font-family: monospace; }
-        .menu-cards-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 20px; }
-
-        /* MENU CARD */
-        .menu-card { background: white; border-radius: 12px; padding: 20px; display: flex; align-items: center; gap: 20px; box-shadow: 0 2px 4px rgb(0 0 0 / 0.05); border: 1px solid #f1f5f9; transition: 0.2s; }
-        .menu-card:hover { transform: translateY(-3px); box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1); }
-        .menu-card.disabled { opacity: 0.6; filter: grayscale(1); }
-        .card-icon { width: 50px; height: 50px; background: #eff6ff; color: #3b82f6; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; }
-        .card-info { flex: 1; }
-        .card-info h3 { margin: 0; font-size: 1rem; color: #1e293b; }
-        .route-tag { font-size: 0.75rem; background: #f8fafc; padding: 2px 6px; border-radius: 4px; color: #64748b; }
-        .access-row { display: flex; gap: 5px; margin-top: 8px; flex-wrap: wrap; align-items: center; }
-        .divider { width: 1px; height: 12px; background: #e2e8f0; margin: 0 5px; }
-
-        /* BADGES */
-        .badge { font-size: 0.65rem; padding: 2px 8px; border-radius: 4px; font-weight: 700; text-transform: uppercase; }
-        .badge.role { background: #f1f5f9; color: #475569; }
-        .badge.role.super_admin { background: #fee2e2; color: #dc2626; }
-        .badge.role.pic { background: #e0f2fe; color: #0284c7; }
-        .badge.level { background: #ecfdf5; color: #059669; }
-
-        /* CARD CTRL */
-        .card-ctrl { display: flex; gap: 8px; }
-        .btn-icon { width: 35px; height: 35px; border-radius: 8px; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s; }
-        .btn-icon.edit { background: #f1f5f9; color: #64748b; } .btn-icon.edit:hover { background: #3b82f6; color: white; }
-        .btn-icon.del { background: #fef2f2; color: #ef4444; } .btn-icon.del:hover { background: #ef4444; color: white; }
-
-        /* MODALS */
-        .modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.5); backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 9999; }
-        .modal-card { background: white; width: 550px; max-width: 95%; border-radius: 20px; padding: 30px; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25); }
-        .modal-card.mini { width: 400px; }
-        .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
-        .modal-head h3 { margin: 0; font-size: 1.25rem; color: #1e293b; }
-        .close-modal { cursor: pointer; font-size: 1.5rem; color: #94a3b8; }
-        
-        /* FORM COMPONENTS */
-        .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
-        .form-group { margin-bottom: 18px; }
-        .form-group label { display: block; font-size: 0.85rem; font-weight: 700; color: #475569; margin-bottom: 8px; }
-        .input-flat { width: 100%; padding: 12px; border: 2px solid #f1f5f9; border-radius: 10px; font-size: 0.95rem; transition: 0.2s; }
-        .input-flat:focus { border-color: #3b82f6; outline: none; }
-        
-        .security-box { background: #f8fafc; border-radius: 12px; padding: 15px; border: 1px solid #f1f5f9; margin-bottom: 18px; }
-        .security-section { margin-bottom: 15px; }
-        .security-section:last-child { margin-bottom: 0; }
-        .checks-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
-        .check-item { display: flex; align-items: center; gap: 10px; font-size: 0.85rem; color: #475569; font-weight: 600; cursor: pointer; }
-        .helper { font-size: 0.75rem; color: #94a3b8; font-style: italic; }
-
-        .icon-picker-box { display: flex; align-items: center; gap: 12px; }
-        #icon-preview { width: 45px; height: 45px; background: #f1f5f9; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; color: #1e293b; }
-
-        /* TOGGLE SWITCH */
-        .toggle { display: flex; align-items: center; gap: 10px; cursor: pointer; }
-        .toggle-slider { width: 40px; height: 20px; background: #e2e8f0; border-radius: 20px; position: relative; transition: 0.3s; }
-        .toggle-slider:before { content: ""; position: absolute; width: 14px; height: 14px; background: white; border-radius: 50%; left: 3px; top: 3px; transition: 0.3s; }
-        input:checked + .toggle-slider { background: #10b981; }
-        input:checked + .toggle-slider:before { transform: translateX(20px); }
-        .toggle-label { font-weight: 700; color: #475569; font-size: 0.9rem; }
-
-        .icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(50px, 1fr)); gap: 10px; max-height: 300px; overflow-y: auto; }
-        .icon-item { width: 50px; height: 50px; background: #f8fafc; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; cursor: pointer; }
-        .icon-item:hover { background: #3b82f6; color: white; }
-
-        .fade-in { animation: fadeIn 0.4s ease-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .bounce-in { animation: bounceIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
-        @keyframes bounceIn { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-    `;
-    document.head.appendChild(s);
-}
-
-// Global Helper Modals
-function openModal(id) { document.getElementById(id).style.display = 'flex'; }
-function closeModal(id) { document.getElementById(id).style.display = 'none'; }
