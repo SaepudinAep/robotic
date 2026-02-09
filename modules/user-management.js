@@ -1,732 +1,1 @@
-/**
- * Project: User Management Module (SPA)
- * Description: Modul manajemen user dengan CSS Injection yang benar (ke Head) dan Tampilan Compact.
- */
-
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
-import { supabaseUrl, supabaseKey } from '../assets/js/config.js';
-
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-// URL Edge Function (Sesuaikan jika URL project Bapak berbeda)
-const EDGE_URL = 'https://aedtrwpomswdqxarvsrg.supabase.co/functions/v1/add-user';
-
-// State Global Modul
-let allUsers = [];
-let allLevels = [];
-let currentUserId = null; 
-let loggedInUserRole = null;
-
-// ==========================================
-// 1. INITIALIZATION (Entry Point)
-// ==========================================
-
-export async function init(canvas) {
-    // 1. Inject CSS ke HEAD (Supaya tidak terhapus saat render ulang)
-    injectStyles();
-
-    // 2. Render Skeleton HTML
-    canvas.innerHTML = `
-        <div class="um-container">
-            
-            <div class="um-header">
-                <div>
-                    <h2>User Management</h2>
-                    <p>Kelola Akun, Mapping Area, dan Level Guru</p>
-                </div>
-                <div class="um-search-box">
-                    <i class="fa-solid fa-search"></i>
-                    <input type="text" id="searchUser" placeholder="Cari nama atau email...">
-                </div>
-            </div>
-
-            <div class="um-tabs">
-                <button class="tab-btn active" id="tab-reg"><i class="fa-solid fa-user-plus"></i> Registrasi</button>
-                <button class="tab-btn" id="tab-scope"><i class="fa-solid fa-map-location-dot"></i> Mapping Area</button>
-                <button class="tab-btn" id="tab-teacher"><i class="fa-solid fa-chalkboard-user"></i> Level Guru</button>
-            </div>
-
-            <div id="reg-user-content" class="tab-panel active">
-                
-                <div class="form-compact-wrapper">
-                    <div class="form-compact-grid">
-                        <input type="hidden" id="userId">
-                        
-                        <div class="form-group">
-                            <label>Nama Lengkap</label>
-                            <input type="text" id="fullName" placeholder="Nama User">
-                        </div>
-                        <div class="form-group">
-                            <label>Email Login</label>
-                            <input type="email" id="email" placeholder="email@sekolah.com">
-                        </div>
-                        <div class="form-group">
-                            <label>Password</label>
-                            <input type="password" id="password" placeholder="(Min. 6 Karakter)">
-                        </div>
-                        <div class="form-group">
-                            <label>Role</label>
-                            <select id="role">
-                                <option value="student">Student</option>
-                                <option value="teacher">Teacher</option>
-                                <option value="pic">PIC/Admin</option>
-                                <option value="super_admin">Super Admin</option>
-                            </select>
-                        </div>
-                        <div class="action-group">
-                            <button class="btn-compact save" id="btn-save-user">
-                                <i class="fa-solid fa-save"></i> Simpan
-                            </button>
-                            <button class="btn-compact cancel" id="btn-cancel" style="display:none;">Batal</button>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="table-container">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th width="25%">Nama</th>
-                                <th width="30%">Email</th>
-                                <th width="15%">Role</th>
-                                <th width="30%" style="text-align:right;">Aksi</th>
-                            </tr>
-                        </thead>
-                        <tbody id="user-table-body">
-                            <tr><td colspan="4" class="loading-cell">Memuat data...</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <div id="scope-content" class="tab-panel" style="display:none;">
-                <div class="info-box">
-                    <i class="fa-solid fa-info-circle"></i> 
-                    <span><strong>Mapping Area:</strong> Tentukan sekolah atau kelas mana yang menjadi milik user ini.</span>
-                </div>
-                <div class="table-container">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>Nama User</th>
-                                <th>Email</th>
-                                <th>Role</th>
-                                <th>Wilayah/Scope</th>
-                                <th style="text-align:right;">Aksi</th>
-                            </tr>
-                        </thead>
-                        <tbody id="scope-table-body"></tbody>
-                    </table>
-                </div>
-            </div>
-
-            <div id="teacher-content" class="tab-panel" style="display:none;">
-                <div class="table-container">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>Nama Guru</th>
-                                <th>Email</th>
-                                <th>Level Mengajar</th>
-                                <th style="text-align:right;">Aksi</th>
-                            </tr>
-                        </thead>
-                        <tbody id="teacher-table-body"></tbody>
-                    </table>
-                </div>
-            </div>
-
-        </div>
-
-        <div id="modal-scope" class="mm-modal">
-            <div class="mm-modal-content">
-                <div class="mm-modal-header">
-                    <h3 id="modal-scope-title">Atur Akses</h3>
-                    <span id="btn-close-modal">&times;</span>
-                </div>
-                <div id="modal-body-content" class="mm-modal-body"></div>
-                <div id="modal-footer-content" class="mm-modal-footer"></div>
-            </div>
-        </div>
-
-        <div id="toast" class="toast" style="display:none;"></div>
-    `;
-
-    // 3. Logic & Event Binding
-    await setupLogic();
-}
-
-/**
- * Menyuntikkan CSS ke document.head agar permanen
- */
-function injectStyles() {
-    const styleId = 'user-management-css';
-    if (document.getElementById(styleId)) return; // Cegah duplikasi
-
-    const style = document.createElement('style');
-    style.id = styleId;
-    style.textContent = `
-        /* --- CONTAINER UTAMA --- */
-        .um-container { max-width: 1200px; margin: 0 auto; padding-bottom: 80px; font-family: 'Roboto', sans-serif; }
-
-        /* --- HEADER & SEARCH --- */
-        .um-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; flex-wrap: wrap; gap: 15px; }
-        .um-header h2 { margin: 0; font-family: 'Fredoka One', cursive; color: #333; font-size: 1.8rem; letter-spacing: 0.5px; }
-        .um-header p { margin: 5px 0 0 0; color: #64748b; font-size: 0.9rem; }
-        
-        .um-search-box { position: relative; width: 100%; max-width: 300px; }
-        .um-search-box i { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #94a3b8; }
-        .um-search-box input { width: 100%; padding: 10px 10px 10px 38px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.9rem; transition: 0.2s; }
-        .um-search-box input:focus { border-color: #4d97ff; outline: none; box-shadow: 0 0 0 3px rgba(77,151,255,0.1); }
-
-        /* --- TABS --- */
-        .um-tabs { display: flex; gap: 5px; border-bottom: 2px solid #e2e8f0; margin-bottom: 25px; overflow-x: auto; }
-        .tab-btn { background: none; border: none; padding: 12px 20px; cursor: pointer; font-weight: 600; color: #64748b; font-size: 0.95rem; border-bottom: 3px solid transparent; transition: 0.2s; white-space: nowrap; display: flex; align-items: center; gap: 8px; }
-        .tab-btn:hover { color: #4d97ff; background: #f8fafc; border-radius: 8px 8px 0 0; }
-        .tab-btn.active { color: #4d97ff; border-bottom-color: #4d97ff; }
-
-        /* --- INFO BOX --- */
-        .info-box { background: #eff6ff; border: 1px solid #dbeafe; color: #1e40af; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-size: 0.9rem; display: flex; align-items: center; gap: 10px; }
-
-        /* --- FORM COMPACT --- */
-        .form-compact-wrapper { background: #fff; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03); margin-bottom: 30px; border-left: 5px solid #4d97ff; }
-        .form-compact-grid { display: grid; grid-template-columns: 1.5fr 1.5fr 1.2fr 1fr auto; gap: 15px; align-items: end; }
-        .form-group label { font-size: 0.75rem; font-weight: 700; margin-bottom: 6px; display: block; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; }
-        .form-group input, .form-group select { width: 100%; padding: 0 12px; height: 42px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.9rem; background: #f8fafc; color: #334155; transition: all 0.2s; }
-        .form-group input:focus, .form-group select:focus { border-color: #4d97ff; background: #fff; box-shadow: 0 0 0 3px rgba(77,151,255,0.1); outline: none; }
-        
-        .action-group { display: flex; gap: 8px; }
-        .btn-compact { height: 42px; padding: 0 20px; font-size: 0.9rem; border-radius: 6px; cursor: pointer; font-weight: 600; border: none; display: flex; align-items: center; gap: 8px; transition: 0.2s; justify-content: center; }
-        .btn-compact.save { background: #4d97ff; color: white; box-shadow: 0 2px 4px rgba(77,151,255,0.2); }
-        .btn-compact.save:hover { background: #2563eb; transform: translateY(-1px); }
-        .btn-compact.cancel { background: #f1f5f9; color: #64748b; }
-        .btn-compact.cancel:hover { background: #e2e8f0; color: #334155; }
-
-        /* --- TABLE --- */
-        .table-container { background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); overflow-x: auto; border: 1px solid #e2e8f0; }
-        .data-table { width: 100%; border-collapse: collapse; min-width: 600px; }
-        .data-table th { background: #f8fafc; text-align: left; padding: 16px 20px; font-weight: 700; color: #475569; border-bottom: 1px solid #e2e8f0; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; }
-        .data-table td { padding: 16px 20px; border-bottom: 1px solid #f1f5f9; color: #334155; font-size: 0.9rem; vertical-align: middle; }
-        .data-table tr:hover { background: #f8fafc; }
-        .data-table tr:last-child td { border-bottom: none; }
-        .loading-cell { text-align: center; color: #94a3b8; font-style: italic; padding: 30px; }
-
-        /* --- BADGES --- */
-        .badge { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 20px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; line-height: 1; }
-        .badge.super_admin { background: #fee2e2; color: #991b1b; }
-        .badge.teacher { background: #dbeafe; color: #1e40af; }
-        .badge.student { background: #dcfce7; color: #166534; }
-        .badge.pic { background: #fef3c7; color: #92400e; }
-
-        /* --- MODAL --- */
-        .mm-modal { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); animation: fadeIn 0.2s; }
-        .mm-modal-content { background-color: #fff; margin: 8vh auto; border-radius: 16px; width: 500px; max-width: 90%; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); overflow: hidden; }
-        .mm-modal-header { padding: 20px 25px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; }
-        .mm-modal-header h3 { margin: 0; font-size: 1.1rem; color: #334155; }
-        .mm-modal-header span { font-size: 1.5rem; cursor: pointer; color: #94a3b8; transition: 0.2s; }
-        .mm-modal-header span:hover { color: #ef4444; }
-        .mm-modal-body { padding: 25px; }
-        .mm-modal-footer { padding: 20px 25px; border-top: 1px solid #e2e8f0; text-align: right; background: #f8fafc; }
-
-        /* --- TOAST --- */
-        .toast { position: fixed; bottom: 30px; right: 30px; background: #1e293b; color: #fff; padding: 12px 24px; border-radius: 8px; z-index: 10000; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); font-size: 0.9rem; font-weight: 500; display: flex; align-items: center; gap: 10px; animation: slideLeft 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
-        .toast.error { background: #ef4444; }
-
-        /* --- ANIMATIONS --- */
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes slideUp { from { opacity: 0; transform: translateY(20px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
-        @keyframes slideLeft { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
-
-        /* --- RESPONSIVE --- */
-        @media (max-width: 1024px) { 
-            .form-compact-grid { grid-template-columns: 1fr 1fr; } 
-            .action-group { grid-column: span 2; justify-content: flex-end; } 
-        }
-        @media (max-width: 640px) { 
-            .form-compact-grid { grid-template-columns: 1fr; gap: 10px; } 
-            .action-group { grid-column: span 1; width: 100%; }
-            .btn-compact { width: 100%; }
-            .um-header { flex-direction: column; align-items: flex-start; }
-            .um-search-box { max-width: 100%; }
-            .data-table th, .data-table td { padding: 12px 15px; }
-        }
-    `;
-    document.head.appendChild(style);
-}
-
-// ==========================================
-// 2. LOGIC & EVENTS
-// ==========================================
-
-async function setupLogic() {
-    // 1. Ambil Data User Login & Role
-    const { data: { user } } = await supabase.auth.getUser();
-    currentUserId = user?.id || null;
-    
-    // Cek Role di DB (Lebih aman)
-    const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', currentUserId).single();
-    loggedInUserRole = profile?.role || 'student';
-
-    // 2. Security Guard
-    if (loggedInUserRole !== 'super_admin' && loggedInUserRole !== 'teacher' && loggedInUserRole !== 'pic') {
-        document.getElementById('reg-user-content').innerHTML = `
-            <div style="padding:40px; text-align:center; color:#ef4444; background:white; border-radius:12px; border:1px solid #fecaca;">
-                <i class="fa-solid fa-ban" style="font-size:3rem; margin-bottom:15px;"></i>
-                <h3>Akses Ditolak</h3>
-                <p>Anda tidak memiliki izin mengelola user.</p>
-            </div>`;
-        return;
-    }
-
-    // 3. UI Adjustments based on Role
-    if (loggedInUserRole !== 'super_admin') {
-        document.getElementById('tab-teacher').style.display = 'none'; // Sembunyikan tab level guru
-        const roleSelect = document.getElementById('role');
-        if (roleSelect) {
-            // Hapus opsi super_admin jika bukan super_admin
-            for (let i = 0; i < roleSelect.options.length; i++) {
-                if (roleSelect.options[i].value === 'super_admin') {
-                    roleSelect.remove(i);
-                    break;
-                }
-            }
-        }
-    }
-
-    // 4. Initial Fetch
-    await fetchLevels();
-    await fetchUsers();
-
-    // 5. Setup Events
-    setupEvents();
-}
-
-function setupEvents() {
-    // Tabs Navigation
-    const tabs = ['reg', 'scope', 'teacher'];
-    tabs.forEach(t => {
-        const btn = document.getElementById(`tab-${t}`);
-        if(btn) btn.onclick = () => switchTab(t);
-    });
-
-    // Form Events
-    document.getElementById('btn-save-user').onclick = saveUser;
-    document.getElementById('btn-cancel').onclick = resetForm;
-    document.getElementById('searchUser').oninput = renderRegTable;
-
-    // Table Delegation (Edit/Delete)
-    document.getElementById('user-table-body').onclick = handleUserTableClick;
-    document.getElementById('scope-table-body').onclick = handleScopeTableClick;
-    document.getElementById('teacher-table-body').onclick = handleTeacherTableClick;
-
-    // Modal Events
-    document.getElementById('btn-close-modal').onclick = closeModal;
-}
-
-function switchTab(tabName) {
-    document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-
-    let contentId = '';
-    if (tabName === 'reg') contentId = 'reg-user-content';
-    if (tabName === 'scope') contentId = 'scope-content';
-    if (tabName === 'teacher') contentId = 'teacher-content';
-
-    const panel = document.getElementById(contentId);
-    if(panel) panel.style.display = 'block';
-    
-    const btn = document.getElementById(`tab-${tabName}`);
-    if(btn) btn.classList.add('active');
-}
-
-// ==========================================
-// 3. DATA FETCHING
-// ==========================================
-
-async function fetchLevels() {
-    const { data } = await supabase.from('levels').select('id, kode').order('kode');
-    if (data) allLevels = data;
-}
-
-async function fetchUsers() {
-    const { data, error } = await supabase
-        .from('user_profiles')
-        .select(`
-            id, name, role, email, is_active, school_id, class_id, group_id, class_private_id, level_id,
-            schools(name), group_private(code), classes(name), class_private(name), levels(kode) 
-        `);
-
-    if (error) return showToast("Gagal sinkron: " + error.message, true);
-
-    allUsers = data.map(u => ({
-        ...u,
-        email: u.email || "(Belum Sinkron)",
-        role: u.role || "student",
-        displayScope: formatScopeText(u),
-        levelName: Array.isArray(u.levels) ? u.levels[0]?.kode : u.levels?.kode || "-"
-    }));
-
-    renderRegTable(); 
-    renderScopeTable(); 
-    if (loggedInUserRole === 'super_admin') renderTeacherTable(); 
-}
-
-function formatScopeText(u) {
-    const getVal = (obj, prop) => (Array.isArray(obj) ? obj[0]?.[prop] : obj?.[prop]);
-    if (u.role === 'pic') {
-        const instansi = getVal(u.schools, 'name') || getVal(u.group_private, 'code') || "Belum diatur";
-        return `<strong style="color:#0f172a;">${instansi}</strong>`;
-    } else if (u.role === 'student') {
-        const instansi = getVal(u.schools, 'name') || getVal(u.group_private, 'code');
-        const unit = getVal(u.classes, 'name') || getVal(u.class_private, 'name') || "Belum diatur";
-        return instansi ? `${instansi} <i class="fa-solid fa-chevron-right" style="font-size:0.7em; color:#94a3b8; margin:0 5px;"></i> ${unit}` : '<span style="color:#94a3b8; font-style:italic;">Belum diatur</span>';
-    }
-    return "-";
-}
-
-// ==========================================
-// 4. RENDERING TABLES
-// ==========================================
-
-function renderRegTable() {
-    const search = document.getElementById('searchUser').value.toLowerCase();
-    const tbody = document.getElementById('user-table-body');
-    
-    const filtered = allUsers.filter(u => {
-        // Filter Privasi: Guru tidak bisa lihat Super Admin
-        if (loggedInUserRole === 'teacher' && u.role === 'super_admin') return false;
-        
-        return (u.name?.toLowerCase().includes(search) || u.email.toLowerCase().includes(search));
-    });
-
-    if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:30px; color:#94a3b8;">Tidak ditemukan data yang cocok.</td></tr>';
-        return;
-    }
-
-    tbody.innerHTML = filtered.map(u => {
-        let actionButtons = '';
-        if (loggedInUserRole === 'super_admin') {
-            actionButtons = `
-                <button class="btn-compact save btn-edit" data-id="${u.id}" style="height:34px; padding:0 12px; background:#fff; border:1px solid #e2e8f0; color:#333; box-shadow:none;">
-                    <i class="fa-solid fa-pen" style="color:#f59e0b;"></i> Edit
-                </button>
-                <button class="btn-compact cancel btn-delete" data-id="${u.id}" style="height:34px; padding:0 12px; background:#fff; border:1px solid #fee2e2; color:#ef4444;">
-                    <i class="fa-solid fa-trash"></i>
-                </button>
-            `;
-        } else {
-            // Guru hanya bisa edit
-            actionButtons = `
-                <button class="btn-compact save btn-edit" data-id="${u.id}" style="height:34px; background:#fff; border:1px solid #e2e8f0; color:#333; box-shadow:none;">Edit</button>
-            `;
-        }
-
-        const opacity = u.is_active ? '1' : '0.5';
-        const bgRow = u.is_active ? '' : 'background:#fef2f2;';
-
-        return `
-            <tr style="${bgRow} opacity:${opacity};">
-                <td>
-                    <div style="font-weight:600; color:#1e293b;">${u.name || '-'}</div>
-                    ${!u.is_active ? '<div style="color:#ef4444; font-size:0.75rem; font-weight:bold; margin-top:2px;">NON-AKTIF</div>' : ''}
-                </td>
-                <td>${u.email}</td>
-                <td><span class="badge ${u.role}">${u.role.replace('_', ' ')}</span></td>
-                <td style="text-align:right; display:flex; justify-content:flex-end; gap:8px;">${actionButtons}</td>
-            </tr>`;
-    }).join('');
-}
-
-function renderScopeTable() {
-    const tbody = document.getElementById('scope-table-body');
-    const scopeUsers = allUsers.filter(u => u.role === 'pic' || u.role === 'student');
-    
-    if (scopeUsers.length === 0) return tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:30px; color:#94a3b8;">Belum ada data PIC/Siswa.</td></tr>';
-
-    tbody.innerHTML = scopeUsers.map(u => `
-        <tr>
-            <td style="font-weight:600;">${u.name || '-'}</td>
-            <td>${u.email}</td>
-            <td><span class="badge ${u.role}">${u.role}</span></td>
-            <td>${u.displayScope}</td>
-            <td style="text-align:right;">
-                <button class="btn-compact save btn-set-scope" data-id="${u.id}" style="display:inline-flex; height:34px; font-size:0.8rem;">
-                    <i class="fa-solid fa-gear"></i> Mapping
-                </button>
-            </td>
-        </tr>`).join('');
-}
-
-function renderTeacherTable() {
-    const tbody = document.getElementById('teacher-table-body');
-    const teachers = allUsers.filter(u => u.role === 'teacher');
-
-    if (teachers.length === 0) return tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:30px; color:#94a3b8;">Tidak ada data Guru.</td></tr>';
-
-    tbody.innerHTML = teachers.map(u => `
-        <tr>
-            <td style="font-weight:600;">${u.name || '-'}</td>
-            <td>${u.email}</td>
-            <td><span style="font-weight:bold; color:#4d97ff; background:#eff6ff; padding:4px 8px; border-radius:4px;">${u.levelName}</span></td>
-            <td style="text-align:right;">
-                <button class="btn-compact save btn-set-level" data-id="${u.id}" style="display:inline-flex; height:34px; font-size:0.8rem;">
-                    <i class="fa-solid fa-layer-group"></i> Level
-                </button>
-            </td>
-        </tr>`).join('');
-}
-
-// ==========================================
-// 5. ACTIONS (CRUD)
-// ==========================================
-
-async function saveUser() {
-    const id = document.getElementById('userId').value;
-    const name = document.getElementById('fullName').value;
-    const email = document.getElementById('email').value;
-    const password = document.getElementById('password').value;
-    const role = document.getElementById('role').value;
-
-    if (!email || (!id && !password) || !name) return showToast("Nama, Email & Password wajib diisi!", true);
-
-    const btn = document.getElementById('btn-save-user');
-    const originalText = btn.innerHTML;
-    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Loading...';
-    btn.disabled = true;
-
-    try {
-        const response = await fetch(EDGE_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` },
-            body: JSON.stringify({ action: id ? 'UPDATE' : 'CREATE', userId: id, name, email, password, role })
-        });
-
-        if (response.ok) { 
-            showToast("User berhasil disimpan"); 
-            resetForm(); 
-            await fetchUsers(); 
-        } else { 
-            const msg = await response.text();
-            showToast("Gagal: " + msg, true); 
-        }
-    } catch (e) { 
-        showToast("Kesalahan Koneksi", true); 
-    } finally {
-        btn.innerHTML = originalText;
-        btn.disabled = false;
-    }
-}
-
-async function deleteUser(id) {
-    if (!confirm("Hapus user ini PERMANEN dari database?")) return;
-    
-    showToast("Menghapus user...");
-    try {
-        const response = await fetch(EDGE_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` },
-            body: JSON.stringify({ action: 'DELETE', userId: id })
-        });
-        if (response.ok) { showToast("User terhapus"); await fetchUsers(); }
-        else { showToast("Gagal menghapus", true); }
-    } catch (e) { showToast("Error sistem", true); }
-}
-
-function handleUserTableClick(e) {
-    const target = e.target.closest('button');
-    if (!target) return;
-    const id = target.dataset.id;
-
-    if (target.classList.contains('btn-edit')) {
-        const u = allUsers.find(user => user.id === id);
-        if (u) {
-            document.getElementById('userId').value = u.id;
-            document.getElementById('fullName').value = u.name || '';
-            document.getElementById('email').value = u.email;
-            document.getElementById('role').value = u.role;
-            document.getElementById('password').placeholder = "(Kosongkan jika tidak ubah)";
-            
-            document.getElementById('btn-save-user').innerHTML = '<i class="fa-solid fa-check"></i> Update';
-            document.getElementById('btn-cancel').style.display = 'inline-flex';
-            
-            // Scroll ke form
-            document.querySelector('.form-compact-wrapper').scrollIntoView({behavior: 'smooth'});
-        }
-    }
-    if (target.classList.contains('btn-delete')) {
-        deleteUser(id);
-    }
-}
-
-function resetForm() {
-    document.getElementById('userId').value = '';
-    document.getElementById('fullName').value = '';
-    document.getElementById('email').value = '';
-    document.getElementById('password').value = '';
-    document.getElementById('role').value = 'student';
-    document.getElementById('password').placeholder = "(Min. 6 Karakter)";
-    
-    document.getElementById('btn-save-user').innerHTML = '<i class="fa-solid fa-save"></i> Simpan';
-    document.getElementById('btn-cancel').style.display = 'none';
-}
-
-// ==========================================
-// 6. MODAL HANDLERS
-// ==========================================
-
-function closeModal() {
-    document.getElementById('modal-scope').style.display = 'none';
-}
-
-// --- SCOPE HANDLER ---
-function handleScopeTableClick(e) {
-    const target = e.target.closest('button');
-    if (target && target.classList.contains('btn-set-scope')) {
-        openScopeModal(target.dataset.id);
-    }
-}
-
-async function openScopeModal(userId) {
-    const user = allUsers.find(u => u.id === userId);
-    if (!user) return;
-
-    document.getElementById('modal-scope-title').innerText = "Atur Mapping: " + (user.name || user.email);
-    
-    // Inject Form Scope ke Modal Body
-    document.getElementById('modal-body-content').innerHTML = `
-        <input type="hidden" id="modal-user-id" value="${user.id}">
-        <input type="hidden" id="modal-user-role" value="${user.role}">
-        <div style="margin-bottom:15px;">
-            <label style="display:block; margin-bottom:8px; font-weight:bold; font-size:0.9rem;">Tipe Program</label>
-            <select id="scope-type" style="width:100%; padding:10px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.9rem;">
-                <option value="">-- Pilih Tipe --</option>
-                <option value="sekolah">Jalur Sekolah</option>
-                <option value="private">Jalur Private</option>
-            </select>
-        </div>
-        <div style="margin-bottom:15px;">
-            <label style="display:block; margin-bottom:8px; font-weight:bold; font-size:0.9rem;">Lembaga/Institusi</label>
-            <select id="scope-induk" style="width:100%; padding:10px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.9rem;"><option value="">-- Pilih Tipe Dulu --</option></select>
-        </div>
-        <div id="group-scope-anak" style="margin-bottom:15px; display:${user.role === 'student' ? 'block' : 'none'};">
-            <label style="display:block; margin-bottom:8px; font-weight:bold; font-size:0.9rem;">Unit/Kelas</label>
-            <select id="scope-anak" style="width:100%; padding:10px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.9rem;"><option value="">-- Pilih Lembaga Dulu --</option></select>
-        </div>
-    `;
-
-    document.getElementById('modal-footer-content').innerHTML = `
-        <button id="btn-do-save-scope" class="btn-compact save" style="display:inline-flex; width:auto; padding:0 20px;">Simpan Mapping</button>
-    `;
-
-    document.getElementById('modal-scope').style.display = 'block';
-
-    // Bind Event di dalam modal
-    document.getElementById('scope-type').onchange = (e) => handleScopeTypeChange(e.target.value);
-    document.getElementById('scope-induk').onchange = (e) => handleScopeIndukChange(e.target.value);
-    document.getElementById('btn-do-save-scope').onclick = saveScope;
-}
-
-async function handleScopeTypeChange(type) {
-    const select = document.getElementById('scope-induk');
-    select.innerHTML = '<option value="">-- Memuat... --</option>';
-    if (type === 'sekolah') {
-        const { data } = await supabase.from('schools').select('id, name').order('name');
-        select.innerHTML = '<option value="">-- Pilih Sekolah --</option>' + data.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
-    } else if (type === 'private') {
-        const { data } = await supabase.from('group_private').select('id, code').order('code');
-        select.innerHTML = '<option value="">-- Pilih Group --</option>' + data.map(d => `<option value="${d.id}">${d.code}</option>`).join('');
-    }
-}
-
-async function handleScopeIndukChange(idInduk) {
-    const role = document.getElementById('modal-user-role').value;
-    const type = document.getElementById('scope-type').value;
-    const select = document.getElementById('scope-anak');
-    if (role !== 'student' || !idInduk) return;
-    
-    select.innerHTML = '<option value="">-- Memuat... --</option>';
-    const table = type === 'sekolah' ? 'classes' : 'class_private';
-    const filter = type === 'sekolah' ? 'school_id' : 'group_id';
-    
-    const { data } = await supabase.from(table).select('id, name').eq(filter, idInduk).order('name');
-    select.innerHTML = '<option value="">-- Pilih Kelas --</option>' + data.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
-}
-
-async function saveScope() {
-    const userId = document.getElementById('modal-user-id').value;
-    const role = document.getElementById('modal-user-role').value;
-    const type = document.getElementById('scope-type').value;
-    const idInduk = document.getElementById('scope-induk').value;
-    const idAnak = document.getElementById('scope-anak')?.value;
-
-    if (!userId || !type || !idInduk) return showToast("Lengkapi data!", true);
-    if (role === 'student' && !idAnak) return showToast("Siswa wajib pilih kelas!", true);
-    
-    showToast("Menyimpan mapping...");
-    const payload = { 
-        id: userId, 
-        role: role, 
-        school_id: type === 'sekolah' ? idInduk : null, 
-        class_id: type === 'sekolah' ? (idAnak || null) : null, 
-        group_id: type === 'private' ? idInduk : null, 
-        class_private_id: type === 'private' ? (idAnak || null) : null 
-    };
-    
-    const { error } = await supabase.from('user_profiles').upsert(payload, { onConflict: 'id' });
-    if (error) showToast("Gagal: " + error.message, true); else { showToast("Mapping tersimpan!"); closeModal(); await fetchUsers(); }
-}
-
-// --- TEACHER LEVEL HANDLER ---
-function handleTeacherTableClick(e) {
-    const target = e.target.closest('button');
-    if (target && target.classList.contains('btn-set-level')) {
-        openLevelModal(target.dataset.id);
-    }
-}
-
-function openLevelModal(userId) {
-    const user = allUsers.find(u => u.id === userId);
-    if (!user) return;
-
-    document.getElementById('modal-scope-title').innerText = "Atur Level Guru: " + (user.name || user.email);
-    
-    document.getElementById('modal-body-content').innerHTML = `
-        <div class="form-group">
-            <label style="font-weight:bold; margin-bottom:10px; display:block;">Pilih Level Mengajar</label>
-            <select id="select-level-guru" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:5px; font-size:0.9rem;">
-                <option value="">-- Pilih Level --</option>
-                ${allLevels.map(lvl => `
-                    <option value="${lvl.id}" ${user.level_id === lvl.id ? 'selected' : ''}>${lvl.kode}</option>
-                `).join('')}
-            </select>
-        </div>
-    `;
-
-    document.getElementById('modal-footer-content').innerHTML = `
-        <button id="btn-do-save-level" class="btn-compact save" style="display:inline-flex; width:auto; padding:0 20px;">Simpan Level</button>
-    `;
-
-    document.getElementById('modal-scope').style.display = 'block';
-    document.getElementById('btn-do-save-level').onclick = () => saveLevel(user.id);
-}
-
-async function saveLevel(userId) {
-    const levelId = document.getElementById('select-level-guru').value;
-    if (!levelId) return showToast("Pilih level terlebih dahulu!", true);
-    
-    showToast("Menyimpan level...");
-    const { error } = await supabase.from('user_profiles').update({ level_id: levelId }).eq('id', userId);
-    
-    if (error) { showToast("Gagal: " + error.message, true); } 
-    else { showToast("Level tersimpan!"); closeModal(); fetchUsers(); }
-}
-
-function showToast(msg, isError = false) {
-    const t = document.getElementById('toast');
-    if (!t) return;
-    t.innerHTML = `<i class="fa-solid ${isError ? 'fa-circle-exclamation' : 'fa-circle-check'}"></i> ${msg}`;
-    t.className = isError ? 'toast error' : 'toast';
-    t.style.display = 'flex';
-    setTimeout(() => t.style.display = 'none', 3000);
-}
+/** * Project: User Management Module (SPA) - ULTIMATE REVISION * Features: Role-Based View, Hard/Soft Delete, Hierarchy Logic, Premium UI */import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';import { supabaseUrl, supabaseKey } from '../assets/js/config.js';const supabase = createClient(supabaseUrl, supabaseKey);const EDGE_URL = 'https://aedtrwpomswdqxarvsrg.supabase.co/functions/v1/add-user';// --- GLOBAL STATE ---let allUsers = [];let allLevels = [];let currentUserId = null; let loggedInUserRole = null;// ==========================================// 1. INITIALIZATION & STYLES// ==========================================export async function init(canvas) {    injectStyles();        canvas.innerHTML = `        <div class="um-container">            <div class="um-header-card">                <div class="header-text">                    <h2><i class="fa-solid fa-users-gear"></i> User Management</h2>                    <p>Kontrol penuh atas akses, hierarki, dan data pengguna.</p>                </div>                <div class="header-actions">                    <div class="search-wrapper">                        <i class="fa-solid fa-magnifying-glass"></i>                        <input type="text" id="searchUser" placeholder="Cari Nama / Email...">                    </div>                </div>            </div>            <div class="um-tabs">                <button class="tab-btn active" id="tab-reg">                    <i class="fa-solid fa-user-plus"></i> Registrasi & Data                </button>                <button class="tab-btn" id="tab-scope">                    <i class="fa-solid fa-sitemap"></i> Mapping Area                </button>                <button class="tab-btn" id="tab-teacher" style="display:none;">                    <i class="fa-solid fa-chalkboard-user"></i> Level Guru                </button>            </div>            <div id="panel-reg" class="tab-panel active">                                <div class="form-card">                    <div class="form-header">                        <h4><i class="fa-solid fa-pen-to-square"></i> Form Input User</h4>                        <button id="btn-reset-form" class="btn-text">Reset Form</button>                    </div>                    <div class="form-grid">                        <input type="hidden" id="userId">                                                <div class="input-group">                            <label>Nama Lengkap</label>                            <input type="text" id="fullName" placeholder="Contoh: Budi Santoso">                        </div>                                                <div class="input-group">                            <label>Email Login</label>                            <input type="email" id="email" placeholder="email@sekolah.com">                        </div>                        <div class="input-group">                            <label>Password</label>                            <input type="password" id="password" placeholder="(Min. 6 Karakter)">                            <small class="hint">*Kosongkan jika edit user tanpa ubah password</small>                        </div>                        <div class="input-group">                            <label>Role (Hak Akses)</label>                            <select id="role">                                <option value="" disabled selected>-- Pilih Role --</option>                                </select>                        </div>                    </div>                    <div class="form-footer">                        <button id="btn-save-user" class="btn-primary">                            <i class="fa-solid fa-floppy-disk"></i> Simpan Data                        </button>                    </div>                </div>                <div class="table-card">                    <table class="modern-table">                        <thead>                            <tr>                                <th width="30%">User Profile</th>                                <th width="25%">Email</th>                                <th width="15%">Role</th>                                <th width="15%">Status</th>                                <th width="15%" class="text-right">Aksi</th>                            </tr>                        </thead>                        <tbody id="user-table-body">                            <tr><td colspan="5" class="loading">Memuat data...</td></tr>                        </tbody>                    </table>                </div>            </div>            <div id="panel-scope" class="tab-panel" style="display:none;">                <div class="info-banner">                    <i class="fa-solid fa-circle-info"></i>                    <div>                        <strong>Mapping Area</strong> menentukan data sekolah/kelas mana yang bisa diakses user tersebut.                    </div>                </div>                <div class="table-card">                    <table class="modern-table">                        <thead>                            <tr>                                <th>User</th>                                <th>Role</th>                                <th>Akses Wilayah (Scope)</th>                                <th class="text-right">Setting</th>                            </tr>                        </thead>                        <tbody id="scope-table-body"></tbody>                    </table>                </div>            </div>            <div id="panel-teacher" class="tab-panel" style="display:none;">                <div class="table-card">                    <table class="modern-table">                        <thead>                            <tr>                                <th>Nama Guru</th>                                <th>Email</th>                                <th>Level Mengajar</th>                                <th class="text-right">Setting</th>                            </tr>                        </thead>                        <tbody id="teacher-table-body"></tbody>                    </table>                </div>            </div>        </div>        <div id="modal-wrapper" class="modal-overlay">            <div class="modal-content">                <div class="modal-header">                    <h3 id="modal-title">Judul Modal</h3>                    <span id="close-modal" class="close-btn">&times;</span>                </div>                <div id="modal-body" class="modal-body"></div>                <div id="modal-footer" class="modal-footer"></div>            </div>        </div>        <div id="toast-box" class="toast"></div>    `;    await setupLogic();}// ==========================================// 2. CORE LOGIC & SECURITY// ==========================================async function setupLogic() {    // 1. Cek User Login    const { data: { user } } = await supabase.auth.getUser();    currentUserId = user?.id || null;    if (!currentUserId) return showToast("Sesi habis, silakan login ulang", true);    const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', currentUserId).single();    loggedInUserRole = profile?.role || 'student';    // 2. Proteksi Halaman (Kick Student)    if (['student'].includes(loggedInUserRole)) {        document.querySelector('.um-container').innerHTML = `            <div class="access-denied">                <i class="fa-solid fa-lock"></i>                <h2>Akses Dibatasi</h2>                <p>Anda tidak memiliki izin untuk mengakses halaman manajemen user.</p>            </div>`;        return;    }    // 3. Konfigurasi UI Berdasarkan Role    configureRoleUI();    // 4. Fetch Data Awal    await fetchLevels();    await fetchUsers();    // 5. Setup Event Listeners    setupEvents();}function configureRoleUI() {    const roleSelect = document.getElementById('role');    const tabTeacher = document.getElementById('tab-teacher');    // Reset opsi    roleSelect.innerHTML = '';    if (loggedInUserRole === 'super_admin') {        // Super Admin: Full Power        roleSelect.innerHTML = `            <option value="student">Student (Siswa)</option>            <option value="pic">PIC (Staff/Ortu)</option>            <option value="teacher">Teacher (Tim Internal)</option>            <option value="super_admin">Super Admin</option>        `;        if (tabTeacher) tabTeacher.style.display = 'block'; // Bisa atur level guru    }     else if (loggedInUserRole === 'teacher') {        // Teacher: Hanya bawahan        roleSelect.innerHTML = `            <option value="student">Student (Siswa)</option>            <option value="pic">PIC (Staff/Ortu)</option>        `;        if (tabTeacher) tabTeacher.style.display = 'none'; // Guru tidak atur level guru lain    }     else if (loggedInUserRole === 'pic') {        // PIC: Hanya siswa        roleSelect.innerHTML = `<option value="student">Student (Siswa)</option>`;        if (tabTeacher) tabTeacher.style.display = 'none';    }}function setupEvents() {    // Tab Switching    document.getElementById('tab-reg').onclick = () => switchTab('reg');    document.getElementById('tab-scope').onclick = () => switchTab('scope');    if (document.getElementById('tab-teacher')) {        document.getElementById('tab-teacher').onclick = () => switchTab('teacher');    }    // Form Actions    document.getElementById('btn-save-user').onclick = saveUser;    document.getElementById('btn-reset-form').onclick = resetForm;    document.getElementById('searchUser').oninput = renderTables;    // Table Actions (Delegation)    document.getElementById('user-table-body').onclick = handleUserTableAction;    document.getElementById('scope-table-body').onclick = handleScopeTableAction;    document.getElementById('teacher-table-body').onclick = handleTeacherTableAction;    // Modal    document.getElementById('close-modal').onclick = closeModal;}function switchTab(target) {    document.querySelectorAll('.tab-panel').forEach(el => el.style.display = 'none');    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));    document.getElementById(`panel-${target}`).style.display = 'block';    document.getElementById(`tab-${target}`).classList.add('active');}// ==========================================// 3. DATA FETCHING// ==========================================async function fetchLevels() {    const { data } = await supabase.from('levels').select('*').order('kode');    allLevels = data || [];}async function fetchUsers() {    // Fetch lengkap dengan relasi untuk mapping    const { data, error } = await supabase        .from('user_profiles')        .select(`            id, name, email, role, is_active,             school_id, class_id, group_id, class_private_id, level_id,            schools(name), classes(name),             group_private(code), class_private(name),             levels(kode)        `)        .order('created_at', { ascending: false });    if (error) return showToast("Gagal mengambil data user", true);    allUsers = data.map(u => ({        ...u,        email: u.email || "(Belum Sinkron)",        // Format Scope Text untuk tabel        scopeText: formatScope(u),        levelCode: u.levels?.kode || '-'    }));    renderTables();}function formatScope(u) {    const school = u.schools?.name;    const group = u.group_private?.code;    const cls = u.classes?.name || u.class_private?.name;    if (u.role === 'super_admin') return '<span class="badge badge-gray">Global Access</span>';        let main = school || group || '<span style="color:#cbd5e1;">Belum Set</span>';    let sub = cls ? `<i class="fa-solid fa-chevron-right" style="font-size:0.7em; margin:0 5px;"></i> ${cls}` : '';        return `<strong>${main}</strong> ${sub}`;}// ==========================================// 4. RENDERING TABLES (THE LOGIC CORE)// ==========================================function renderTables() {    renderUserTable();    renderScopeTable();    if (loggedInUserRole === 'super_admin') renderTeacherLevelTable();}function renderUserTable() {    const search = document.getElementById('searchUser').value.toLowerCase();    const tbody = document.getElementById('user-table-body');    const filtered = allUsers.filter(u => {        // --- LOGIC 1: ROLE FILTER ---        if (loggedInUserRole === 'teacher') {            // Sembunyikan Super Admin            if (u.role === 'super_admin') return false;            // Sembunyikan Teacher LAIN (Kecuali Diri Sendiri)            if (u.role === 'teacher' && u.id !== currentUserId) return false;        }        if (loggedInUserRole === 'pic') {            // PIC hanya lihat Student & Diri Sendiri            if (u.id === currentUserId) return true;            if (u.role !== 'student') return false;        }        // --- LOGIC 2: STATUS FILTER ---        // Super Admin lihat semua (Active & Inactive).        // Role lain HANYA lihat yang Active (Kecuali diri sendiri, jaga-jaga).        if (loggedInUserRole !== 'super_admin' && u.id !== currentUserId) {            if (u.is_active === false) return false;         }        // --- LOGIC 3: SEARCH ---        return (u.name?.toLowerCase().includes(search) || u.email?.toLowerCase().includes(search));    });    if (filtered.length === 0) {        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:40px; color:#94a3b8;">Data tidak ditemukan.</td></tr>`;        return;    }    tbody.innerHTML = filtered.map(u => {        const isMe = u.id === currentUserId;        const isActive = u.is_active;        // Tentukan Tombol Delete        let btnDelete = '';        // Aturan: Tidak boleh hapus diri sendiri        if (!isMe) {            if (loggedInUserRole === 'super_admin') {                // Hard Delete / Restore                btnDelete = `<button class="action-btn btn-delete" data-id="${u.id}" title="Hapus Permanen"><i class="fa-solid fa-trash-can"></i></button>`;            } else {                // Soft Delete (Teacher/PIC)                btnDelete = `<button class="action-btn btn-delete" data-id="${u.id}" title="Non-aktifkan User"><i class="fa-solid fa-user-slash"></i></button>`;            }        }        // Visual Styling        const rowStyle = !isActive ? 'background: #f8fafc; opacity: 0.6;' : '';        const statusBadge = isActive             ? '<span class="status-dot active"></span> Aktif'             : '<span class="status-dot inactive"></span> Non-Aktif';                const meBadge = isMe ? '<span class="me-tag">SAYA</span>' : '';        return `            <tr style="${rowStyle}">                <td>                    <div class="user-info">                        <div class="user-avatar">${(u.name?.[0] || '?').toUpperCase()}</div>                        <div>                            <div class="user-name">${u.name || 'Tanpa Nama'} ${meBadge}</div>                            <div class="user-sub">Terdaftar: ${new Date(u.created_at || Date.now()).toLocaleDateString('id-ID')}</div>                        </div>                    </div>                </td>                <td>${u.email}</td>                <td><span class="badge role-${u.role}">${u.role.replace('_', ' ')}</span></td>                <td>${statusBadge}</td>                <td class="text-right">                    <div class="action-group">                        <button class="action-btn btn-edit" data-id="${u.id}" title="Edit Data"><i class="fa-solid fa-pen"></i></button>                        ${btnDelete}                    </div>                </td>            </tr>        `;    }).join('');}function renderScopeTable() {    const tbody = document.getElementById('scope-table-body');    // Filter logic: Mapping biasanya untuk bawahan    const list = allUsers.filter(u => {        if (loggedInUserRole === 'super_admin') return ['teacher', 'pic', 'student'].includes(u.role);        if (loggedInUserRole === 'teacher') return ['pic', 'student'].includes(u.role) && u.is_active;        if (loggedInUserRole === 'pic') return u.role === 'student' && u.is_active;        return false;    });    tbody.innerHTML = list.map(u => `        <tr>            <td style="font-weight:600;">${u.name}</td>            <td><span class="badge role-${u.role}">${u.role}</span></td>            <td>${u.scopeText}</td>            <td class="text-right">                <button class="btn-small btn-outline btn-map" data-id="${u.id}">                    <i class="fa-solid fa-gear"></i> Atur                </button>            </td>        </tr>    `).join('');}function renderTeacherLevelTable() {    const tbody = document.getElementById('teacher-table-body');    const teachers = allUsers.filter(u => u.role === 'teacher'); // Admin see all teachers    tbody.innerHTML = teachers.map(u => `        <tr>            <td style="font-weight:600;">${u.name}</td>            <td>${u.email}</td>            <td>                <span style="background:#eff6ff; color:#2563eb; padding:4px 8px; border-radius:6px; font-weight:bold; font-size:0.85rem;">                    ${u.levelCode}                </span>            </td>            <td class="text-right">                <button class="btn-small btn-outline btn-level" data-id="${u.id}">                    <i class="fa-solid fa-layer-group"></i> Level                </button>            </td>        </tr>    `).join('');}// ==========================================// 5. ACTIONS: SAVE, EDIT, DELETE// ==========================================async function saveUser() {    const id = document.getElementById('userId').value;    const name = document.getElementById('fullName').value.trim();    const email = document.getElementById('email').value.trim();    const password = document.getElementById('password').value;    const role = document.getElementById('role').value;    if (!name || !email || (!id && !password) || !role) {        return showToast("Mohon lengkapi semua field!", true);    }    const btn = document.getElementById('btn-save-user');    const originalText = btn.innerHTML;    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Proses...';    btn.disabled = true;    try {        // Menggunakan Edge Function untuk Create/Update Auth & DB        const response = await fetch(EDGE_URL, {            method: 'POST',            headers: {                 'Content-Type': 'application/json',                 'apikey': supabaseKey,                 'Authorization': `Bearer ${supabaseKey}`             },            body: JSON.stringify({                 action: id ? 'UPDATE' : 'CREATE',                 userId: id, name, email, password, role             })        });        if (!response.ok) {            const msg = await response.text();            throw new Error(msg);        }        showToast("Data user berhasil disimpan!");        resetForm();        await fetchUsers();    } catch (e) {        showToast("Error: " + e.message, true);    } finally {        btn.innerHTML = originalText;        btn.disabled = false;    }}function handleUserTableAction(e) {    const btn = e.target.closest('button');    if (!btn) return;    const id = btn.dataset.id;    if (btn.classList.contains('btn-edit')) {        const u = allUsers.find(x => x.id === id);        if (u) populateForm(u);    }     else if (btn.classList.contains('btn-delete')) {        deleteUser(id);    }}function populateForm(u) {    document.getElementById('userId').value = u.id;    document.getElementById('fullName').value = u.name;    document.getElementById('email').value = u.email;    document.getElementById('password').value = ''; // Reset password field    document.getElementById('password').placeholder = '(Biarkan kosong jika tidak diubah)';        // Set Role (handle case if role not in current user's permission)    const roleSel = document.getElementById('role');    const roleOpt = roleSel.querySelector(`option[value="${u.role}"]`);    if (roleOpt) roleSel.value = u.role;    // Scroll to form    document.querySelector('.form-card').scrollIntoView({ behavior: 'smooth' });        // UI Feedback    document.querySelector('.form-header h4').innerHTML = `<i class="fa-solid fa-pen-to-square"></i> Edit User: <b>${u.name}</b>`;    document.getElementById('btn-save-user').innerHTML = '<i class="fa-solid fa-check"></i> Update Data';}function resetForm() {    document.getElementById('userId').value = '';    document.getElementById('fullName').value = '';    document.getElementById('email').value = '';    document.getElementById('password').value = '';    document.getElementById('password').placeholder = '(Min. 6 Karakter)';    document.getElementById('role').selectedIndex = 0;        document.querySelector('.form-header h4').innerHTML = `<i class="fa-solid fa-pen-to-square"></i> Form Input User`;    document.getElementById('btn-save-user').innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Simpan Data';}async function deleteUser(id) {    const u = allUsers.find(x => x.id === id);    if (!u) return;    // A. LOGIKA HARD DELETE (SUPER ADMIN)    if (loggedInUserRole === 'super_admin') {        if (!confirm(`HAPUS PERMANEN user ${u.name}?\nData tidak bisa dikembalikan!`)) return;        try {            const res = await fetch(EDGE_URL, {                method: 'POST',                headers: { 'Content-Type': 'application/json', 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` },                body: JSON.stringify({ action: 'DELETE', userId: id })            });            if (res.ok) { showToast("User dihapus permanen."); await fetchUsers(); }            else { showToast("Gagal menghapus.", true); }        } catch (e) { showToast("Koneksi Error", true); }    }    // B. LOGIKA SOFT DELETE (TEACHER/PIC)    else {        if (!confirm(`Non-aktifkan user ${u.name}?\nUser akan hilang dari daftar ini.`)) return;        const { error } = await supabase.from('user_profiles').update({ is_active: false }).eq('id', id);        if (error) showToast("Gagal update status: " + error.message, true);        else { showToast("User berhasil dinonaktifkan."); await fetchUsers(); }    }}// ==========================================// 6. MODAL HANDLERS (SCOPE & LEVEL)// ==========================================function handleScopeTableAction(e) {    const btn = e.target.closest('button');    if (btn?.classList.contains('btn-map')) showMappingModal(btn.dataset.id);}function handleTeacherTableAction(e) {    const btn = e.target.closest('button');    if (btn?.classList.contains('btn-level')) showLevelModal(btn.dataset.id);}async function showMappingModal(userId) {    const u = allUsers.find(x => x.id === userId);    openModal("Atur Mapping Area", `        <input type="hidden" id="map-user-id" value="${u.id}">        <div class="input-group">            <label>Tipe Institusi</label>            <select id="map-type">                <option value="">-- Pilih --</option>                <option value="sekolah">Sekolah Formal</option>                <option value="private">Kursus / Private</option>            </select>        </div>        <div class="input-group">            <label>Institusi Induk</label>            <select id="map-parent"><option>-- Pilih Tipe Dulu --</option></select>        </div>        <div class="input-group" id="group-child">            <label>Kelas / Unit</label>            <select id="map-child"><option>-- Pilih Induk Dulu --</option></select>        </div>    `, `<button id="btn-save-map" class="btn-primary" style="width:100%">Simpan Mapping</button>`);    // Event Listeners for Dynamic Dropdown    document.getElementById('map-type').addEventListener('change', async (e) => {        const type = e.target.value;        const parentSel = document.getElementById('map-parent');        parentSel.innerHTML = '<option>Loading...</option>';                let data = [];        if (type === 'sekolah') {            const res = await supabase.from('schools').select('id, name').order('name');            data = res.data;        } else {            const res = await supabase.from('group_private').select('id, code').order('code');            data = res.data.map(x => ({id: x.id, name: x.code}));        }                parentSel.innerHTML = '<option value="">-- Pilih --</option>' + data.map(d => `<option value="${d.id}">${d.name}</option>`).join('');    });    document.getElementById('map-parent').addEventListener('change', async (e) => {        const type = document.getElementById('map-type').value;        const pid = e.target.value;        const childSel = document.getElementById('map-child');        childSel.innerHTML = '<option>Loading...</option>';        const table = type === 'sekolah' ? 'classes' : 'class_private';        const col = type === 'sekolah' ? 'school_id' : 'group_id';                const { data } = await supabase.from(table).select('id, name').eq(col, pid).order('name');        childSel.innerHTML = '<option value="">-- Pilih Kelas --</option>' + data.map(d => `<option value="${d.id}">${d.name}</option>`).join('');    });    document.getElementById('btn-save-map').onclick = async () => {        const uid = document.getElementById('map-user-id').value;        const type = document.getElementById('map-type').value;        const pid = document.getElementById('map-parent').value;        const cid = document.getElementById('map-child').value || null;        if (!uid || !type || !pid) return showToast("Data induk wajib dipilih!", true);        const payload = {            id: uid,            school_id: type === 'sekolah' ? pid : null,            class_id: type === 'sekolah' ? cid : null,            group_id: type === 'private' ? pid : null,            class_private_id: type === 'private' ? cid : null        };        const { error } = await supabase.from('user_profiles').upsert(payload, { onConflict: 'id' });        if(error) showToast(error.message, true);        else { showToast("Mapping berhasil!"); closeModal(); fetchUsers(); }    };}function showLevelModal(userId) {    const u = allUsers.find(x => x.id === userId);    openModal("Atur Level Guru", `        <input type="hidden" id="lvl-user-id" value="${u.id}">        <div class="input-group">            <label>Level Pengajaran</label>            <select id="lvl-select" style="width:100%">                <option value="">-- Pilih Level --</option>                ${allLevels.map(l => `<option value="${l.id}" ${u.level_id === l.id ? 'selected' : ''}>${l.kode}</option>`).join('')}            </select>        </div>    `, `<button id="btn-save-lvl" class="btn-primary" style="width:100%">Update Level</button>`);    document.getElementById('btn-save-lvl').onclick = async () => {        const uid = document.getElementById('lvl-user-id').value;        const lid = document.getElementById('lvl-select').value;        if(!lid) return showToast("Pilih level dulu", true);        const { error } = await supabase.from('user_profiles').update({ level_id: lid }).eq('id', uid);        if(error) showToast(error.message, true);        else { showToast("Level diupdate!"); closeModal(); fetchUsers(); }    };}function openModal(title, bodyHtml, footerHtml) {    document.getElementById('modal-title').innerText = title;    document.getElementById('modal-body').innerHTML = bodyHtml;    document.getElementById('modal-footer').innerHTML = footerHtml;    document.getElementById('modal-wrapper').style.display = 'flex';}function closeModal() {    document.getElementById('modal-wrapper').style.display = 'none';}// ==========================================// 7. UTILS & STYLES INJECTION// ==========================================function showToast(msg, isError = false) {    const t = document.getElementById('toast-box');    t.innerHTML = `<i class="fa-solid ${isError ? 'fa-circle-exclamation' : 'fa-circle-check'}"></i> ${msg}`;    t.className = `toast ${isError ? 'error' : 'success'} show`;    setTimeout(() => t.classList.remove('show'), 3000);}function injectStyles() {    if (document.getElementById('um-styles')) return;    const style = document.createElement('style');    style.id = 'um-styles';    style.textContent = `        /* --- LAYOUT & CONTAINERS --- */        .um-container { max-width: 1200px; margin: 0 auto; padding-bottom: 80px; font-family: 'Inter', system-ui, sans-serif; color: #334155; }        .um-header-card { background: linear-gradient(135deg, #eff6ff 0%, #ffffff 100%); padding: 24px; border-radius: 16px; border: 1px solid #dbeafe; display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 16px; }        .header-text h2 { margin: 0; color: #1e3a8a; font-size: 1.5rem; display: flex; align-items: center; gap: 10px; }        .header-text p { margin: 4px 0 0 0; color: #64748b; font-size: 0.9rem; }                /* --- SEARCH --- */        .search-wrapper { position: relative; width: 300px; }        .search-wrapper i { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #94a3b8; }        .search-wrapper input { width: 100%; padding: 10px 10px 10px 36px; border: 1px solid #cbd5e1; border-radius: 8px; outline: none; transition: 0.2s; font-size: 0.9rem; }        .search-wrapper input:focus { border-color: #4d97ff; box-shadow: 0 0 0 3px rgba(77, 151, 255, 0.15); }        /* --- TABS --- */        .um-tabs { display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 2px solid #e2e8f0; padding-bottom: 2px; overflow-x: auto; }        .tab-btn { background: none; border: none; padding: 10px 20px; font-weight: 600; color: #64748b; cursor: pointer; border-radius: 8px; transition: 0.2s; display: flex; align-items: center; gap: 8px; white-space: nowrap; font-size: 0.9rem; }        .tab-btn:hover { background: #f1f5f9; color: #334155; }        .tab-btn.active { background: #eff6ff; color: #2563eb; }        /* --- CARDS --- */        .form-card, .table-card { background: #fff; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); overflow: hidden; margin-bottom: 24px; }                /* --- FORM --- */        .form-header { background: #f8fafc; padding: 16px 24px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; }        .form-header h4 { margin: 0; color: #334155; font-size: 1rem; }        .form-grid { padding: 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }        .form-footer { padding: 16px 24px; background: #f8fafc; border-top: 1px solid #e2e8f0; text-align: right; }                .input-group label { display: block; font-size: 0.75rem; font-weight: 700; color: #475569; margin-bottom: 6px; text-transform: uppercase; }        .input-group input, .input-group select { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fdfdfd; font-size: 0.9rem; }        .input-group input:focus, .input-group select:focus { border-color: #4d97ff; outline: none; }        .input-group .hint { font-size: 0.75rem; color: #94a3b8; display: block; margin-top: 4px; }        /* --- BUTTONS --- */        .btn-primary { background: #4d97ff; color: #fff; border: none; padding: 10px 24px; border-radius: 6px; font-weight: 600; cursor: pointer; transition: 0.2s; display: inline-flex; align-items: center; gap: 8px; justify-content: center; }        .btn-primary:hover { background: #2563eb; transform: translateY(-1px); }        .btn-text { background: none; border: none; color: #64748b; font-size: 0.85rem; cursor: pointer; text-decoration: underline; }        .btn-text:hover { color: #ef4444; }        .btn-small { padding: 6px 12px; font-size: 0.8rem; border-radius: 4px; cursor: pointer; border: 1px solid transparent; }        .btn-outline { background: white; border-color: #cbd5e1; color: #475569; }        .btn-outline:hover { border-color: #4d97ff; color: #4d97ff; }        /* --- TABLE --- */        .modern-table { width: 100%; border-collapse: collapse; min-width: 600px; }        .modern-table th { background: #f8fafc; text-align: left; padding: 14px 20px; font-size: 0.75rem; color: #64748b; text-transform: uppercase; font-weight: 700; border-bottom: 1px solid #e2e8f0; }        .modern-table td { padding: 14px 20px; border-bottom: 1px solid #f1f5f9; color: #334155; vertical-align: middle; font-size: 0.9rem; }        .modern-table tr:last-child td { border-bottom: none; }                .user-info { display: flex; gap: 12px; align-items: center; }        .user-avatar { width: 36px; height: 36px; background: #dbeafe; color: #1e40af; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 1rem; }        .user-name { font-weight: 600; color: #0f172a; }        .user-sub { font-size: 0.75rem; color: #94a3b8; margin-top: 2px; }                .badge { padding: 4px 10px; border-radius: 20px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; }        .role-super_admin { background: #fee2e2; color: #991b1b; }        .role-teacher { background: #dbeafe; color: #1e40af; }        .role-pic { background: #fef3c7; color: #92400e; }        .role-student { background: #dcfce7; color: #166534; }        .badge-gray { background: #f1f5f9; color: #475569; }        .status-dot { height: 8px; width: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }        .status-dot.active { background: #10b981; }        .status-dot.inactive { background: #ef4444; }        .me-tag { font-size: 0.65rem; background: #4d97ff; color: white; padding: 2px 5px; border-radius: 3px; margin-left: 6px; vertical-align: middle; }        .action-group { display: flex; justify-content: flex-end; gap: 8px; }        .action-btn { width: 32px; height: 32px; border-radius: 6px; border: 1px solid #e2e8f0; background: white; color: #64748b; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s; }        .action-btn:hover { border-color: #4d97ff; color: #4d97ff; }        .action-btn.btn-delete:hover { border-color: #ef4444; color: #ef4444; background: #fef2f2; }        /* --- MODAL --- */        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(2px); z-index: 1000; align-items: center; justify-content: center; }        .modal-content { background: white; width: 100%; max-width: 450px; border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); overflow: hidden; animation: modalIn 0.2s ease-out; }        .modal-header { padding: 16px 24px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; }        .modal-header h3 { margin: 0; font-size: 1.1rem; color: #334155; }        .close-btn { font-size: 1.5rem; cursor: pointer; color: #94a3b8; }        .modal-body { padding: 24px; }        .modal-footer { padding: 16px 24px; background: #f8fafc; border-top: 1px solid #e2e8f0; }        /* --- TOAST --- */        .toast { position: fixed; bottom: 24px; right: 24px; background: #334155; color: white; padding: 12px 20px; border-radius: 8px; display: flex; align-items: center; gap: 10px; transform: translateY(100px); transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); z-index: 2000; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }        .toast.show { transform: translateY(0); }        .toast.error { background: #ef4444; }        .toast.success { background: #10b981; }        @keyframes modalIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }        .text-right { text-align: right; }        @media (max-width: 640px) { .um-header-card { flex-direction: column; align-items: flex-start; } .search-wrapper { width: 100%; } .form-grid { grid-template-columns: 1fr; } }    `;    document.head.appendChild(style);}
