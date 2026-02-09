@@ -1,7 +1,8 @@
 /**
- * Project: Galeri Sekolah Module (Gate Module - LOGIC FIXED)
- * Features: Auto-Context Switching on Load & Role Filtering
- * Fix: Sets 'SCHOOL' context immediately on init to prevent state mismatch.
+ * Project: Galeri Sekolah Module (Gate Module - UNLOCKED)
+ * Features: Auto-Context Switching on Load
+ * Update: REMOVED Hardcoded Role/Level Filtering.
+ * Note: Now purely dynamic based on Academic Year & Semester.
  */
 
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
@@ -13,14 +14,13 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 let currentUserProfile = null;
 
 // ==========================================
-// 1. INITIALIZATION (LOGIC FIXED)
+// 1. INITIALIZATION
 // ==========================================
 export async function init(canvas) {
-    // [LOGIC FIX] Langsung set konteks saat modul dibuka
-    // Ini menjamin "Ruangan" ini dikenali sebagai Sekolah, tanpa menunggu klik user.
+    // Set konteks Sekolah
     localStorage.setItem("galleryContextMode", "SCHOOL");
     
-    // [SAFETY] Hapus sisa ID Private agar Galeri Master tidak bingung (State Hygiene)
+    // Bersihkan sisa state Private
     localStorage.removeItem("activePrivateClassId");
     localStorage.removeItem("activePrivateClassName");
 
@@ -63,7 +63,7 @@ window.openClassGallery = (classId, className) => {
     localStorage.setItem("activeClassId", classId);
     localStorage.setItem("activeClassName", className);
     
-    // Dispatch ke Master (Mode sudah aman karena diset di init)
+    // Dispatch ke Master
     if (window.dispatchModuleLoad) {
         window.dispatchModuleLoad('galeri-master', 'Dokumentasi Harian', className);
     } else {
@@ -72,7 +72,7 @@ window.openClassGallery = (classId, className) => {
 };
 
 // ==========================================
-// 3. DATA LOGIC (Role & Level Filter)
+// 3. DATA LOGIC (UNLOCKED)
 // ==========================================
 
 async function loadUserProfile() {
@@ -80,17 +80,11 @@ async function loadUserProfile() {
     if (!user) return;
 
     const { data } = await supabase.from('user_profiles')
-        .select('id, role, level_id')
+        .select('id, role')
         .eq('id', user.id)
         .single();
     
     currentUserProfile = data;
-}
-
-async function getTeacherLevelCode(levelId) {
-    if (!levelId) return null;
-    const { data } = await supabase.from('levels').select('kode').eq('id', levelId).single();
-    return data?.kode;
 }
 
 async function loadClasses() {
@@ -110,18 +104,14 @@ async function loadClasses() {
                 semesters!inner(name)
             `);
 
-        // Filter 1: Wajib sesuai Tahun & Semester Aktif
+        // Filter: Hanya berdasarkan Tahun & Semester Aktif
         if (activeYear) query = query.eq('academic_years.year', activeYear);
         if (activeSem) query = query.eq('semesters.name', activeSem);
 
-        // Filter 2: Berdasarkan Role (Level-Based for Teacher)
-        if (currentUserProfile && currentUserProfile.role === 'teacher' && currentUserProfile.level_id) {
-            const teacherLevelCode = await getTeacherLevelCode(currentUserProfile.level_id);
-            
-            if (teacherLevelCode) {
-                query = query.eq('level', teacherLevelCode); 
-            }
-        }
+        /* [REMOVED] FILTER LEVEL GURU DIHAPUS.
+           Sekarang semua kelas yang aktif akan muncul.
+           Akses kontrol diserahkan sepenuhnya ke kebijakan Database/Admin.
+        */
 
         const { data: classes, error } = await query.order('name', { ascending: true });
 
@@ -139,7 +129,7 @@ async function loadClasses() {
 // ==========================================
 function renderCards(classes, container) {
     if (classes.length === 0) {
-        container.innerHTML = `<div class="gs-empty"><p>Tidak ada kelas aktif pada periode ini yang sesuai dengan Level Anda.</p></div>`;
+        container.innerHTML = `<div class="gs-empty"><p>Tidak ada kelas aktif pada periode ini.</p></div>`;
         return;
     }
 
