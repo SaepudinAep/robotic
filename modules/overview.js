@@ -65,68 +65,74 @@ export async function init(canvas) {
     `;
 
     // 2. JALANKAN LOGIKA
-    calculateSemester();
     await loadDashboardData();
 }
 
-// --- LOGIKA 1: SEMESTER OTOMATIS ---
-function calculateSemester() {
-    const now = new Date();
-    const month = now.getMonth() + 1; // 1-12
-    const year = now.getFullYear();
-    let semesterName, academicYear;
-
-    if (month >= 7 && month <= 12) {
-        semesterName = "Semester 1 (Ganjil)";
-        academicYear = `${year}/${year + 1}`;
-    } else {
-        semesterName = "Semester 2 (Genap)";
-        academicYear = `${year - 1}/${year}`;
-    }
-
-    // Update UI
-    const badge = document.getElementById('semester-badge');
-    if (badge) badge.innerHTML = `<i class="fa-solid fa-calendar-check"></i> ${semesterName} ${academicYear}`;
-    
-    // Simpan ke LocalStorage (Untuk modul lain)
-    localStorage.setItem("activeAcademicYear", academicYear);
-    localStorage.setItem("activeSemester", semesterName);
-}
-
-// --- LOGIKA 2: LOAD DATA (STATS & MENU) ---
+// --- LOGIKA UTAMA: LOAD DATA (PERIODE AKTIF, STATS & MENU) ---
 async function loadDashboardData() {
     try {
-        // A. Cek User
+        // A. Cek Sesi User
         const { data: { session } } = await supabase.auth.getSession();
-        if (!session) return; 
+        if (!session) return;
 
-        // B. Ambil Profile (Role & Level)
-        const { data: profile } = await supabase
-            .from('user_profiles')
-            .select('role, level_id')
-            .eq('id', session.user.id)
-            .single();
+        // B. Ambil Periode Aktif dari Database & Profil User secara Paralel
+        const [resTA, resSem, resProfile] = await Promise.all([
+            supabase.from('academic_years').select('id, year').eq('is_active', true).limit(1).maybeSingle(),
+            supabase.from('semesters').select('id, name').eq('is_active', true).limit(1).maybeSingle(),
+            supabase.from('user_profiles').select('role, level_id').eq('id', session.user.id).single()
+        ]);
+
+        const activeTA = resTA.data;
+        const activeSem = resSem.data;
+        const profile = resProfile.data;
 
         const userRole = profile ? profile.role : 'guest';
         const userLevelId = profile ? profile.level_id : null;
 
-        // C. Fetch Data Paralel (Efisien)
-        const [resSekolah, resKelas, resSiswa, resCat, resMenu] = await Promise.all([
-            // Stats
-            supabase.from('schools').select('*', { count: 'exact', head: true }),
-            supabase.from('classes').select('*', { count: 'exact', head: true }),
-            supabase.from('students').select('*', { count: 'exact', head: true }),
-            // Menu
+        // C. Update UI Periode & Sync ke LocalStorage
+        const badge = document.getElementById('semester-badge');
+        if (activeTA && activeSem) {
+            if (badge) badge.innerHTML = `<i class="fa-solid fa-calendar-check"></i> ${activeSem.name} ${activeTA.year}`;
+            localStorage.setItem("activeAcademicYearId", activeTA.id);
+            localStorage.setItem("activeAcademicYear", activeTA.year);
+            localStorage.setItem("activeSemesterId", activeSem.id);
+            localStorage.setItem("activeSemester", activeSem.name);
+        } else {
+            if (badge) badge.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Periode Belum Diset`;
+        }
+
+        // D. Fetch Kelas pada Periode Aktif & Menu Kategori secara Paralel
+        let classQuery = supabase.from('classes').select('id, school_id');
+        if (activeTA && activeSem) {
+            classQuery = classQuery.eq('academic_year_id', activeTA.id).eq('semester_id', activeSem.id);
+        }
+
+        const [resClasses, resCat, resMenu] = await Promise.all([
+            classQuery,
             supabase.from('menu_categories').select('*').in('target_app', ['admin_v2', 'all']).order('order_index'),
             supabase.from('app_menus').select('*').eq('is_active', true).order('order_index')
         ]);
 
-        // D. Update Statistik UI
-        if (document.getElementById('count-sekolah')) document.getElementById('count-sekolah').textContent = resSekolah.count || 0;
-        if (document.getElementById('count-kelas')) document.getElementById('count-kelas').textContent = resKelas.count || 0;
-        if (document.getElementById('count-siswa')) document.getElementById('count-siswa').textContent = resSiswa.count || 0;
+        const activeClasses = resClasses.data || [];
+        const activeClassIds = activeClasses.map(c => c.id);
+        const activeSchoolIds = [...new Set(activeClasses.map(c => c.school_id).filter(Boolean))];
 
-        // E. Render Menu Grid
+        // E. Hitung Siswa Aktif pada Kelas-Kelas Periode Aktif
+        let studentCount = 0;
+        if (activeClassIds.length > 0) {
+            const { count } = await supabase.from('students')
+                .select('*', { count: 'exact', head: true })
+                .in('class_id', activeClassIds)
+                .eq('is_active', true);
+            studentCount = count || 0;
+        }
+
+        // F. Update Statistik UI (Sesuai Semester & Tahun Ajaran Aktif)
+        if (document.getElementById('count-sekolah')) document.getElementById('count-sekolah').textContent = activeSchoolIds.length;
+        if (document.getElementById('count-kelas')) document.getElementById('count-kelas').textContent = activeClasses.length;
+        if (document.getElementById('count-siswa')) document.getElementById('count-siswa').textContent = studentCount;
+
+        // G. Render Menu Grid
         renderGridMenu(resCat.data || [], resMenu.data || [], userRole, userLevelId);
 
     } catch (err) {

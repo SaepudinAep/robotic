@@ -139,34 +139,17 @@ function injectStyles() {
 // 3. LOGIC (Dropdowns & Data)
 // ==========================================
 
-function getActiveSemesterLabel() {
-    const now = new Date();
-    const month = now.getMonth() + 1;
-    const year = now.getFullYear();
-    let semesterName, academicYear;
-
-    if (month >= 7 && month <= 12) {
-        semesterName = "Semester 1";
-        academicYear = `${year}/${year + 1}`;
-    } else {
-        semesterName = "Semester 2";
-        academicYear = `${year - 1}/${year}`;
-    }
-    return { semesterName, academicYear };
-}
-
 // --- DROPDOWNS ---
 async function isiDropdownTahunAjaran() {
     const select = document.getElementById("academicYearSelect");
-    const { data, error } = await supabase.from("academic_years").select("id, year").order("year", { ascending: false });
+    const { data, error } = await supabase.from("academic_years").select("id, year, is_active").order("year", { ascending: false });
     
     if (error) return console.error(error);
     
     select.innerHTML = "";
-    const { academicYear } = getActiveSemesterLabel();
     data.forEach(item => {
         const option = new Option(item.year, item.id);
-        if (item.year === academicYear) option.selected = true;
+        if (item.is_active) option.selected = true;
         select.add(option);
     });
     await isiDropdownSemester();
@@ -176,17 +159,16 @@ async function isiDropdownSemester() {
     const ayId = document.getElementById("academicYearSelect").value;
     const select = document.getElementById("semesterSelect");
     
-    const { data } = await supabase.from("semesters").select("id, name").eq("academic_year_id", ayId);
+    const { data } = await supabase.from("semesters").select("id, name, is_active").eq("academic_year_id", ayId).order("name");
     
     select.innerHTML = "";
-    const { semesterName } = getActiveSemesterLabel();
-    data.forEach(item => {
-        // Pembersihan nama semester agar cocok (misal: "Semester 2" match dengan "Semester 2 (Genap)")
-        const cleanName = semesterName.split(' (')[0].trim();
-        const option = new Option(item.name, item.id);
-        if (item.name === cleanName) option.selected = true;
-        select.add(option);
-    });
+    if (data && data.length > 0) {
+        data.forEach(item => {
+            const option = new Option(item.name, item.id);
+            if (item.is_active) option.selected = true;
+            select.add(option);
+        });
+    }
     await isiDropdownKelas();
 }
 

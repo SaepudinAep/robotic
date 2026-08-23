@@ -27,9 +27,6 @@ export async function init(canvas) {
     injectStyles();
 
     // UI Render
-    const activeAcademicYear = localStorage.getItem("activeAcademicYear") || "Semua Tahun";
-    const activeSemester = localStorage.getItem("activeSemester")?.split(' (')[0].trim() || "Semua Semester";
-
     canvas.innerHTML = `
         <div class="gs-container fade-in">
             <div class="gs-header">
@@ -37,9 +34,9 @@ export async function init(canvas) {
                     <h2>Galeri Sekolah</h2>
                     <p>Pilih kelas untuk kelola dokumentasi</p>
                 </div>
-                <div class="gs-badge">
+                <div class="gs-badge" id="gs-period-badge">
                     <i class="fa-solid fa-calendar-check"></i> 
-                    <span>${activeSemester} ${activeAcademicYear}</span>
+                    <span>Memuat Periode...</span>
                 </div>
             </div>
 
@@ -89,29 +86,46 @@ async function loadUserProfile() {
 
 async function loadClasses() {
     const grid = document.getElementById('gs-grid-container');
-    const activeYear = localStorage.getItem("activeAcademicYear");
-    const activeSem = localStorage.getItem("activeSemester")?.split(' (')[0].trim();
+    const badgeText = document.querySelector('#gs-period-badge span');
 
     try {
+        // Ambil TA & Semester aktif langsung dari database (Single Source of Truth)
+        const [resTA, resSem] = await Promise.all([
+            supabase.from('academic_years').select('id, year').eq('is_active', true).limit(1).maybeSingle(),
+            supabase.from('semesters').select('id, name').eq('is_active', true).limit(1).maybeSingle()
+        ]);
+
+        const activeTA = resTA.data;
+        const activeSem = resSem.data;
+
+        if (badgeText) {
+            if (activeTA && activeSem) {
+                badgeText.textContent = `${activeSem.name} ${activeTA.year}`;
+                localStorage.setItem("activeAcademicYearId", activeTA.id);
+                localStorage.setItem("activeAcademicYear", activeTA.year);
+                localStorage.setItem("activeSemesterId", activeSem.id);
+                localStorage.setItem("activeSemester", activeSem.name);
+            } else {
+                badgeText.textContent = "Periode Belum Diset";
+            }
+        }
+
         let query = supabase.from('classes')
             .select(`
                 id, 
                 name, 
                 level, 
                 jadwal,
-                schools!inner(name),
-                academic_years!inner(year),
-                semesters!inner(name)
+                schools(name)
             `);
 
-        // Filter: Hanya berdasarkan Tahun & Semester Aktif
-        if (activeYear) query = query.eq('academic_years.year', activeYear);
-        if (activeSem) query = query.eq('semesters.name', activeSem);
-
-        /* [REMOVED] FILTER LEVEL GURU DIHAPUS.
-           Sekarang semua kelas yang aktif akan muncul.
-           Akses kontrol diserahkan sepenuhnya ke kebijakan Database/Admin.
-        */
+        // Filter: Hanya berdasarkan Tahun & Semester Aktif (UUID Foreign Keys)
+        if (activeTA && activeSem) {
+            query = query.eq('academic_year_id', activeTA.id).eq('semester_id', activeSem.id);
+        } else {
+            grid.innerHTML = `<div class="gs-empty"><p>Tidak ada periode aktif yang diset di Pengaturan.</p></div>`;
+            return;
+        }
 
         const { data: classes, error } = await query.order('name', { ascending: true });
 
