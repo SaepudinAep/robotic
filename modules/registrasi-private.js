@@ -63,8 +63,8 @@ export async function init(canvas) {
                     <h3 class="card-title">Daftar Siswa Private</h3>
                     <div class="table-responsive">
                         <table class="data-table">
-                            <thead><tr><th>Nama</th><th>Kelas</th><th>Aksi</th></tr></thead>
-                            <tbody id="list-students"><tr><td colspan="3" class="loading">Memuat data...</td></tr></tbody>
+                            <thead><tr><th>Nama</th><th>Kelas</th><th width="90">Status</th><th>Aksi</th></tr></thead>
+                            <tbody id="list-students"><tr><td colspan="4" class="loading">Memuat data...</td></tr></tbody>
                         </table>
                     </div>
                 </div>
@@ -99,7 +99,7 @@ export async function init(canvas) {
                     <h3 class="card-title">Daftar Kelas</h3>
                     <div class="table-responsive">
                         <table class="data-table">
-                            <thead><tr><th>Nama Kelas</th><th>Level</th><th>Group</th><th>Aksi</th></tr></thead>
+                            <thead><tr><th>Nama Kelas</th><th>Level</th><th>Group</th><th width="90">Status</th><th>Aksi</th></tr></thead>
                             <tbody id="list-class"></tbody>
                         </table>
                     </div>
@@ -205,6 +205,19 @@ function injectStyles() {
         .btn-del { color: #e74c3c; }
         .action-btn:hover { transform: scale(1.2); }
 
+        /* Toggle Switch Status Siswa */
+        .switch { position: relative; display: inline-block; width: 42px; height: 22px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .3s; border-radius: 20px; }
+        .slider:before { position: absolute; content: ""; height: 14px; width: 14px; left: 4px; bottom: 4px; background-color: white; transition: .3s; border-radius: 50%; }
+        input:checked + .slider { background-color: #00b894; }
+        input:checked + .slider:before { transform: translateX(20px); }
+
+        /* Badge & Counter */
+        .badge-inactive { padding: 2px 8px; background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; border-radius: 10px; font-size: 0.68rem; font-weight: 700; margin-left: 6px; vertical-align: middle; white-space: nowrap; }
+        .count-pill { float: right; background: #eff6ff; color: #2563eb; border: 1px solid #dbeafe; padding: 3px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; }
+        .badge-level { display: inline-block; padding: 2px 8px; background: #fef3c7; color: #b45309; border: 1px solid #fde68a; border-radius: 10px; font-size: 0.68rem; font-weight: 700; margin-left: 6px; vertical-align: middle; white-space: nowrap; }
+
         @media (max-width: 768px) { .form-row { flex-direction: column; gap: 0; } .form-group.half { width: 100%; } }
     `;
     document.head.appendChild(style);
@@ -263,6 +276,40 @@ function setupTableActions() {
     addAction('list-group', editGroup, deleteGroup);
     addAction('list-class', editClass, deleteClass);
     addAction('list-students', editStudent, deleteStudent);
+
+    // Toggle Status Aktif/Non-Aktif Siswa (delegasi event 'change')
+    document.getElementById('list-students').addEventListener('change', async (e) => {
+        const cb = e.target.closest('.toggle-student-active');
+        if (!cb) return;
+        const id = cb.dataset.id;
+        const status = cb.checked;
+        cb.disabled = true; // Cegah spam klik saat proses
+        const { error } = await supabase.from('students_private').update({ is_active: status }).eq('id', id);
+        cb.disabled = false;
+        if (error) {
+            cb.checked = !status; // Revert UI jika gagal
+            alert('Gagal mengubah status: ' + error.message);
+            return;
+        }
+        loadStudents(); // Refresh baris + counter aktif
+    });
+
+    // Toggle Status Aktif/Non-Aktif KELAS Private (delegasi event 'change')
+    document.getElementById('list-class').addEventListener('change', async (e) => {
+        const cb = e.target.closest('.toggle-class-active');
+        if (!cb) return;
+        const id = cb.dataset.id;
+        const status = cb.checked;
+        cb.disabled = true; // Cegah spam klik saat proses
+        const { error } = await supabase.from('class_private').update({ is_active: status }).eq('id', id);
+        cb.disabled = false;
+        if (error) {
+            cb.checked = !status; // Revert UI jika gagal
+            alert('Gagal mengubah status kelas: ' + error.message);
+            return;
+        }
+        loadClasses(); // Refresh baris + dropdown siswa
+    });
 }
 
 // ==========================================
@@ -353,30 +400,54 @@ async function loadLevelsDropdown() {
 
 async function loadClasses() {
     const { data, error } = await supabase.from('class_private')
-        .select('id, name, level_id, group_id, group_private(code), levels(kode)')
+        .select('id, name, is_active, level_id, group_id, group_private(code), levels(kode)')
         .order('name');
 
     const tbody = document.getElementById('list-class');
+    if (error) {
+        console.error('Load classes error:', error);
+        tbody.innerHTML = '<tr><td colspan="5" class="loading">Gagal memuat data kelas.</td></tr>';
+        return;
+    }
     if (!data || data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="loading">Belum ada kelas</td></tr>';
-    } else {
-        tbody.innerHTML = data.map(c => `
-            <tr>
-                <td>${c.name}</td>
-                <td><span style="background:#eee; padding:2px 6px; border-radius:4px; font-size:0.85rem;">${c.levels?.kode || '-'}</span></td>
-                <td>${c.group_private?.code || '-'}</td>
+        tbody.innerHTML = '<tr><td colspan="5" class="loading">Belum ada kelas</td></tr>';
+        return;
+    }
+
+    const activeCount = data.filter(c => c.is_active !== false).length;
+    tbody.innerHTML = data.map(c => {
+        const isActive = c.is_active !== false; // Data lama tanpa kolom dianggap aktif
+        return `
+            <tr${isActive ? '' : ' style="opacity:0.55; background:#f8fafc;"'}>
+                <td style="font-weight:500;">${escapeHtml(c.name)}${isActive ? '' : '<span class="badge-inactive">Non-Aktif</span>'}</td>
+                <td><span class="badge-level">${escapeHtml(c.levels?.kode || '-')}</span></td>
+                <td>${escapeHtml(c.group_private?.code || '-')}</td>
+                <td>
+                    <label class="switch" title="${isActive ? 'Klik untuk non-aktifkan' : 'Klik untuk aktifkan'}">
+                        <input type="checkbox" class="toggle-class-active" data-id="${c.id}" ${isActive ? 'checked' : ''}>
+                        <span class="slider round"></span>
+                    </label>
+                </td>
                 <td>
                     <button class="action-btn btn-edit" data-id="${c.id}"><i class="fas fa-pen"></i></button>
                     <button class="action-btn btn-del" data-id="${c.id}"><i class="fas fa-trash"></i></button>
                 </td>
-            </tr>
-        `).join('');
-    }
+            </tr>`;
+    }).join('');
+
+    // Counter ringkas di judul kartu
+    const title = document.querySelector('#content-class .table-card .card-title');
+    if (title) title.innerHTML = `Daftar Kelas <span class="count-pill">${activeCount}/${data.length} Aktif</span>`;
 
     // Populate Dropdown for Student Form
+    // Kelas non-aktif tetap ditampilan bertanda agar edit siswa lama tidak rusak
     const select = document.getElementById('student-class');
-    select.innerHTML = '<option value="">-- Pilih Kelas --</option>' + 
-        data.map(c => `<option value="${c.id}">${c.name} (${c.levels?.kode || '-'})</option>`).join('');
+    select.innerHTML = '<option value="">-- Pilih Kelas --</option>' +
+        data.map(c => {
+            const isActive = c.is_active !== false;
+            const tag = isActive ? '' : ' [Non-Aktif]';
+            return `<option value="${c.id}">${escapeHtml(c.name)} (${escapeHtml(c.levels?.kode || '-')})${tag}</option>`;
+        }).join('');
 }
 
 async function handleSaveClass(e) {
@@ -431,24 +502,43 @@ function resetClassForm() {
 
 async function loadStudents() {
     const { data, error } = await supabase.from('students_private')
-        .select('id, name, class_id, class_private(name)')
+        .select('id, name, is_active, class_id, class_private(name, levels(kode))')
         .order('name');
 
     const tbody = document.getElementById('list-students');
+    if (error) {
+        console.error('Load students error:', error);
+        tbody.innerHTML = '<tr><td colspan="4" class="loading">Gagal memuat data siswa.</td></tr>';
+        return;
+    }
     if (!data || data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3" class="loading">Belum ada siswa</td></tr>';
-    } else {
-        tbody.innerHTML = data.map(s => `
-            <tr>
-                <td style="font-weight:500;">${s.name}</td>
-                <td>${s.class_private?.name || '-'}</td>
+        tbody.innerHTML = '<tr><td colspan="4" class="loading">Belum ada siswa</td></tr>';
+        return;
+    }
+
+    const activeCount = data.filter(s => s.is_active !== false).length;
+    tbody.innerHTML = data.map(s => {
+        const isActive = s.is_active !== false; // Data lama tanpa kolom dianggap aktif
+        return `
+            <tr${isActive ? '' : ' style="opacity:0.55; background:#f8fafc;"'}>
+                <td style="font-weight:500;">${escapeHtml(s.name)}${isActive ? '' : '<span class="badge-inactive">Non-Aktif</span>'}</td>
+                <td>${escapeHtml(s.class_private?.name || '-')} <span class="badge-level">${escapeHtml(s.class_private?.levels?.kode || '-')}</span></td>
+                <td>
+                    <label class="switch" title="${isActive ? 'Klik untuk non-aktifkan' : 'Klik untuk aktifkan'}">
+                        <input type="checkbox" class="toggle-student-active" data-id="${s.id}" ${isActive ? 'checked' : ''}>
+                        <span class="slider round"></span>
+                    </label>
+                </td>
                 <td>
                     <button class="action-btn btn-edit" data-id="${s.id}"><i class="fas fa-pen"></i></button>
                     <button class="action-btn btn-del" data-id="${s.id}"><i class="fas fa-trash"></i></button>
                 </td>
-            </tr>
-        `).join('');
-    }
+            </tr>`;
+    }).join('');
+
+    // Counter ringkas di judul kartu
+    const title = document.querySelector('#content-students .table-card .card-title');
+    if (title) title.innerHTML = `Daftar Siswa Private <span class="count-pill">${activeCount}/${data.length} Aktif</span>`;
 }
 
 async function handleSaveStudent(e) {
@@ -493,4 +583,10 @@ function resetStudentForm() {
     editingStudentId = null;
     document.getElementById('btn-save-student').textContent = 'Simpan Siswa';
     document.getElementById('btn-cancel-student').style.display = 'none';
+}
+
+// Sanitasi teks dari DB sebelum disuntik ke HTML (cegah XSS)
+function escapeHtml(text) {
+    const NAMES = { 38: 'amp', 60: 'lt', 62: 'gt', 34: 'quot', 39: '#39' };
+    return String(text ?? "").replace(/[&<>"']/g, ch => '&' + NAMES[ch.charCodeAt(0)] + ';');
 }

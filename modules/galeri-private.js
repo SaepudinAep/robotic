@@ -89,8 +89,11 @@ async function loadPrivateClasses() {
                 name, 
                 level, 
                 group_id,
+                is_active,
                 group_private (owner)
-            `);
+            `)
+            // [FIX] Jangan tampil kartu kelas non-aktif (schema: is_active NOT NULL DEFAULT true)
+            .eq('is_active', true);
 
         // Filter Data Sesuai Hak Akses
         if (currentUserProfile && currentUserProfile.role !== 'super_admin') {
@@ -142,6 +145,7 @@ function renderCards(classes, container) {
                     
                     <div class="gp-card-meta">
                         <span class="tag-level"><i class="fa-solid ${levelIcon}"></i> ${c.level || 'General'}</span>
+                        <span class="tag-active"><i class="fa-solid fa-circle-check"></i> Aktif</span>
                     </div>
                 </div>
                 
@@ -213,6 +217,16 @@ function injectStyles() {
             font-size: 0.75rem; padding: 4px 10px; border-radius: 8px; 
             font-weight: 600; display: flex; align-items: center; gap: 5px;
         }
+        .tag-active { 
+            font-size: 0.7rem; padding: 4px 10px; border-radius: 8px; 
+            font-weight: 700; display: inline-flex; align-items: center; gap: 4px;
+            background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0;
+        }
+        /* Modifier per tema agar badge aktif tetap kontras pada kartu gelap */
+        .theme-dark .tag-active { background: #10b981; color: #fff; border-color: #10b981; }
+        .theme-gold .tag-active { background: #dcfce7; color: #15803d; border-color: #bbf7d0; }
+        .theme-royal .tag-active { background: #dcfce7; color: #15803d; border-color: #bbf7d0; }
+        .theme-ocean .tag-active { background: #dcfce7; color: #15803d; border-color: #bbf7d0; }
         
         .touch-48 { min-height: 48px; min-width: 48px; border: none; cursor: pointer; border-radius: 12px; transition: 0.2s; }
         

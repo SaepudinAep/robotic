@@ -160,6 +160,7 @@ CREATE TABLE public.class_private (
   level text,
   created_at timestamp with time zone,
   level_id uuid,
+  is_active boolean NOT NULL DEFAULT true,
   CONSTRAINT class_private_pkey PRIMARY KEY (id),
   CONSTRAINT fk_class_level FOREIGN KEY (level_id) REFERENCES public.levels(id),
   CONSTRAINT class_private_group_id_fkey FOREIGN KEY (group_id) REFERENCES public.group_private(id)
@@ -169,6 +170,7 @@ CREATE TABLE public.students_private (
   class_id uuid,
   name text,
   created_at timestamp with time zone,
+  is_active boolean NOT NULL DEFAULT true,
   CONSTRAINT students_private_pkey PRIMARY KEY (id),
   CONSTRAINT students_private_class_id_fkey FOREIGN KEY (class_id) REFERENCES public.class_private(id)
 );
@@ -348,4 +350,3 @@ CREATE TABLE public.activity_logs (
   CONSTRAINT activity_logs_pkey PRIMARY KEY (id),
   CONSTRAINT activity_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
 );
-
