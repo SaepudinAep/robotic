@@ -33,7 +33,7 @@ export async function init(canvas) {
             
             <div class="mp-header">
                 <div style="display: flex; align-items: center; gap: 15px;">
-                    <img src="https://res.cloudinary.com/dmm6avtxd/image/upload/Robopanda-Education_zwx0bm.png" 
+                    <img src="https://res.cloudinary.com/dmm6avtxd/image/upload/v1787501406/Robopanda-Robotic_wwr2jb.png"
                          style="height: 48px; width: auto; filter: brightness(0) invert(0.2);">
                     <div>
                         <h2>Master Matrix Private</h2>

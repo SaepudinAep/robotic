@@ -262,7 +262,7 @@ async function loadRekapAbsensi() {
     const pSlice = allP.slice(sIdx, eIdx + 1);
 
     // 2. Get Students
-    const { data: students } = await supabase.from("students").select("id, name, grade").eq("class_id", classId).order("name");
+    const { data: students } = await supabase.from("students").select("id, name, grade").eq("class_id", classId).order("grade").order("name");
 
     // 3. Get Attendance Data
     const { data: att } = await supabase.from("attendance").select("student_id, pertemuan_id, status").in("pertemuan_id", pSlice.map(p => p.id));
@@ -304,7 +304,7 @@ async function loadRekapPembelajaran() {
     const eIdx = allP.findIndex(p => p.id === endId);
     const pSlice = allP.slice(sIdx, eIdx + 1);
 
-    const { data: students } = await supabase.from("students").select("id, name, grade").eq("class_id", classId).order("name");
+    const { data: students } = await supabase.from("students").select("id, name, grade").eq("class_id", classId).order("grade").order("name");
     const { data: att } = await supabase.from("attendance").select("student_id, pertemuan_id, sikap, fokus").in("pertemuan_id", pSlice.map(p => p.id));
 
     const map = {};

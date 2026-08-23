@@ -47,6 +47,9 @@ export async function init(canvas) {
                 <div class="card shadow-soft">
                     <div class="card-header"><h4 id="title-form-siswa"><i class="fas fa-plus-circle"></i> Kelola & Registrasi Siswa</h4></div>
                     <div class="card-body">
+                        <div class="session-banner" id="siswa-session-banner" style="margin-bottom:15px;">
+                            <i class="fas fa-info-circle"></i> Memuat periode aktif...
+                        </div>
                         <div class="form-grid">
                             <div class="form-group">
                                 <label>Sekolah</label>
@@ -273,11 +276,20 @@ function switchTab(target) {
 }
 
 function updateKelasBanner() {
-    const banner = document.getElementById('kelas-session-banner');
-    if (banner) {
-        banner.innerHTML = `
+    const kelasBanner = document.getElementById('kelas-session-banner');
+    if (kelasBanner) {
+        kelasBanner.innerHTML = `
             <i class="fas fa-link"></i> Pembuatan kelas baru otomatis terikat pada periode aktif: 
             <strong>TA ${activeYearLabel}</strong> — <strong>${activeSemesterLabel}</strong>.
+        `;
+    }
+    // Banner tab Siswa: konteks periode untuk pemilihan kelas
+    const siswaBanner = document.getElementById('siswa-session-banner');
+    if (siswaBanner) {
+        siswaBanner.innerHTML = `
+            <i class="fas fa-calendar-check"></i> Periode aktif sistem: 
+            <strong>TA ${activeYearLabel}</strong> — <strong>${activeSemesterLabel}</strong>. 
+            Kelas bertanda <strong>★</strong> adalah kelas periode berjalan.
         `;
     }
 }
@@ -577,8 +589,17 @@ async function renderClassesList(schoolId) {
     const container = document.getElementById('class-list-container');
     if (!schoolId) { container.innerHTML = '<p class="text-muted">Pilih sekolah untuk memfilter list kelas.</p>'; return; }
 
-    const { data } = await supabase.from('classes').select('*').eq('school_id', schoolId).order('name');
+    const { data } = await supabase.from('classes').select('*, academic_years(year), semesters(name)').eq('school_id', schoolId).order('name');
     if (!data || data.length === 0) { container.innerHTML = '<p class="text-muted">Belum ada kelas yang terdaftar di sekolah ini.</p>'; return; }
+
+    // Urutkan: periode terbaru di atas, lalu nama kelas
+    data.sort((a, b) => {
+        const ya = a.academic_years?.year || '', yb = b.academic_years?.year || '';
+        if (ya !== yb) return yb.localeCompare(ya);
+        const sa = a.semesters?.name || '', sb = b.semesters?.name || '';
+        if (sa !== sb) return sb.localeCompare(sa);
+        return a.name.localeCompare(b.name);
+    });
 
     window.editClass = (id, school, name, level, jadwal) => {
         currentEditClassId = id;
@@ -594,19 +615,22 @@ async function renderClassesList(schoolId) {
 
     container.innerHTML = `
         <table class="modern-table">
-            <thead><tr><th>Nama Kelas</th><th>Level</th><th>Jadwal Belajar</th><th width="100">Aksi</th></tr></thead>
+            <thead><tr><th>Nama Kelas</th><th>Level</th><th>Periode (TA · Semester)</th><th>Jadwal Belajar</th><th width="100">Aksi</th></tr></thead>
             <tbody>
-                ${data.map(c => `
-                    <tr>
-                        <td><strong>${c.name}</strong></td>
+                ${data.map(c => {
+                    const isActivePeriod = (c.academic_year_id === activeAcademicYearId && c.semester_id === activeSemesterId);
+                    return `
+                    <tr${isActivePeriod ? ' style="background:#f0f9ff;"' : ''}>
+                        <td><strong>${c.name}</strong>${isActivePeriod ? '<span class="badge-period-active">★ Aktif</span>' : ''}</td>
                         <td><span class="badge-grade">${c.level || '-'}</span></td>
+                        <td><span class="badge-period">${c.academic_years?.year || '-'} · ${c.semesters?.name || '-'}</span></td>
                         <td><span class="text-muted">${c.jadwal || '-'}</span></td>
                         <td>
                             <button type="button" class="btn-icon text-primary" onclick="window.editClass('${c.id}', '${c.school_id}', '${c.name}', '${c.level}', '${c.jadwal ? c.jadwal.replace(/'/g, "\\'") : ''}')"><i class="fas fa-edit"></i></button>
                             <button type="button" class="btn-icon text-danger" onclick="window.openDeleteModal('${c.id}', 'class')"><i class="fas fa-trash"></i></button>
                         </td>
-                    </tr>
-                `).join('')}
+                    </tr>`;
+                }).join('')}
             </tbody>
         </table>
     `;
@@ -630,8 +654,30 @@ async function loadClasses(schoolId) {
     select.disabled = !schoolId;
     if (!schoolId) return;
 
-    const { data } = await supabase.from('classes').select('id, name').eq('school_id', schoolId).order('name');
-    (data || []).forEach(c => select.add(new Option(c.name, c.id)));
+    // Ambil kelas BESERTA periode (TA & Semester) agar tidak ambigu
+    const { data } = await supabase.from('classes')
+        .select('id, name, academic_year_id, semester_id, academic_years(year), semesters(name)')
+        .eq('school_id', schoolId)
+        .order('name');
+
+    // Urutkan: periode terbaru di atas, lalu nama kelas
+    const sorted = (data || []).sort((a, b) => {
+        const ya = a.academic_years?.year || '', yb = b.academic_years?.year || '';
+        if (ya !== yb) return yb.localeCompare(ya);
+        const sa = a.semesters?.name || '', sb = b.semesters?.name || '';
+        if (sa !== sb) return sb.localeCompare(sa);
+        return a.name.localeCompare(b.name);
+    });
+
+    sorted.forEach(c => {
+        const ta = c.academic_years?.year || 'TA ?';
+        const sem = c.semesters?.name || 'Semester ?';
+        const isActivePeriod = (c.academic_year_id === activeAcademicYearId && c.semester_id === activeSemesterId);
+        const label = isActivePeriod
+            ? `★ ${c.name} — ${ta} · ${sem} (PERIODE AKTIF)`
+            : `${c.name} — ${ta} · ${sem}`;
+        select.add(new Option(label, c.id));
+    });
 }
 
 async function loadStudentsList(classId) {
@@ -863,6 +909,8 @@ function injectStyles() {
 
         .session-banner { padding: 12px 20px; background: #ebf5fb; border-left: 4px solid #4d97ff; border-radius: 4px; color: #2c3e50; font-size: 0.9rem; font-weight:500; }
         .badge-grade { padding: 3px 8px; background: #eaeaea; border-radius: 4px; font-size: 0.75rem; font-weight: 600; color:#2c3e50; }
+        .badge-period { padding: 3px 8px; background: #eff6ff; border: 1px solid #dbeafe; border-radius: 4px; font-size: 0.72rem; font-weight: 600; color:#1e40af; white-space: nowrap; }
+        .badge-period-active { padding: 2px 8px; background: #dcfce7; border: 1px solid #bbf7d0; border-radius: 10px; font-size: 0.68rem; font-weight: 700; color:#15803d; margin-left:6px; white-space:nowrap; }
         .text-muted { color: #95a5a6; font-size: 0.85rem; }
         .margin-top { margin-top: 20px; }
         
