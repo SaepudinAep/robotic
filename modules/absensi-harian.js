@@ -485,11 +485,14 @@ async function loadSesiPenuh(pertemuanId) {
     tbody.innerHTML = `<tr><td colspan="100%" style="padding:40px; text-align:center;"><i class="fas fa-spinner fa-spin fa-2x" style="color:#2563eb; margin-bottom:10px;"></i><br>Mengambil Data...</td></tr>`;
 
     // 2. Ambil Detail Pertemuan (Untuk Form Tersembunyi)
-    const { data: detail } = await supabase.from("pertemuan_kelas").select("*, materi(title, level_id)").eq("id", pertemuanId).single();
+    // [AUDIT FIX #1] sertakan sub_level_id agar sesi lama memulihkan pilihan sub-level
+    const { data: detail } = await supabase.from("pertemuan_kelas").select("*, materi(title, level_id, sub_level_id)").eq("id", pertemuanId).single();
     if (detail) {
         document.getElementById("materi-date").value = detail.tanggal;
         document.getElementById("materi-title").value = detail.materi?.title || "";
         document.getElementById("materi-level-filter").value = detail.materi?.level_id || "";
+        // [AUDIT FIX #1] isi ulang opsi sub-level sesuai level, lalu tandai yang tersimpan (silent agar saran tidak me-pop-up)
+        populateSubLevelsFilter(detail.materi?.level_id || "", detail.materi?.sub_level_id || "", true);
         document.getElementById("materi-guru").value = detail.guru_id;
         document.getElementById("materi-asisten").value = detail.asisten_id || "";
         // Sinkronkan badge status judul (materi dari DB pasti terdaftar)
@@ -821,8 +824,16 @@ async function renderHeader() {
 let allSubLevelsCache = [];
 
 async function loadLevelOptions() {
-    const { data: lvData } = await supabase.from("levels").select("id, kode").order("kode");
-    const { data: subData } = await supabase.from("sub_levels").select("id, level_id, name, kit_alat").order("name");
+    // [AUDIT FIX #4] urutan konsisten dengan Silabus (order_index) + hanya sub-level aktif
+    const { data: lvData } = await supabase.from("levels")
+        .select("id, kode, order_index")
+        .order("order_index", { ascending: true, nullsFirst: false })
+        .order("kode", { ascending: true });
+    const { data: subData } = await supabase.from("sub_levels")
+        .select("id, level_id, name, kit_alat, is_active, order_index")
+        .eq("is_active", true)
+        .order("order_index", { ascending: true, nullsFirst: false })
+        .order("name", { ascending: true });
     allSubLevelsCache = subData || [];
 
     const s = document.getElementById("materi-level-filter"); 
@@ -836,7 +847,7 @@ async function loadLevelOptions() {
     }
 }
 
-function populateSubLevelsFilter(levelId, currentSubId = "") {
+function populateSubLevelsFilter(levelId, currentSubId = "", silent = false) {
     const subSel = document.getElementById("materi-sub-level-filter");
     if (!subSel) return;
     const filtered = allSubLevelsCache.filter(sub => sub.level_id === levelId);
@@ -846,6 +857,15 @@ function populateSubLevelsFilter(levelId, currentSubId = "") {
     }
     subSel.innerHTML = '<option value="">-- Pilih Sub-Level --</option>' + 
         filtered.map(sub => `<option value="${sub.id}" ${currentSubId === sub.id ? 'selected' : ''}>${escapeHtml(sub.name)} ${sub.kit_alat ? `[${escapeHtml(sub.kit_alat)}]` : ''}</option>`).join('');
+
+    // [AUDIT FIX #3] ganti sub-level => segarkan saran materi sesuai pilihan baru
+    subSel.onchange = () => {
+        if (silent) return;
+        const titleEl = document.getElementById("materi-title");
+        if (titleEl && titleEl.value.trim().length >= 2 && levelId) {
+            loadMateriSuggestions(titleEl.value.trim(), levelId);
+        }
+    };
 }
 async function loadGuruDropdowns() {
     const { data } = await supabase.from("teachers").select("id, name").order("name");
@@ -886,6 +906,7 @@ window.historyClick = async (id) => {
 // --- SEARCH & TARGET LOGIC ---
 async function loadMateriSuggestions(kw, lid) {
     const box = document.getElementById("materi-suggestion-box");
+    const subLid = document.getElementById("materi-sub-level-filter")?.value || "";
 
     // Level belum dipilih -> jelaskan kenapa saran tidak muncul (hilangkan rancu)
     if(!lid) {
@@ -897,21 +918,24 @@ async function loadMateriSuggestions(kw, lid) {
     }
     if(kw.length < 2) { box.style.display = "none"; return; }
 
-    // Ambil kode level via relasi agar bisa ditampilkan di tiap item
-    const { data } = await supabase.from("materi")
-        .select("title, levels(kode)")
+    // [AUDIT FIX #3] saran mengikuti level + sub-level yang dipilih, badge tampilkan sub-level
+    let query = supabase.from("materi")
+        .select("title, levels(kode), sub_levels(name)")
         .eq("level_id", lid)
         .ilike("title", `%${kw}%`)
         .limit(5);
+    if (subLid) query = query.eq("sub_level_id", subLid);
+
+    const { data } = await query;
 
     if(data?.length) {
         const lvlKode = data[0]?.levels?.kode || "-";
         box.innerHTML = `
-            <div class="suggestion-header"><i class="fas fa-layer-group"></i> Saran Materi Level: <b>${escapeHtml(lvlKode)}</b></div>
+            <div class="suggestion-header"><i class="fas fa-layer-group"></i> Saran Materi: <b>${escapeHtml(lvlKode)}</b>${subLid ? ` · Sub-Level terpilih` : ''}</div>
             ${data.map(m => `
                 <div class="suggestion-item" data-title="${escapeHtml(m.title)}">
                     <span class="sugg-title">${escapeHtml(m.title)}</span>
-                    <span class="sugg-badge">${escapeHtml(m.levels?.kode || '-')}</span>
+                    <span class="sugg-badge">${escapeHtml(m.sub_levels?.name || m.levels?.kode || '-')}</span>
                 </div>
             `).join("")}
         `;
@@ -929,11 +953,24 @@ async function handleMateriSubmit(e) {
     const title = document.getElementById("materi-title").value.trim();
     const lid = document.getElementById("materi-level-filter").value;
     const subLid = document.getElementById("materi-sub-level-filter")?.value || null;
-    try {
-        let materiQuery = supabase.from("materi").select("id").eq("level_id", lid).ilike("title", title);
-        if (subLid) materiQuery = materiQuery.eq("sub_level_id", subLid);
 
-        let { data: m } = await materiQuery.maybeSingle();
+    // [AUDIT FIX #2] validasi sebelum menyentuh database
+    const resetBtn = () => { btn.disabled = false; btn.innerText = "Simpan Data Pertemuan"; };
+    if (!title || !lid) { showToast("Judul materi & Level wajib diisi!", "error"); resetBtn(); return; }
+    const levelHasSubs = allSubLevelsCache.some(s => s.level_id === lid);
+    if (levelHasSubs && !subLid) {
+        showToast("Level ini memiliki Sub-Level — pilih salah satu!", "error");
+        resetBtn(); return;
+    }
+
+    try {
+        // [AUDIT FIX #2] dedup anti-error: limit(1), bukan maybeSingle()
+        let dupQuery = supabase.from("materi").select("id").eq("level_id", lid).ilike("title", title);
+        if (subLid) dupQuery = dupQuery.eq("sub_level_id", subLid);
+        const { data: dupRows, error: dupErr } = await dupQuery.limit(1);
+        if (dupErr) throw dupErr;
+
+        let m = (dupRows && dupRows.length > 0) ? dupRows[0] : null;
         if (!m) { 
             const insertObj = { title, level_id: lid };
             if (subLid) insertObj.sub_level_id = subLid;
