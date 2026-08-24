@@ -215,8 +215,12 @@ async function loadModule(route, title, category) {
         </div>`;
 
     try {
+        // [GUARD] Buang ekstensi .js / spasi bila terlanjur tersimpan di database,
+        // agar route tidak menjadi modules/nama.js.js (404)
+        const cleanRoute = String(route || '').trim().replace(/\.js$/i, '');
+
         // Import Dinamis (Menggunakan path asli)
-        const module = await import(`../../modules/${route}.js?v=${Date.now()}`); 
+        const module = await import(`../../modules/${cleanRoute}.js?v=${Date.now()}`); 
         contentCanvas.innerHTML = '';
         
         if (module.init) {
@@ -229,7 +233,7 @@ async function loadModule(route, title, category) {
         contentCanvas.innerHTML = `
             <div style="padding:40px; text-align:center; color:#ef4444;">
                 <h3>Gagal Memuat Modul</h3>
-                <p>File <code>modules/${route}.js</code> tidak ditemukan atau error.</p>
+                <p>File <code>modules/${String(route || '').trim().replace(/\.js$/i, '')}.js</code> tidak ditemukan atau error.</p>
             </div>`;
     }
 }

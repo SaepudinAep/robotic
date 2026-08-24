@@ -84,6 +84,7 @@ CREATE TABLE public.materi (
   level_id uuid,
   image_url text,
   sub_level_id uuid,
+  order_index integer,
   CONSTRAINT materi_pkey PRIMARY KEY (id),
   CONSTRAINT materi_guru_id_fkey FOREIGN KEY (guru_id) REFERENCES public.teachers(id),
   CONSTRAINT fk_materi_level FOREIGN KEY (level_id) REFERENCES public.levels(id),
@@ -107,6 +108,7 @@ CREATE TABLE public.levels (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   kode text NOT NULL UNIQUE,
   detail text,
+  order_index integer,
   CONSTRAINT levels_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.pertemuan_kelas (
@@ -142,6 +144,7 @@ CREATE TABLE public.materi_private (
   level_id uuid,
   image_url text,
   sub_level_id uuid,
+  order_index integer,
   CONSTRAINT materi_private_pkey PRIMARY KEY (id),
   CONSTRAINT materi_private_level_id_fkey FOREIGN KEY (level_id) REFERENCES public.levels(id),
   CONSTRAINT materi_private_sub_level_id_fkey FOREIGN KEY (sub_level_id) REFERENCES public.sub_levels(id)
@@ -371,6 +374,7 @@ CREATE TABLE public.sub_levels (
   description text,
   is_active boolean DEFAULT true,
   created_at timestamp with time zone DEFAULT now(),
+  order_index integer,
   CONSTRAINT sub_levels_pkey PRIMARY KEY (id),
   CONSTRAINT sub_levels_level_id_fkey FOREIGN KEY (level_id) REFERENCES public.levels(id)
 );
