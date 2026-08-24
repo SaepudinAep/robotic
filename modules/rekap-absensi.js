@@ -126,6 +126,7 @@ function injectStyles() {
         .rigid-table th { background: #f2f2f2; font-weight: bold; text-transform: uppercase; font-family: 'Fredoka One', cursive; font-size: 0.75rem; }
         .rigid-table tr:nth-child(even) { background: #fafafa; }
         .rekap-legend { caption-side: top; text-align: left; font-size: .75rem; color: #555; padding-bottom: 6px; white-space: normal; }
+        .rigid-table .wrap-cell { white-space: normal; overflow-wrap: break-word; word-break: break-word; text-align: left; min-width: 140px; }
 
         @media print {
             .no-print { display: none !important; }
@@ -367,6 +368,8 @@ async function loadRekapPembelajaran() {
 }
 
 // --- REKAP SILABUS / MATERI YANG SUDAH DIAJARKAN ---
+// V2: log kronologis per pertemuan (bukan agregat).
+// Kolom: No · Tgl (dd bulan yyyy, lengkap) · Nama Materi · Uraian singkat
 async function loadRekapMateri() {
     showSection("rekapMateriSection");
     updateActiveBtn("btnRekapMateri");
@@ -381,53 +384,43 @@ async function loadRekapMateri() {
     catch(e) { return alert("Gagal memuat data pertemuan: " + e.message); }
     if (!pSlice.length) return alert("Rentang pertemuan tidak valid atau belum ada data.");
 
-    // Ambil pertemuan + materi terkait (perlu colom tanggal; materi via join)
-    const { data: pertemuan, error: errP } = await supabase.from("pertemuan_kelas").select("id, tanggal, materi_id, materi(title, sub_level_id)").eq("class_id", classId);
-    if (errP) return alert("Gagal memuat pertemuan: " + errP.message);
+    // Materi via join; ambil kolom untuk uraian singkat (description -> detail)
+    const { data: pertemuan, error: errP } = await supabase.from("pertemuan_kelas")
+        .select("id, tanggal, materi_id, materi(title, description, detail)")
+        .in("id", pSlice.map(p => p.id));   // hanya dalam rentang (plus order di bawah)
+    if (errP) return alert("Gagal memuat data: " + errP.message);
 
-    const { data: levels } = await supabase.from("levels").select("id, kode");
-    const { data: subs } = await supabase.from("sub_levels").select("id, level_id, name");
-
-    const agg = {};   // kunci materi_id -> statistik
-    (pertemuan || []).forEach(p => {
-        if (!p.materi_id) return;
-        const inRange = pSlice.some(pp => pp.id === p.id);
-        const m = p.materi || {};
-        const key = m.id || p.materi_id;
-        if (!agg[key]) {
-            agg[key] = { title: m.title || "(tanpa judul)", subId: m.sub_level_id || null, total: 0, list: [] };
-        }
-        if (inRange) {
-            agg[key].total += 1;
-            agg[key].list.push({ tanggal: p.tanggal, id: p.id });
-        }
-    });
-
-    // path sub id -> level id -> kode
-    const subMap = (subs || []).reduce((acc, s) => { acc[s.id] = s; return acc; }, {});
-    const lvMap = (levels || []).reduce((acc, l) => { acc[l.id] = l; return acc; }, {});
-
-    const rows = Object.values(agg).filter(r => r.total > 0).sort((a,b)=> b.total - a.total || (a.title||"").localeCompare(b.title||""));
+    // Satu baris per pertemuan; urut sesuai pSlice (sudah ascending by tanggal)
+    const rows = (pertemuan || []).map(p => ({
+        id: p.id,
+        tanggal: p.tanggal,
+        judul: p.materi?.title || "(tanpa judul)",
+        uraian: (p.materi?.description || p.materi?.detail || "").trim()
+    }));
+    rows.sort((a,b) => pSlice.findIndex(x => x.id === a.id) - pSlice.findIndex(x => x.id === b.id));
 
     const table = document.getElementById("rekapMateriTable");
+    if (!rows.length) {
+        table.innerHTML = `<caption class="rekap-legend">Belum ada materi yang tercatat dalam rentang ini.</caption>
+            <thead><tr><th width="40">No</th><th>Tgl</th><th>Nama Materi</th><th>Uraian singkat</th></tr></thead><tbody></tbody>`;
+        return;
+    }
+
+    const longDate = d => new Date(d).toLocaleDateString('id-ID', { day:'2-digit', month:'long', year:'numeric' });
+
     table.innerHTML = `<thead><tr>
         <th width="40">No</th>
-        <th style="text-align:left;">Materi</th>
-        <th style="text-align:left;">Level → Sub-Level</th>
-        <th>Total</th>
-        <th>Tanggal Diajarkan</th>
-    </tr></thead><tbody>` + rows.map((r, i) => {
-        const sub = subMap[r.subId];
-        const lvKode = sub ? (lvMap[sub.level_id]?.kode || '-') : '-';
-        const tanggals = r.list.map(x => formatTanggal(x.tanggal)).join(", ");
-        return `<tr>
+        <th style="text-align:left;">Tgl</th>
+        <th style="text-align:left;">Nama Materi</th>
+        <th style="text-align:left;">Uraian singkat</th>
+    </tr></thead><tbody>` + rows.map((r, i) =>
+        `<tr>
             <td>${i+1}</td>
-            <td style="text-align:left;">${escapeHtml(r.title)}</td>
-            <td style="text-align:left;">${escapeHtml(lvKode)} → ${escapeHtml(sub?.name || 'Tanpa Sub-Level')}</td>
-            <td>${r.total}</td>
-            <td style="text-align:left;">${tanggals || '-'}</td>
-        </tr>`;
-    }).join("") + `</tbody>`;
+            <td style="text-align:left; white-space:nowrap;">${escapeHtml(longDate(r.tanggal))}</td>
+            <td class="wrap-cell">${escapeHtml(r.judul)}</td>
+            <td class="wrap-cell">${escapeHtml(r.uraian) || '-'}</td>
+        </tr>`
+    ).join("") + `</tbody>`;
 }
 
 // --- UTILS & EVENTS ---
