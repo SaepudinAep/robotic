@@ -1,0 +1,75 @@
+name: Keep Supabase Alive
+
+# ============================================================
+# Tujuan  : Mencegah proyek Supabase Free Tier di-Pause otomatis.
+# Masalah : Supabase mem-pause proyek gratis bila tidak ada
+#           request sama sekali selama ±7 hari.
+# Solusi  : Ping ringan (curl) berkala ±4 hari sekali ke
+#           endpoint Auth & REST Supabase.
+#
+# Catatan penting:
+# - Schedule HANYA aktif di branch default (main).
+# - GitHub menonaktifkan otomatis scheduled workflow jika repo
+#   tidak ada aktivitas commit selama 60 hari (cukup push apa
+#   saja untuk mengaktifkan kembali).
+# - Eksekusi bisa telat beberapa menit saat GitHub sedang ramai;
+#   dengan interval 4 hari masih ada buffer ~3 hari dari batas 7.
+# ============================================================
+
+on:
+  schedule:
+    # Berjalan pada tanggal 1,5,9,13,17,21,25,29 pukul 03:00 UTC (= 10:00 WIB)
+    # Ganti ke '0 3 */3 * *' jika ingin lebih sering (tiap 3 hari).
+    - cron: '0 3 */4 * *'
+  workflow_dispatch: # Bisa dijalankan manual dari tab "Actions" -> "Run workflow"
+
+env:
+  # Direkomendasikan: isi lewat Settings > Secrets and variables > Actions
+  # Jika secret kosong, otomatis pakai nilai fallback di bawah.
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://aedtrwpomswdqxarvsrg.supabase.co' }}
+  SUPABASE_KEY: ${{ secrets.SUPABASE_ANON_KEY || 'sb_publishable_QXwMaSw5_11T2BpcWetm2A_hTgZeAsf' }}
+
+jobs:
+  keep-alive:
+    name: Ping Supabase
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Ping Auth Service (/auth/v1/health)
+        run: |
+          CODE=$(curl -s -o /tmp/auth.json -w "%{http_code}" --max-time 30 \
+            "${{ env.SUPABASE_URL }}/auth/v1/health" \
+            -H "apikey: ${{ env.SUPABASE_KEY }}")
+          echo "Status Code : $CODE"
+          echo "Response    : $(cat /tmp/auth.json)"
+          if [ "$CODE" != "200" ]; then
+            echo "::warning::Endpoint auth health mengembalikan kode $CODE"
+          fi
+
+      - name: Ping REST API (query tabel kecil)
+        # Catatan: endpoint root /rest/v1/ mengembalikan 401 untuk key
+        # sb_publishable_*, jadi kita query tabel terkecil saja.
+        # Respons [] (kosong karena RLS) tetap bernilai 200 dan tetap
+        # tercatat sebagai aktivitas API oleh Supabase.
+        run: |
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
+            "${{ env.SUPABASE_URL }}/rest/v1/levels?select=id&limit=1" \
+            -H "apikey: ${{ env.SUPABASE_KEY }}")
+          echo "Try 'levels' -> Status Code : $CODE"
+
+          # Fallback ke tabel lain bila tabel levels tidak tersedia/diblokir
+          if [ "$CODE" != "200" ]; then
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
+              "${{ env.SUPABASE_URL }}/rest/v1/app_menus?select=id&limit=1" \
+              -H "apikey: ${{ env.SUPABASE_KEY }}")
+            echo "Fallback 'app_menus' -> Status Code : $CODE"
+          fi
+
+          if [ "$CODE" != "200" ]; then
+            echo "::error::Supabase tidak merespon normal (kode $CODE). Kemungkinan project pause/error - cek dashboard Supabase!"
+            exit 1
+          fi
+
+      - name: Ringkasan
+        if: always()
+        run: echo "✅ Keep-alive selesai. Aktivitas API tercatat di Supabase."
