@@ -75,10 +75,7 @@ export async function init(canvas) {
             </div>
 
             <div class="table-scroll shadow-soft" id="report-area" style="background: white; border-radius: 12px; overflow-x: auto; padding: 10px; display:none;">
-                <section id="tabelSiswaSection" class="rekap-section">
-                    <table id="tabelDataSiswa" class="rigid-table"></table>
-                </section>
-                <section id="rekapAbsensiSection" class="rekap-section" style="display: none;">
+                <section id="rekapAbsensiSection" class="rekap-section">
                     <table id="rekapAbsensiTable" class="rigid-table"></table>
                 </section>
                 <section id="rekapPembelajaranSection" class="rekap-section" style="display: none;">
@@ -124,6 +121,7 @@ function injectStyles() {
         .rigid-table th, .rigid-table td { border: 1px solid #333; padding: 8px 5px; text-align: center; }
         .rigid-table th { background: #f2f2f2; font-weight: bold; text-transform: uppercase; font-family: 'Fredoka One', cursive; font-size: 0.75rem; }
         .rigid-table tr:nth-child(even) { background: #fafafa; }
+        .rekap-legend { caption-side: top; text-align: left; font-size: .75rem; color: #555; padding-bottom: 6px; white-space: normal; }
 
         @media print {
             .no-print { display: none !important; }
@@ -236,13 +234,37 @@ function formatTanggal(tgl) {
     return `${d.getDate()}/${d.getMonth()+1}`;
 }
 
+// [FIX #3] helper escape (konsisten dengan modul lain)
+function escapeHtml(str) {
+    return String(str ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// [FIX #3] ambil daftar pertemuan dalam rentang; auto-swap bila terbalik; tolak ID basi
+async function getPertemuanSlice(classId, startId, endId) {
+    const { data: allP, error } = await supabase.from("pertemuan_kelas")
+        .select("id, tanggal").eq("class_id", classId).order("tanggal");
+    if (error) throw error;
+
+    let sIdx = allP.findIndex(p => p.id === startId);
+    let eIdx = allP.findIndex(p => p.id === endId);
+    if (sIdx === -1 || eIdx === -1) return [];      // dropdown basi / data berubah
+
+    if (sIdx > eIdx) [sIdx, eIdx] = [eIdx, sIdx];   // guru salah urut? otomatis dibalik
+    return allP.slice(sIdx, eIdx + 1);
+}
+
+// [FIX #1] Semantik disamakan dengan modul Input Harian:
+// 0 = ⬜ belum dinilai · 1 = ✅ hadir · 2 = ❌ alpa
 function ikonAbsensi(status) {
-    const map = { 0: "❌", 1: "✅", 2: "⚠️" }; // 0: Alfa, 1: Hadir, 2: Izin/Sakit
+    if (status === undefined || status === null) return "-"; // tidak ada record pada pertemuan itu
+    const map = { 0: "⬜", 1: "✅", 2: "❌" };
     return map[status] ?? "-";
 }
 
+// [FIX #2] Skala lengkap mengikuti siklus input: sikap 0-5, fokus 0-3
 function ikonSikap(val) {
-    const map = { 0: "❌", 1: "🤐", 2: "🙂", 3: "🔥" }; 
+    if (val === undefined || val === null) return "-";
+    const map = { 0: "❌", 1: "🤐", 2: "🙈", 3: "🙂", 4: "👀", 5: "🌀" };
     return map[val] ?? "-";
 }
 
@@ -255,33 +277,35 @@ async function loadRekapAbsensi() {
     const endId = document.getElementById("pertemuanEndSelect").value;
     if(!startId || !endId) return;
 
-    // 1. Get List Pertemuan dalam Range
-    const { data: allP } = await supabase.from("pertemuan_kelas").select("id, tanggal").eq("class_id", classId).order("tanggal");
-    const sIdx = allP.findIndex(p => p.id === startId);
-    const eIdx = allP.findIndex(p => p.id === endId);
-    const pSlice = allP.slice(sIdx, eIdx + 1);
+    // [FIX #3] rentang aman (auto-swap bila terbalik / tolak ID basi)
+    let pSlice;
+    try { pSlice = await getPertemuanSlice(classId, startId, endId); }
+    catch(e) { return alert("Gagal memuat data pertemuan: " + e.message); }
+    if (!pSlice.length) return alert("Rentang pertemuan tidak valid atau belum ada data.");
 
-    // 2. Get Students
-    const { data: students } = await supabase.from("students").select("id, name, grade").eq("class_id", classId).order("grade").order("name");
+    // [FIX #4] hanya siswa aktif
+    const [{ data: students, error: errS }, { data: att, error: errA }] = await Promise.all([
+        supabase.from("students").select("id, name, grade").eq("class_id", classId).eq("is_active", true).order("grade").order("name"),
+        supabase.from("attendance").select("student_id, pertemuan_id, status").in("pertemuan_id", pSlice.map(p => p.id))
+    ]);
+    if (errS || errA) return alert("Gagal memuat laporan: " + ((errS || errA)?.message || "?")); // [FIX #5]
 
-    // 3. Get Attendance Data
-    const { data: att } = await supabase.from("attendance").select("student_id, pertemuan_id, status").in("pertemuan_id", pSlice.map(p => p.id));
-
-    // 4. Map Data
+    // Map Data
     const map = {};
-    att.forEach(a => {
+    (att || []).forEach(a => {
         if(!map[a.student_id]) map[a.student_id] = {};
         map[a.student_id][a.pertemuan_id] = a.status;
     });
 
-    // 5. Render
+    // Render (+ legenda agar makna ikon jelas)
     const table = document.getElementById("rekapAbsensiTable");
-    let html = `<thead><tr><th width="40">No</th><th style="text-align:left;">Nama Siswa</th><th width="80">Kelas</th>`;
+    let html = `<caption class="rekap-legend">Legenda: ⬜ belum dinilai · ✅ hadir · ❌ alpa · - tanpa data</caption>`;
+    html += `<thead><tr><th width="40">No</th><th style="text-align:left;">Nama Siswa</th><th width="80">Kelas</th>`;
     pSlice.forEach(p => html += `<th width="50">${formatTanggal(p.tanggal)}</th>`);
     html += `</tr></thead><tbody>`;
 
     students.forEach((s, i) => {
-        html += `<tr><td>${i+1}</td><td style="text-align:left; padding-left:10px;">${s.name}</td><td>${s.grade || '-'}</td>`;
+        html += `<tr><td>${i+1}</td><td style="text-align:left; padding-left:10px;">${escapeHtml(s.name)}</td><td>${escapeHtml(s.grade || '-')}</td>`;
         pSlice.forEach(p => {
             html += `<td>${ikonAbsensi(map[s.id]?.[p.id])}</td>`;
         });
@@ -298,28 +322,35 @@ async function loadRekapPembelajaran() {
     const classId = document.getElementById("classSelect").value;
     const startId = document.getElementById("pertemuanStartSelect").value;
     const endId = document.getElementById("pertemuanEndSelect").value;
+    if(!startId || !endId) return;
 
-    const { data: allP } = await supabase.from("pertemuan_kelas").select("id, tanggal").eq("class_id", classId).order("tanggal");
-    const sIdx = allP.findIndex(p => p.id === startId);
-    const eIdx = allP.findIndex(p => p.id === endId);
-    const pSlice = allP.slice(sIdx, eIdx + 1);
+    // [FIX #3] rentang aman (auto-swap bila terbalik / tolak ID basi)
+    let pSlice;
+    try { pSlice = await getPertemuanSlice(classId, startId, endId); }
+    catch(e) { return alert("Gagal memuat data pertemuan: " + e.message); }
+    if (!pSlice.length) return alert("Rentang pertemuan tidak valid atau belum ada data.");
 
-    const { data: students } = await supabase.from("students").select("id, name, grade").eq("class_id", classId).order("grade").order("name");
-    const { data: att } = await supabase.from("attendance").select("student_id, pertemuan_id, sikap, fokus").in("pertemuan_id", pSlice.map(p => p.id));
+    // [FIX #4] hanya siswa aktif
+    const [{ data: students, error: errS }, { data: att, error: errA }] = await Promise.all([
+        supabase.from("students").select("id, name, grade").eq("class_id", classId).eq("is_active", true).order("grade").order("name"),
+        supabase.from("attendance").select("student_id, pertemuan_id, sikap, fokus").in("pertemuan_id", pSlice.map(p => p.id))
+    ]);
+    if (errS || errA) return alert("Gagal memuat laporan: " + ((errS || errA)?.message || "?")); // [FIX #5]
 
     const map = {};
-    att.forEach(a => {
+    (att || []).forEach(a => {
         if(!map[a.student_id]) map[a.student_id] = {};
         map[a.student_id][a.pertemuan_id] = {s: a.sikap, f: a.fokus};
     });
 
     const table = document.getElementById("rekapPembelajaranTable");
-    let html = `<thead><tr><th>No</th><th style="text-align:left;">Nama</th>`;
+    let html = `<caption class="rekap-legend">Legenda: ❌ belum dinilai · 🙈🤐🙂👀🌀 tingkat sikap · - tanpa data</caption>`;
+    html += `<thead><tr><th>No</th><th style="text-align:left;">Nama</th>`;
     pSlice.forEach(p => html += `<th>${formatTanggal(p.tanggal)}</th>`);
     html += `</tr></thead><tbody>`;
 
     students.forEach((s, i) => {
-        html += `<tr><td>${i+1}</td><td style="text-align:left;">${s.name}</td>`;
+        html += `<tr><td>${i+1}</td><td style="text-align:left;">${escapeHtml(s.name)}</td>`;
         pSlice.forEach(p => {
             const val = map[s.id]?.[p.id];
             // Format: Sikap | Fokus
@@ -333,7 +364,7 @@ async function loadRekapPembelajaran() {
 
 // --- UTILS & EVENTS ---
 function showSection(id) {
-    ["tabelSiswaSection", "rekapAbsensiSection", "rekapPembelajaranSection"].forEach(sid => {
+    ["rekapAbsensiSection", "rekapPembelajaranSection"].forEach(sid => {
         const el = document.getElementById(sid);
         if(el) el.style.display = (sid === id) ? "block" : "none";
     });
