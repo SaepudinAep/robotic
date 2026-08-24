@@ -22,8 +22,8 @@ let materiPrivate = [];   // tabel "materi_private"
 let achSekolah = [];      // { id, main_achievement, sub_achievement, sub_level_id }
 let achPrivate = [];
 let editMode = false;
-let activeLevelId = null;    // level yang sedang tampil pada tab
-const collapsed = new Set(); // id sub_level yang dilipat
+let activeLevelId = null;    // level yang sedang tampil pada tab pertama
+let activeSubLevelId = null; // sub-level yang sedang tampil pada tab kedua
 
 // ==========================================
 // 1. INITIALIZATION
@@ -43,7 +43,7 @@ export async function init(canvas) {
                     ${editMode ? 'Selesai Urutkan' : 'Ubah Urutan'}
                 </button>
             </div>
-            ${editMode ? `<div class="slb-edit-hint"><i class="fa-solid fa-circle-info"></i> Klik <b>&#9664;</b> / <b>&#9654;</b> untuk menggeser posisi <b>tab level</b>, dan <b>&#8593;</b> / <b>&#8595;</b> untuk <b>sub-level</b> atau <b>materi</b>. Perubahan tersimpan otomatis.</div>` : ''}
+            ${editMode ? `<div class="slb-edit-hint"><i class="fa-solid fa-circle-info"></i> Klik <b>&#9664;</b> / <b>&#9654;</b> untuk menggeser posisi <b>tab level</b> &amp; <b>tab sub-level</b>, dan <b>&#8593;</b> / <b>&#8595;</b> untuk <b>materi</b>. Perubahan tersimpan otomatis.</div>` : ''}
             <div id="slb-root">
                 <div class="slb-loading"><i class="fa-solid fa-circle-notch fa-spin fa-2x"></i><span>Memuat silabus...</span></div>
             </div>
@@ -104,10 +104,14 @@ function renderContent() {
         return;
     }
 
-    // Pastikan tab aktif valid (default: level pertama)
+    // Pastikan tab level aktif valid (default: level pertama)
     if (!lvlItems.some(l => l.id === activeLevelId)) activeLevelId = lvlItems[0].id;
-    const active = lvlItems.find(l => l.id === activeLevelId);
+    const activeLvl = lvlItems.find(l => l.id === activeLevelId);
     const subs = getSortedSubs(activeLevelId);
+
+    // Validasi tab sub-level aktif
+    if (!subs.some(s => s.id === activeSubLevelId)) activeSubLevelId = subs.length ? subs[0].id : null;
+    const activeSub = subs.find(s => s.id === activeSubLevelId) || null;
 
     root.innerHTML = `
         <div class="slb-tabs">
@@ -119,7 +123,7 @@ function renderContent() {
             </button>`).join('')}
         </div>
 
-        ${editMode ? `
+        ${editMode && lvlItems.length > 1 ? `
         <div class="slb-tab-shift">
             <span><i class="fa-solid fa-shuffle"></i> Posisi tab level aktif:</span>
             <button class="slb-move-btn" data-action="shift-level" data-dir="-1"
@@ -128,48 +132,49 @@ function renderContent() {
                 title="Geser ke kanan" ${lvlItems[lvlItems.length - 1].id === activeLevelId ? 'disabled' : ''}><i class="fa-solid fa-arrow-right"></i></button>
         </div>` : ''}
 
+        ${subs.length === 0 ? `
         <section class="slb-panel">
-            <div class="slb-panel-head">
-                <h3>${active.title}</h3>
-                <span>${active._ref.detail || ''}</span>
-            </div>
-            ${subs.length === 0
-                ? `<div class="slb-empty small">Belum ada sub-level untuk level ini.</div>`
-                : subs.map((s, si) => renderSubCard(s._ref, si, subs.length)).join('')}
-        </section>`;
+            <div class="slb-panel-head"><h3>${activeLvl.title}</h3><span>${activeLvl._ref.detail || ''}</span></div>
+            <div class="slb-subbody"><div class="slb-empty small">Belum ada sub-level untuk level ini.</div></div>
+        </section>` : `
+        <div class="slb-tabs sub">
+            ${subs.map(s => `
+            <button class="slb-tab sub ${s.id === activeSubLevelId ? 'active' : ''}"
+                    data-action="switch-sub" data-sid="${s.id}">
+                ${s.title}
+                <small>${getSortedItems(s.id).length}</small>
+            </button>`).join('')}
+        </div>
+
+        ${editMode && subs.length > 1 ? `
+        <div class="slb-tab-shift sub">
+            <span><i class="fa-solid fa-shuffle"></i> Posisi tab sub-level aktif:</span>
+            <button class="slb-move-btn" data-action="shift-sub" data-dir="-1"
+                title="Geser ke kiri" ${subs[0].id === activeSubLevelId ? 'disabled' : ''}><i class="fa-solid fa-arrow-left"></i></button>
+            <button class="slb-move-btn" data-action="shift-sub" data-dir="1"
+                title="Geser ke kanan" ${subs[subs.length - 1].id === activeSubLevelId ? 'disabled' : ''}><i class="fa-solid fa-arrow-right"></i></button>
+        </div>` : ''}
+
+        ${activeSub ? renderSubPanel(activeSub._ref) : ''}`}
+    `;
 
     syncEditButtonState();
 }
 
-function renderSubCard(sub, si, total) {
+function renderSubPanel(sub) {
     const items = getSortedItems(sub.id);
     const asek = achSekolah.filter(a => a.sub_level_id === sub.id);
     const aprv = achPrivate.filter(a => a.sub_level_id === sub.id);
-    const isCollapsed = collapsed.has(sub.id);
 
     return `
-    <div class="slb-subcard" data-sid="${sub.id}">
-        <div class="slb-subhead" data-action="toggle-sub" data-sid="${sub.id}">
-            <div class="slb-subtitle">
-                <strong>${sub.name}</strong>
-                <code>${sub.kode}</code>
-                ${sub.kit_alat ? `<span class="slb-kit"><i class="fa-solid fa-toolbox"></i> ${sub.kit_alat}</span>` : ''}
-                ${sub.is_active === false ? `<span class="slb-badge off">Nonaktif</span>` : ''}
-            </div>
-            <div class="slb-submeta">
-                ${editMode ? `
-                <div class="slb-move-group">
-                    <button class="slb-move-btn" data-action="move-sub" data-dir="-1" data-index="${si}" data-lid="${sub.level_id}"
-                        title="Naikkan sub-level" ${si === 0 ? 'disabled' : ''}><i class="fa-solid fa-arrow-up"></i></button>
-                    <button class="slb-move-btn" data-action="move-sub" data-dir="1" data-index="${si}" data-lid="${sub.level_id}"
-                        title="Turunkan sub-level" ${si === total - 1 ? 'disabled' : ''}><i class="fa-solid fa-arrow-down"></i></button>
-                </div>` : ''}
-                <span class="slb-count">${items.length} materi</span>
-                <i class="fa-solid fa-chevron-${isCollapsed ? 'down' : 'up'}"></i>
-            </div>
+    <section class="slb-panel">
+        <div class="slb-panel-head">
+            <h3>${sub.name}</h3>
+            <code>${sub.kode}</code>
+            ${sub.kit_alat ? `<span class="slb-kit"><i class="fa-solid fa-toolbox"></i> ${sub.kit_alat}</span>` : ''}
+            ${sub.is_active === false ? `<span class="slb-badge off">Nonaktif</span>` : ''}
         </div>
 
-        ${isCollapsed ? '' : `
         <div class="slb-subbody">
             ${items.length === 0
                 ? `<div class="slb-empty small">Belum ada materi pada sub-level ini.</div>`
@@ -184,8 +189,8 @@ function renderSubCard(sub, si, total) {
                         ...aprv.map(a => achRow(a, '#f59e0b', 'Private'))
                       ].join('')}
             </div>
-        </div>`}
-    </div>`;
+        </div>
+    </section>`;
 }
 
 function renderItemRow(item, index, total) {
@@ -371,6 +376,21 @@ function bindEvents(canvas) {
             return;
         }
 
+        const subTabBtn = e.target.closest('[data-action="switch-sub"]');
+        if (subTabBtn) {
+            activeSubLevelId = subTabBtn.dataset.sid;
+            renderContent();
+            return;
+        }
+
+        const shiftSubBtn = e.target.closest('[data-action="shift-sub"]');
+        if (shiftSubBtn && !shiftSubBtn.disabled) {
+            shiftSubBtn.disabled = true;
+            const idx = getSortedSubs(activeLevelId).findIndex(s => s.id === activeSubLevelId);
+            await applyMove(getSortedSubs(activeLevelId), idx, parseInt(shiftSubBtn.dataset.dir, 10));
+            return;
+        }
+
         const subBtn = e.target.closest('[data-action="move-sub"]');
         if (subBtn && !subBtn.disabled) {
             subBtn.disabled = true;
@@ -385,15 +405,8 @@ function bindEvents(canvas) {
             return;
         }
 
-        const subHead = e.target.closest('[data-action="toggle-sub"]');
-        if (subHead && !e.target.closest('.slb-move-btn')) {
-            const sid = subHead.dataset.sid;
-            collapsed.has(sid) ? collapsed.delete(sid) : collapsed.add(sid);
-            renderContent();
-        }
     });
 }
-
 function syncEditButtonState() {
     const btn = document.getElementById('slb-edit-toggle');
     if (btn) {
@@ -462,18 +475,14 @@ function injectStyles() {
         .slb-panel-head h3 { margin:0; font-family:'Fredoka One'; color:#1e293b; font-size:1.15rem; }
         .slb-panel-head span { color:#64748b; font-size:.85rem; }
 
-        .slb-subcard { border-bottom:1px solid #f1f5f9; }
-        .slb-subcard:last-child { border-bottom:none; }
+        .slb-tabs.sub { margin-bottom:10px; }
+        .slb-tab.sub { padding:8px 14px; font-size:.82rem; border-radius:10px; }
+        .slb-tab.sub.active { background:#f59e0b; border-color:#f59e0b; box-shadow:0 4px 10px rgba(245,158,11,.35); }
+        .slb-tab.sub:hover:not(.active) { border-color:#fcd34d; color:#b45309; }
 
-        .slb-subhead { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:14px 20px; cursor:pointer; transition:.15s; flex-wrap:wrap; }
-        .slb-subhead:hover { background:#f8fafc; }
-        .slb-subtitle { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-        .slb-subtitle strong { color:#334155; font-size:1rem; }
-        .slb-subtitle code { background:#f1f5f9; color:#475569; padding:2px 8px; border-radius:6px; font-size:.75rem; }
+        .slb-tab-shift.sub { background:#fff7ed; border-color:#fed7aa; color:#9a3412; }
+        .slb-panel-head code { background:#f1f5f9; color:#475569; padding:2px 8px; border-radius:6px; font-size:.75rem; }
         .slb-kit { background:#ecfdf5; color:#059669; border:1px solid #a7f3d0; padding:3px 10px; border-radius:20px; font-size:.75rem; font-weight:600; }
-        .slb-submeta { display:flex; align-items:center; gap:10px; color:#94a3b8; font-size:.82rem; }
-
-        .slb-count { background:#f1f5f9; padding:3px 10px; border-radius:12px; white-space:nowrap; }
 
         .slb-subbody { padding:4px 20px 18px; }
 
@@ -519,7 +528,7 @@ function injectStyles() {
         @media (max-width:640px){
             .slb-header h2 { font-size:1.15rem; }
             .slb-subbody { padding:4px 12px 16px; }
-            .slb-subhead { padding:12px; }
+            .slb-tab { padding:8px 12px; }
             .slb-materi-desc { -webkit-line-clamp:1; }
         }
     `;
