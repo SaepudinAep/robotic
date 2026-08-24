@@ -209,6 +209,7 @@ function injectStyles() {
         /* Badges Top Row */
         .materi-badges-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
         .badge-level-tag { background: #fef3c7; color: #b45309; padding: 3px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
+        .badge-sublevel-tag { background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; padding: 3px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; gap: 5px; }
         .badge-status-pill { padding: 3px 10px; border-radius: 20px; font-size: 0.72rem; font-weight: 700; display: inline-flex; align-items: center; gap: 5px; }
         .status-complete { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
         .status-draft { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
@@ -381,7 +382,7 @@ async function loadData() {
         if (currentTab === "materi") {
             let query = supabase
                 .from('materi_private')
-                .select('*, levels(id, kode, detail)')
+                .select('*, levels(id, kode, detail), sub_levels(name, kode)')
                 .order('created_at', { ascending: false });
 
             // Filter Level jika dipilih
@@ -415,6 +416,8 @@ async function loadData() {
                 const hasDesc = Boolean((m.deskripsi && m.deskripsi.trim()) || (m.detail && m.detail.trim()));
                 const isComplete = hasTitle && hasImg && hasDesc;
                 const levelName = m.levels?.kode || m.level || 'Umum';
+                // Tag sub-level (bila materi terpaut ke sub_levels)
+                const subLevelName = m.sub_level_id ? (m.sub_levels?.name || m.sub_levels?.kode || '') : '';
 
                 return `
                     <div class="materi-card btn-edit-trigger" data-id="${m.id}" data-type="materi">
@@ -428,8 +431,9 @@ async function loadData() {
                             <div class="materi-info">
                                 <div class="materi-badges-top">
                                     <span class="badge-level-tag">
-                                        <i class="fas fa-layer-group"></i> ${levelName}
+                                        <i class="fas fa-layer-group"></i> ${escapeHtml(levelName)}
                                     </span>
+                                    ${subLevelName ? `<span class="badge-sublevel-tag"><i class="fas fa-tag"></i> ${escapeHtml(subLevelName)}</span>` : ''}
                                     <span class="badge-status-pill ${isComplete ? 'status-complete' : 'status-draft'}">
                                         <i class="fas ${isComplete ? 'fa-circle-check' : 'fa-triangle-exclamation'}"></i>
                                         ${isComplete ? 'Lengkap' : 'Belum Lengkap'}
@@ -463,7 +467,7 @@ async function loadData() {
         } else if (currentTab === "achievement") {
             let query = supabase
                 .from('achievement_private')
-                .select('*, levels(id, kode, detail)')
+                .select('*, levels(id, kode, detail), sub_levels(name, kode)')
                 .order('created_at', { ascending: false });
 
             // Filter Level jika dipilih
@@ -517,6 +521,7 @@ async function loadData() {
                                 <div style="flex:1;">
                                     <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
                                         <span class="ach-title" style="margin-bottom:0;">${a.main_achievement}</span>
+                                        ${a.sub_level_id && (a.sub_levels?.name || a.sub_levels?.kode) ? `<span class="badge-sublevel-tag" style="font-size:0.7rem; padding:2px 8px;"><i class="fas fa-tag"></i> ${escapeHtml(a.sub_levels?.name || a.sub_levels?.kode)}</span>` : ''}
                                         <span class="badge-status-pill status-complete" style="font-size:0.7rem; padding:2px 8px;">
                                             ${subList.length} Indikator
                                         </span>

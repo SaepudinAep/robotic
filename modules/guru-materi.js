@@ -191,6 +191,7 @@ function injectStyles() {
         /* Badges Top Row */
         .materi-badges-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
         .badge-level-tag { background: #e0f2fe; color: #0369a1; padding: 3px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
+        .badge-sublevel-tag { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; padding: 3px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; gap: 5px; }
         .badge-status-pill { padding: 3px 10px; border-radius: 20px; font-size: 0.72rem; font-weight: 700; display: inline-flex; align-items: center; gap: 5px; }
         .status-complete { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
         .status-draft { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
@@ -284,7 +285,7 @@ async function loadData() {
         if (currentTab === "materi") {
             let query = supabase
                 .from('materi')
-                .select('*, levels(id, kode, detail)')
+                .select('*, levels(id, kode, detail), sub_levels(name, kode)')
                 .order('created_at', { ascending: false });
 
             // Filter Level jika dipilih
@@ -318,6 +319,8 @@ async function loadData() {
                 const hasDesc = Boolean((m.description && m.description.trim()) || (m.detail && m.detail.trim()));
                 const isComplete = hasTitle && hasImg && hasDesc;
                 const levelName = m.levels?.kode || m.level || 'Umum';
+                // Tag sub-level (bila materi terpaut ke sub_levels)
+                const subLevelName = m.sub_level_id ? (m.sub_levels?.name || m.sub_levels?.kode || '') : '';
 
                 return `
                     <div class="materi-card item-card" data-id="${m.id}" data-type="materi">
@@ -333,6 +336,7 @@ async function loadData() {
                                     <span class="badge-level-tag">
                                         <i class="fas fa-layer-group"></i> ${levelName}
                                     </span>
+                                    ${subLevelName ? `<span class="badge-sublevel-tag"><i class="fas fa-tag"></i> ${subLevelName}</span>` : ''}
                                     <span class="badge-status-pill ${isComplete ? 'status-complete' : 'status-draft'}">
                                         <i class="fas ${isComplete ? 'fa-circle-check' : 'fa-triangle-exclamation'}"></i>
                                         ${isComplete ? 'Lengkap' : 'Belum Lengkap'}
@@ -366,7 +370,7 @@ async function loadData() {
         } else {
             let query = supabase
                 .from('achievement_sekolah')
-                .select('*, levels(id, kode, detail)')
+                .select('*, levels(id, kode, detail), sub_levels(name, kode)')
                 .order('created_at', { ascending: false });
 
             // Filter Level jika dipilih
@@ -397,6 +401,7 @@ async function loadData() {
             containerAchieve.innerHTML = filtered.map(a => {
                 const subList = (a.sub_achievement || "").split('\n').filter(s => s.trim() !== "");
                 const levelName = a.levels?.kode || 'Umum';
+                const subLevelName = a.sub_level_id ? (a.sub_levels?.name || a.sub_levels?.kode || '') : '';
 
                 return `
                     <div class="achievement-folder item-card" data-id="${a.id}" data-type="achievement">
@@ -404,6 +409,7 @@ async function loadData() {
                             <div class="ach-title-block">
                                 <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
                                     <span class="badge-level-tag"><i class="fas fa-layer-group"></i> ${levelName}</span>
+                                    ${subLevelName ? `<span class="badge-sublevel-tag"><i class="fas fa-tag"></i> ${subLevelName}</span>` : ''}
                                     <span class="badge-status-pill status-complete"><i class="fas fa-list-check"></i> ${subList.length} Indikator</span>
                                 </div>
                                 <div class="ach-title">
