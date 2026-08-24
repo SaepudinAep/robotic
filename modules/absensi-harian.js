@@ -80,6 +80,7 @@ export async function init(canvas) {
                         <button type="button" id="btn-new-session" class="btn-pill-blue"><i class="fas fa-plus"></i> Buat Baru</button>
                     </div>
                     <div class="form-group"><label>🎯 Level</label><select id="materi-level-filter" class="input-modern" required></select></div>
+                    <div class="form-group"><label>📦 Sub-Level / Kit</label><select id="materi-sub-level-filter" class="input-modern"><option value="">-- Sub-Level --</option></select></div>
                     <div class="form-group"><label>📅 Tanggal</label><input type="date" id="materi-date" class="input-modern" required></div>
                     <div class="form-group full">
                         <label>📚 Judul Materi</label>
@@ -817,10 +818,34 @@ async function renderHeader() {
         localStorage.setItem("activeSchoolId", data.schools?.id || "");
     }
 }
+let allSubLevelsCache = [];
+
 async function loadLevelOptions() {
-    const { data } = await supabase.from("levels").select("id, kode").order("kode");
-    const s = document.getElementById("materi-level-filter"); s.innerHTML='<option value="">Level</option>';
-    (data||[]).forEach(l=>s.add(new Option(l.kode, l.id)));
+    const { data: lvData } = await supabase.from("levels").select("id, kode").order("kode");
+    const { data: subData } = await supabase.from("sub_levels").select("id, level_id, name, kit_alat").order("name");
+    allSubLevelsCache = subData || [];
+
+    const s = document.getElementById("materi-level-filter"); 
+    if (s) {
+        s.innerHTML = '<option value="">Level</option>';
+        (lvData || []).forEach(l => s.add(new Option(l.kode, l.id)));
+
+        s.onchange = () => {
+            populateSubLevelsFilter(s.value);
+        };
+    }
+}
+
+function populateSubLevelsFilter(levelId, currentSubId = "") {
+    const subSel = document.getElementById("materi-sub-level-filter");
+    if (!subSel) return;
+    const filtered = allSubLevelsCache.filter(sub => sub.level_id === levelId);
+    if (!filtered.length) {
+        subSel.innerHTML = '<option value="">-- Tanpa Sub-Level --</option>';
+        return;
+    }
+    subSel.innerHTML = '<option value="">-- Pilih Sub-Level --</option>' + 
+        filtered.map(sub => `<option value="${sub.id}" ${currentSubId === sub.id ? 'selected' : ''}>${escapeHtml(sub.name)} ${sub.kit_alat ? `[${escapeHtml(sub.kit_alat)}]` : ''}</option>`).join('');
 }
 async function loadGuruDropdowns() {
     const { data } = await supabase.from("teachers").select("id, name").order("name");
@@ -903,9 +928,18 @@ async function handleMateriSubmit(e) {
     // (Logic simpan materi sama seperti sebelumnya, disederhanakan)
     const title = document.getElementById("materi-title").value.trim();
     const lid = document.getElementById("materi-level-filter").value;
+    const subLid = document.getElementById("materi-sub-level-filter")?.value || null;
     try {
-        let {data:m} = await supabase.from("materi").select("id").eq("level_id",lid).ilike("title",title).maybeSingle();
-        if(!m) { const res = await supabase.from("materi").insert({title, level_id:lid}).select().single(); m=res.data; }
+        let materiQuery = supabase.from("materi").select("id").eq("level_id", lid).ilike("title", title);
+        if (subLid) materiQuery = materiQuery.eq("sub_level_id", subLid);
+
+        let { data: m } = await materiQuery.maybeSingle();
+        if (!m) { 
+            const insertObj = { title, level_id: lid };
+            if (subLid) insertObj.sub_level_id = subLid;
+            const res = await supabase.from("materi").insert(insertObj).select().single(); 
+            m = res.data; 
+        }
         
         const payload = {
             class_id: localStorage.getItem("activeClassId"), school_id: localStorage.getItem("activeSchoolId"),

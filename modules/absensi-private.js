@@ -60,23 +60,25 @@ export async function init(canvas) {
         // 4. Delegation: klik kartu kelas (aman — tidak pakai inline onclick)
     document.getElementById('private-grid').addEventListener('click', async (e) => {
         const chevron = e.target.closest('.card-chevron');
-        const card = e.target.closest('.color-card[data-cid]');
+        const card = e.target.closest('[data-cid]');
 
         // Klik chevron → toggle student preview (jangan navigasi)
         if (chevron) {
             e.stopPropagation();
-            const cid = chevron.closest('.color-card').dataset.cid;
-            toggleStudentPreview(cid, chevron);
+            const parentCard = chevron.closest('[data-cid]');
+            if (parentCard) toggleStudentPreview(parentCard.dataset.cid, chevron);
             return;
         }
 
-        // Klik card body (bukan chevron) → navigate ke monitoring
-        if (card && !e.target.closest('.card-chevron') && !e.target.closest('.student-preview')) {
+        // Klik card body (bukan chevron & bukan daftar siswa preview) → navigate ke monitoring
+        if (card && card.dataset.cid && !e.target.closest('.card-chevron') && !e.target.closest('.student-preview')) {
             window.dispatchPrivateMonitoring(
                 card.dataset.cid,
                 card.dataset.cname,
                 card.dataset.lid,
-                card.dataset.lkode
+                card.dataset.lkode,
+                card.dataset.subid,
+                card.dataset.subname
             );
         }
     });
@@ -139,21 +141,23 @@ function injectStyles() {
         .card-level { background: rgba(0,0,0,0.2); padding: 5px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: bold; z-index:1; }
         .card-icon { font-size: 2rem; margin-bottom: 10px; opacity: 0.9; z-index:1; }
 
-        /* Variasi Warna (Modulus 4) */
-        .bg-blue   { background: linear-gradient(135deg, #4d97ff, #2563eb); }
-        .bg-orange { background: linear-gradient(135deg, #ffab19, #f59e0b); }
-        .bg-green  { background: linear-gradient(135deg, #00b894, #00a884); }
-        .bg-purple { background: linear-gradient(135deg, #a55eea, #8854d0); }
+        /* Variasi Warna Solid (6 Palette Rotation) */
+        .bg-blue   { background-color: #2563eb; }
+        .bg-emerald { background-color: #059669; }
+        .bg-amber  { background-color: #d97706; }
+        .bg-purple { background-color: #7c3aed; }
+        .bg-rose   { background-color: #e11d48; }
+        .bg-teal   { background-color: #0891b2; }
 
-                .loading-state { grid-column: 1/-1; text-align: center; padding: 50px; color: #999; font-size: 1.1rem; }
+        .loading-state { grid-column: 1/-1; text-align: center; padding: 50px; color: #999; font-size: 1.1rem; }
         .empty-state { grid-column: 1/-1; text-align: center; padding: 40px; background: #f9f9f9; border-radius: 12px; border: 2px dashed #ddd; }
         .empty-state i { font-size: 3rem; color: #ccc; margin-bottom: 15px; }
         .empty-state p { margin: 10px 0 5px; color: #666; font-weight: 600; }
         .empty-state small { color: #999; display: block; margin-bottom: 20px; }
-        .empty-state .btn-create { background: #4d97ff; color: white; border: none; padding: 10px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: 0.2s; }
-        .empty-state .btn-create:hover { background: #2563eb; transform: translateY(-1px); }
+        .empty-state .btn-create { background: #2563eb; color: white; border: none; padding: 10px 24px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+        .empty-state .btn-create:hover { background: #1d4ed8; transform: translateY(-1px); }
 
-                /* Student count badge */
+        /* Student count badge */
         .card-student-count {
             background: rgba(255, 255, 255, 0.22); backdrop-filter: blur(2px);
             padding: 3px 10px; border-radius: 20px; font-size: 0.75rem;
@@ -214,15 +218,17 @@ async function loadPrivateClasses() {
     const grid = document.getElementById('private-grid');
 
     try {
-        // Ambil data kelas private + relasi levels
+        // Ambil data kelas private + relasi levels & sub_levels
         const { data, error } = await supabase
             .from('class_private')
             .select(`
                 id,
                 name,
                 level_id,
+                sub_level_id,
                 is_active,
-                levels (id, kode)
+                levels (id, kode),
+                sub_levels (id, name, kit_alat)
             `)
             // [FIX] Jangan tampil card kelas non-aktif (schema: is_active NOT NULL DEFAULT true)
             .eq('is_active', true)
@@ -240,11 +246,12 @@ async function loadPrivateClasses() {
         privateClassesCache = data;
         renderCards(data, grid);
 
-        // Fetch student counts secara paralel untuk semua kelas
+        // Fetch student counts secara paralel untuk semua kelas (hanya siswa aktif)
         const classIds = data.map(c => c.id);
         const { data: counts } = await supabase
             .from('students_private')
-            .select('class_id', { count: 'exact', head: false })
+            .select('class_id')
+            .eq('is_active', true)
             .in('class_id', classIds);
 
         // Hitung jumlah siswa per kelas
@@ -266,6 +273,57 @@ async function loadPrivateClasses() {
     }
 }
 
+// Expand / Collapse Preview Daftar Siswa per Kelas
+async function toggleStudentPreview(classId, chevronEl) {
+    const card = chevronEl.closest('.color-card');
+    if (!card) return;
+    const previewBox = card.querySelector(`.student-preview[data-cid="${classId}"]`);
+    if (!previewBox) return;
+
+    const isVisible = previewBox.style.display !== 'none';
+    if (isVisible) {
+        previewBox.style.display = 'none';
+        chevronEl.classList.remove('rotated');
+    } else {
+        previewBox.style.display = 'block';
+        chevronEl.classList.add('rotated');
+
+        // Load siswa jika belum di-load sebelumnya
+        if (!previewBox.dataset.loaded) {
+            previewBox.innerHTML = `<div style="text-align:center; padding:6px; font-size:0.8rem;"><i class="fas fa-spinner fa-spin"></i> Memuat siswa...</div>`;
+            try {
+                const { data, error } = await supabase
+                    .from('students_private')
+                    .select('id, name')
+                    .eq('class_id', classId)
+                    .eq('is_active', true)
+                    .order('name');
+
+                if (error) throw error;
+                previewBox.dataset.loaded = "true";
+
+                if (!data || data.length === 0) {
+                    previewBox.innerHTML = `<div style="text-align:center; padding:6px; font-size:0.8rem; opacity:0.8;">Belum ada siswa aktif.</div>`;
+                    return;
+                }
+
+                previewBox.innerHTML = data.map(s => {
+                    const name = s.name || 'Tanpa Nama';
+                    const initial = name.charAt(0).toUpperCase();
+                    return `
+                        <div class="std-row">
+                            <div class="std-initial">${escapeHtml(initial)}</div>
+                            <div class="std-name">${escapeHtml(name)}</div>
+                        </div>
+                    `;
+                }).join('');
+            } catch (err) {
+                previewBox.innerHTML = `<div style="text-align:center; padding:6px; font-size:0.8rem; color:#f87171;">Gagal memuat.</div>`;
+            }
+        }
+    }
+}
+
 function renderEmptyState() {
     const grid = document.getElementById('private-grid');
     grid.innerHTML = `
@@ -281,13 +339,13 @@ function renderEmptyState() {
 }
 
 function renderCards(classes, container) {
-    // Array kelas warna untuk rotasi
-    const colors = ['bg-blue', 'bg-orange', 'bg-green', 'bg-purple'];
-    // Array ikon untuk variasi
-    const icons = ['fa-robot', 'fa-microchip', 'fa-cogs', 'fa-gamepad'];
+    // Array 6 solid colors
+    const colors = ['bg-blue', 'bg-emerald', 'bg-amber', 'bg-purple', 'bg-rose', 'bg-teal'];
+    // Array 6 ikon
+    const icons = ['fa-robot', 'fa-microchip', 'fa-cogs', 'fa-gamepad', 'fa-laptop-code', 'fa-shapes'];
 
     container.innerHTML = classes.map((c, index) => {
-        // Tentukan warna berdasarkan urutan (Modulus 4)
+        // Tentukan warna berdasarkan urutan
         const colorClass = colors[index % colors.length];
         const iconClass = icons[index % icons.length];
         const levelKode = c.levels?.kode || 'No Level';
@@ -298,15 +356,19 @@ function renderCards(classes, container) {
         const lkode = escapeHtmlAttr(levelKode);
         const cnameDisplay = escapeHtml(c.name || '');
 
+        const subid = escapeHtmlAttr(c.sub_level_id || '');
+        const subname = escapeHtmlAttr(c.sub_levels?.name || '');
+        const subDisplay = c.sub_levels?.name ? ` • ${c.sub_levels.name}` : '';
+
         return `
-            <div class="color-card ${colorClass}" data-cid="${cid}" data-cname="${cname}" data-lid="${lid}" data-lkode="${lkode}">
+            <div class="color-card ${colorClass}" data-cid="${cid}" data-cname="${cname}" data-lid="${lid}" data-lkode="${lkode}" data-subid="${subid}" data-subname="${subname}">
                 <div class="card-header-row">
                     <i class="fas ${iconClass} card-icon"></i>
                     <div class="card-student-count" data-cid="${cid}"><i class="fas fa-spinner fa-spin fa-xs"></i></div>
                     <i class="fas fa-chevron-down card-chevron" style="color:rgba(255,255,255,0.7); font-size:0.9rem;"></i>
                 </div>
                 <div class="card-title">${cnameDisplay}</div>
-                <span class="card-level">${escapeHtml(levelKode)}</span>
+                <span class="card-level">${escapeHtml(levelKode)}${escapeHtml(subDisplay)}</span>
                 <!-- Expandable Student Preview -->
                 <div class="student-preview" data-cid="${cid}" style="display:none;"></div>
             </div>
@@ -318,17 +380,21 @@ function renderCards(classes, container) {
 // 4. ACTION DISPATCHER
 // ==========================================
 
-window.dispatchPrivateMonitoring = (classId, className, levelId, levelKode) => {
+window.dispatchPrivateMonitoring = (classId, className, levelId, levelKode, subLevelId = "", subLevelName = "") => {
     // 1. Bersihkan storage lama agar data fresh
     localStorage.removeItem("activePrivateClassId");
     localStorage.removeItem("activeLevelId");
+    localStorage.removeItem("activeSubLevelId");
     localStorage.removeItem("activeLevelKode");
+    localStorage.removeItem("activeSubLevelName");
     localStorage.removeItem("activePrivateClassName");
-    localStorage.removeItem("activeClassName"); // legacy key, bersihkan juga
+    localStorage.removeItem("activeClassName"); // legacy key
 
-    // 2. Simpan Context Baru (kunci sudah konsisten dengan monitoring-private.js)
+    // 2. Simpan Context Baru
     localStorage.setItem("activePrivateClassId", classId);
     localStorage.setItem("activeLevelId", levelId);
+    if (subLevelId) localStorage.setItem("activeSubLevelId", subLevelId);
+    if (subLevelName) localStorage.setItem("activeSubLevelName", subLevelName);
     localStorage.setItem("activeLevelKode", levelKode);
     localStorage.setItem("activePrivateClassName", className);
 

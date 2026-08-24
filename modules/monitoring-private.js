@@ -12,6 +12,8 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // --- STATE MODULE ---
 let classId = null;
 let levelId = null;
+let subLevelId = null;
+let subLevelName = "";
 let currentSessionId = null;
 let sessionTargets = []; 
 let studentList = [];
@@ -26,131 +28,155 @@ let debounceTimer = null;
 // ==========================================
 
 export async function init(canvas) {
-    classId = localStorage.getItem("activePrivateClassId");
-    levelId = localStorage.getItem("activeLevelId");
-    const levelKode = localStorage.getItem("activeLevelKode") || "-";
-    const className = localStorage.getItem("activePrivateClassName") || "Kelas Private";
+    try {
+        classId = localStorage.getItem("activePrivateClassId");
+        levelId = localStorage.getItem("activeLevelId");
+        subLevelId = localStorage.getItem("activeSubLevelId");
+        subLevelName = localStorage.getItem("activeSubLevelName") || "";
+        const levelKode = localStorage.getItem("activeLevelKode") || "-";
+        const className = localStorage.getItem("activePrivateClassName") || "Kelas Private";
 
-    if (!classId) {
-        alert("Pilih kelas terlebih dahulu!");
-        if(window.dispatchModuleLoad) window.dispatchModuleLoad('absensi-private', 'Absensi Private', 'List');
-        return;
-    }
+        if (!classId) {
+            alert("Pilih kelas terlebih dahulu!");
+            if(window.dispatchModuleLoad) window.dispatchModuleLoad('absensi-private', 'Absensi Private', 'List');
+            return;
+        }
 
-    injectStyles();
+        injectStyles();
 
-    canvas.innerHTML = `
-        <div class="mp-container fade-in">
-            
-            <div class="mp-header shadow-soft">
-                <button id="btn-back" class="btn-icon-text">
-                    <i class="fas fa-arrow-left"></i> Kembali
-                </button>
-                <div style="text-align:center; flex:1;">
-                    <h3 class="page-title">${className}</h3>
-                    <span class="level-badge">${levelKode}</span>
-                </div>
-                <div id="session-status" class="status-badge">BARU</div>
-            </div>
-
-            <div class="card-section shadow-soft">
-                <div class="section-header accordion-trigger" id="head-setup">
-                    <h4><i class="fas fa-calendar-day" style="color:#4d97ff;"></i> Setup Sesi</h4>
-                    <div style="display:flex; gap:10px; align-items:center;">
-                        <button id="btn-reset-mode" class="btn-action-small" style="display:none;">
-                            <i class="fas fa-plus"></i> Baru
-                        </button>
-                        <i id="icon-setup" class="fas fa-chevron-down accordion-icon rotate-icon"></i>
-                    </div>
-                </div>
-
-                <div id="setup-form" style="display:block;">
-                    <div class="form-grid">
-                        <div class="form-group">
-                            <label>📅 Tanggal</label>
-                            <input type="date" id="tglPertemuan" class="input-modern">
-                        </div>
-                        <div class="form-group">
-                            <label>👨‍🏫 Guru</label>
-                            <select id="pilihGuru" class="input-modern"><option>Loading...</option></select>
-                        </div>
-                        <div class="form-group full">
-                            <label>📚 Materi (Topik)</label>
-                            <input type="text" id="materiUtama" class="input-modern" placeholder="Contoh: Logika Algoritma">
+        canvas.innerHTML = `
+            <div class="mp-container fade-in">
+                
+                <div class="mp-header shadow-soft">
+                    <button id="btn-back" class="btn-icon-text">
+                        <i class="fas fa-arrow-left"></i> Kembali
+                    </button>
+                    <div style="text-align:center; flex:1;">
+                        <h3 class="page-title">${className}</h3>
+                        <div style="display:flex; gap:6px; justify-content:center; align-items:center; margin-top:4px;">
+                            <span class="level-badge">${levelKode}</span>
+                            <span id="sub-level-badge-container">
+                                ${subLevelName ? `<span class="level-badge" style="background:#e0f2fe; color:#0369a1; border:1px solid #bae6fd;">${subLevelName}</span>` : ''}
+                            </span>
                         </div>
                     </div>
-                    <div class="form-actions" style="margin-top:15px;">
-                        <button id="btnSimpanSesi" class="btn-primary full">
-                            <i class="fas fa-play"></i> MULAI SESI
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card-section shadow-soft" id="section-target">
-                <div class="section-header accordion-trigger" id="head-target">
-                    <h4><i class="fas fa-bullseye" style="color:#ffab19;"></i> Target Capaian</h4>
-                    <i id="icon-target" class="fas fa-chevron-down accordion-icon"></i>
+                    <div id="session-status" class="status-badge">BARU</div>
                 </div>
 
-                <div id="target-container" style="display:none;">
-                    <div id="input-target-area">
-                        <div class="form-group full" style="position:relative;">
-                            <label>🔍 Cari / Input Topik</label>
-                            <input type="text" id="mainAchSearch" class="input-modern" placeholder="Ketik minimal 2 huruf..." autocomplete="off">
-                            <div id="achSuggestionBox" class="suggestion-box shadow-soft" style="display:none;"></div>
+                <div class="card-section shadow-soft">
+                    <div class="section-header accordion-trigger" id="head-setup">
+                        <h4><i class="fas fa-calendar-day" style="color:#4d97ff;"></i> Setup Sesi</h4>
+                        <div style="display:flex; gap:10px; align-items:center;">
+                            <button id="btn-reset-mode" class="btn-action-small" style="display:none;">
+                                <i class="fas fa-plus"></i> Baru
+                            </button>
+                            <i id="icon-setup" class="fas fa-chevron-down accordion-icon rotate-icon"></i>
                         </div>
-                        
-                        <div id="subAchContainer" style="display:none; background:#f9f9f9; padding:10px; border-radius:8px; margin-bottom:10px;">
-                            <label style="font-size:0.8rem; color:#666;">Detail Target:</label>
-                            <select id="subAchSelect" class="input-modern" style="margin-bottom:5px;"></select>
-                            <input type="text" id="subAchManual" class="input-modern" placeholder="Ketik detail manual..." style="display:none;">
-                            <div style="text-align:right;">
-                                <small id="btnToggleManual" style="color:#4d97ff; cursor:pointer; font-weight:bold;">
-                                    <i class="fas fa-pen"></i> Input Manual?
-                                </small>
+                    </div>
+
+                    <div id="setup-form" style="display:block;">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label>📅 Tanggal</label>
+                                <input type="date" id="tglPertemuan" class="input-modern">
+                            </div>
+                            <div class="form-group">
+                                <label>👨‍🏫 Guru</label>
+                                <select id="pilihGuru" class="input-modern"><option>Loading...</option></select>
+                            </div>
+                            <div class="form-group full">
+                                <label>📦 Sub-Level / Kit Alat</label>
+                                <select id="pilihSubLevel" class="input-modern"><option value="">Loading Sub-Level...</option></select>
+                            </div>
+                            <div class="form-group full">
+                                <label>📚 Materi (Topik)</label>
+                                <input type="text" id="materiUtama" class="input-modern" placeholder="Contoh: Logika Algoritma">
                             </div>
                         </div>
+                        <div class="form-actions" style="margin-top:15px;">
+                            <button id="btnSimpanSesi" class="btn-primary full">
+                                <i class="fas fa-play"></i> MULAI SESI
+                            </button>
+                        </div>
+                    </div>
+                </div>
 
-                        <button id="btnAddAch" class="btn-secondary full">
-                            <i class="fas fa-plus-circle"></i> Tambahkan ke List
+                <div class="card-section shadow-soft" id="section-target">
+                    <div class="section-header accordion-trigger" id="head-target">
+                        <h4><i class="fas fa-bullseye" style="color:#ffab19;"></i> Target Capaian</h4>
+                        <i id="icon-target" class="fas fa-chevron-down accordion-icon"></i>
+                    </div>
+
+                    <div id="target-container" style="display:none;">
+                        <div id="input-target-area">
+                            <div class="form-group full" style="position:relative;">
+                                <label>🔍 Cari / Input Topik</label>
+                                <input type="text" id="mainAchSearch" class="input-modern" placeholder="Ketik minimal 2 huruf..." autocomplete="off">
+                                <div id="achSuggestionBox" class="suggestion-box shadow-soft" style="display:none;"></div>
+                            </div>
+                            
+                            <div id="subAchContainer" style="display:none; background:#f9f9f9; padding:10px; border-radius:8px; margin-bottom:10px;">
+                                <label style="font-size:0.8rem; color:#666;">Detail Target:</label>
+                                <select id="subAchSelect" class="input-modern" style="margin-bottom:5px;"></select>
+                                <input type="text" id="subAchManual" class="input-modern" placeholder="Ketik detail manual..." style="display:none;">
+                                <div style="text-align:right;">
+                                    <small id="btnToggleManual" style="color:#4d97ff; cursor:pointer; font-weight:bold;">
+                                        <i class="fas fa-pen"></i> Input Manual?
+                                    </small>
+                                </div>
+                            </div>
+
+                            <button id="btnAddAch" class="btn-secondary full">
+                                <i class="fas fa-plus-circle"></i> Tambahkan ke List
+                            </button>
+                        </div>
+
+                        <div id="targetList" class="preview-box shadow-soft">
+                            <div style="text-align:center; color:#999; font-style:italic;">Belum ada target.</div>
+                        </div>
+
+                        <button id="btnSimpanTarget" class="btn-primary full margin-top" style="display:none; background:linear-gradient(135deg, #ffab19, #f59e0b);">
+                            <i class="fas fa-save"></i> SIMPAN TARGET
+                        </button>
+                        
+                        <button id="btnTambahLagi" class="btn-secondary full margin-top" style="display:none;">
+                            <i class="fas fa-plus"></i> Tambah Target Lain
                         </button>
                     </div>
+                </div>
 
-                    <div id="targetList" class="preview-box shadow-soft">
-                        <div style="text-align:center; color:#999; font-style:italic;">Belum ada target.</div>
+                <div id="monitoringSection" style="margin-top:20px; display:none;">
+                    <h4 style="margin-bottom:15px; color:#555; display:flex; align-items:center; gap:8px;">
+                        <i class="fas fa-users-viewfinder" style="color:#2ecc71;"></i> Penilaian Siswa
+                    </h4>
+                    <div id="studentContainer" class="student-grid-wide"></div>
+                </div>
+
+                <div style="margin-top:40px;">
+                    <h4 style="margin-bottom:15px; color:#555; border-left:4px solid #4d97ff; padding-left:10px;">
+                        Riwayat Kelas Ini
+                    </h4>
+                    <div id="historyGrid" class="history-grid-wide">
+                        <div style="text-align:center; color:#ccc; grid-column:1/-1;">Memuat riwayat...</div>
                     </div>
-
-                    <button id="btnSimpanTarget" class="btn-primary full margin-top" style="display:none; background:linear-gradient(135deg, #ffab19, #f59e0b);">
-                        <i class="fas fa-save"></i> SIMPAN TARGET
-                    </button>
-                    
-                    <button id="btnTambahLagi" class="btn-secondary full margin-top" style="display:none;">
-                        <i class="fas fa-plus"></i> Tambah Target Lain
-                    </button>
                 </div>
+
             </div>
+        `;
 
-            <div id="monitoringSection" style="margin-top:20px; display:none;">
-                <h4 style="margin-bottom:15px; color:#555; display:flex; align-items:center; gap:8px;">
-                    <i class="fas fa-users-viewfinder" style="color:#2ecc71;"></i> Penilaian Siswa
-                </h4>
-                <div id="studentContainer" class="student-grid-wide"></div>
+        await setupLogic();
+    } catch (err) {
+        console.error("Init Error in monitoring-private:", err);
+        canvas.innerHTML = `
+            <div style="padding:40px; text-align:center; color:#ef4444; background:white; border-radius:12px; margin:20px; border:1px solid #fecaca;">
+                <h3><i class="fas fa-triangle-exclamation"></i> Gagal Memuat Modul Monitoring</h3>
+                <p style="font-family:monospace; background:#fee2e2; padding:12px; border-radius:8px; margin:15px 0;">${err.message}</p>
+                <button onclick="window.dispatchModuleLoad('absensi-private', 'Absensi Private', 'List')" style="background:#2563eb; color:white; border:none; padding:10px 20px; border-radius:8px; cursor:pointer; font-weight:bold;">
+                    <i class="fas fa-arrow-left"></i> Kembali ke Daftar Kelas Private
+                </button>
             </div>
-
-            <div style="margin-top:40px;">
-                <h4 style="margin-bottom:15px; color:#555; border-left:4px solid #4d97ff; padding-left:10px;">
-                    Riwayat Kelas Ini
-                </h4>
-                <div id="historyGrid" class="history-grid-wide">
-                    <div style="text-align:center; color:#ccc; grid-column:1/-1;">Memuat riwayat...</div>
-                </div>
-            </div>
-
-        </div>
-    `;
-
-    await setupLogic();
+        `;
+    }
 }
 
 // ==========================================
@@ -247,7 +273,7 @@ function injectStyles() {
 async function setupLogic() {
     document.getElementById('tglPertemuan').valueAsDate = new Date();
     
-    await Promise.all([ fetchTeachers(), fetchStudents() ]);
+    await Promise.all([ fetchTeachers(), fetchStudents(), fetchSubLevels() ]);
     await loadHistory();
     await loadLastSession();
 
@@ -294,6 +320,43 @@ async function fetchTeachers() {
         (data || []).map(t => `<option value="${t.id}">${t.name}</option>`).join('');
 }
 
+async function fetchSubLevels() {
+    const sel = document.getElementById('pilihSubLevel');
+    if (!sel) return;
+
+    let query = supabase.from('sub_levels').select('id, name, kit_alat').order('name');
+    if (levelId) query = query.eq('level_id', levelId);
+    
+    const { data } = await query;
+    const list = data || [];
+    
+    sel.innerHTML = '<option value="">-- Tanpa Sub-Level / Kit --</option>' +
+        list.map(s => `<option value="${s.id}">${s.name} ${s.kit_alat ? `[${s.kit_alat}]` : ''}</option>`).join('');
+
+    if (subLevelId) {
+        sel.value = subLevelId;
+    }
+
+    sel.onchange = () => {
+        subLevelId = sel.value || null;
+        const opt = sel.options[sel.selectedIndex];
+        subLevelName = sel.value ? (opt ? opt.text.split(' [')[0] : '') : '';
+
+        if (subLevelId) {
+            localStorage.setItem("activeSubLevelId", subLevelId);
+            localStorage.setItem("activeSubLevelName", subLevelName);
+        } else {
+            localStorage.removeItem("activeSubLevelId");
+            localStorage.removeItem("activeSubLevelName");
+        }
+
+        const badgeContainer = document.getElementById('sub-level-badge-container');
+        if (badgeContainer) {
+            badgeContainer.innerHTML = subLevelName ? `<span class="level-badge" style="background:#e0f2fe; color:#0369a1; border:1px solid #bae6fd;">${subLevelName}</span>` : '';
+        }
+    };
+}
+
 async function fetchStudents() {
     const { data } = await supabase.from('students_private').select('id, name').eq('class_id', classId).order('name');
     studentList = data || [];
@@ -304,10 +367,12 @@ async function loadLastSession() {
         .select(`id, tanggal, teacher_id, materi_private (id, judul)`)
         .eq('class_id', classId)
         .order('tanggal', { ascending: false }).limit(1).maybeSingle();
-    
-    // Auto-load last session for quick edit if needed, or just info
-    // Di sini kita tidak auto-load ke form agar user bisa input baru, 
-    // tapi data ini berguna jika kita ingin fitur "Duplicate Previous"
+
+    // [TABLE-FIRST] Jika kelas sudah punya sesi, langsung muat:
+    // form terisi, nilai lama & KARTU NAMA SISWA langsung tampil.
+    if (data && data.id) {
+        await window.loadSessionForEdit(data.id);
+    }
 }
 
 async function loadHistory() {
@@ -342,6 +407,8 @@ async function savePertemuan() {
     const tgl = document.getElementById('tglPertemuan').value;
     const guru = document.getElementById('pilihGuru').value; 
     const materiText = document.getElementById('materiUtama').value.trim();
+    const subSelVal = document.getElementById('pilihSubLevel')?.value;
+    if (subSelVal !== undefined) subLevelId = subSelVal || null;
 
     if (!tgl || !materiText) return alert("⚠️ Isi Tanggal & Materi!");
 
@@ -351,18 +418,23 @@ async function savePertemuan() {
 
     try {
         let materiId = null;
+        const materiPayload = { judul: materiText, level_id: levelId };
+        if (subLevelId) materiPayload.sub_level_id = subLevelId;
+
         // Case-Insensitive Check untuk Materi
-        const { data: existM } = await supabase.from('materi_private')
+        let materiQuery = supabase.from('materi_private')
             .select('id')
             .eq('level_id', levelId)
-            .ilike('judul', materiText) // PENTING: ilike = insensitive like
-            .maybeSingle();
+            .ilike('judul', materiText);
+        if (subLevelId) materiQuery = materiQuery.eq('sub_level_id', subLevelId);
+
+        const { data: existM } = await materiQuery.maybeSingle();
         
         if (existM) {
             materiId = existM.id;
         } else {
             const { data: newM } = await supabase.from('materi_private')
-                .insert({ judul: materiText, level_id: levelId }).select('id').single();
+                .insert(materiPayload).select('id').single();
             materiId = newM.id;
         }
 
@@ -389,6 +461,13 @@ async function savePertemuan() {
         
         const target = document.getElementById("target-container");
         if(target.style.display === 'none') toggleAccordion("target-container", "icon-target");
+
+        // [TABLE-FIRST] Kartu siswa langsung tampil tanpa menunggu target.
+        // Target kosong sudah ditangani renderStudentCards ('Belum ada target').
+        if(studentList.length > 0) {
+            renderStudentCards();
+            document.getElementById('monitoringSection').style.display = 'block';
+        }
         
         loadHistory();
 
@@ -414,15 +493,22 @@ async function saveTargetAch() {
             if (t.id) continue; 
 
             let achId = null;
-            // Cek Achievement yang sudah ada
-            const { data: existParent } = await supabase.from('achievement_private')
-                .select('id').eq('main_achievement', t.main).eq('level_id', levelId).maybeSingle();
+            const achPayload = { main_achievement: t.main, sub_achievement: t.sub, level_id: levelId };
+            if (subLevelId) achPayload.sub_level_id = subLevelId;
+
+            let achQuery = supabase.from('achievement_private')
+                .select('id')
+                .eq('main_achievement', t.main)
+                .eq('level_id', levelId);
+            if (subLevelId) achQuery = achQuery.eq('sub_level_id', subLevelId);
+
+            const { data: existParent } = await achQuery.maybeSingle();
             
             if (existParent) {
                 achId = existParent.id;
             } else {
                 const { data: newAch } = await supabase.from('achievement_private')
-                    .insert({ main_achievement: t.main, sub_achievement: t.sub, level_id: levelId }).select('id').single();
+                    .insert(achPayload).select('id').single();
                 achId = newAch.id;
             }
 
@@ -631,8 +717,8 @@ window.markDirty = (studentId) => {
 // 6. HELPER & UTILS
 // ==========================================
 
-window.loadSessionForEdit = async (sessionId) => {
-    if(currentSessionId && !confirm("Pindah ke sesi ini? Input saat ini akan hilang.")) return;
+async function loadSessionForEdit(sessionId) {
+    if(currentSessionId && currentSessionId !== sessionId && !confirm("Pindah ke sesi ini? Input saat ini akan hilang.")) return;
     
     currentSessionId = sessionId;
     sessionTargets = [];
@@ -640,11 +726,19 @@ window.loadSessionForEdit = async (sessionId) => {
     achievementScoreMap = {};
 
     try {
-        const { data } = await supabase.from('pertemuan_private').select('*, materi_private(judul)').eq('id', sessionId).single();
+        const { data } = await supabase.from('pertemuan_private').select('*, materi_private(judul, sub_level_id)').eq('id', sessionId).single();
         if(data) {
             document.getElementById('tglPertemuan').value = data.tanggal;
             if(data.teacher_id) document.getElementById('pilihGuru').value = String(data.teacher_id);
             document.getElementById('materiUtama').value = data.materi_private?.judul || "";
+
+            if (data.materi_private?.sub_level_id) {
+                const subSel = document.getElementById('pilihSubLevel');
+                if (subSel) {
+                    subSel.value = data.materi_private.sub_level_id;
+                    subSel.dispatchEvent(new Event('change'));
+                }
+            }
             updateSessionStatus("EDIT MODE", true);
             document.getElementById("btn-reset-mode").style.display = 'block';
             
@@ -679,7 +773,8 @@ window.loadSessionForEdit = async (sessionId) => {
         window.scrollTo({top:0, behavior:'smooth'});
 
     } catch(e) { console.error(e); }
-};
+}
+window.loadSessionForEdit = loadSessionForEdit;
 
 function resetToNewMode() {
     currentSessionId = null;
@@ -701,6 +796,17 @@ function resetToNewMode() {
     renderTargetListUI();
 }
 
+function resetSmartInput() {
+    const mainInput = document.getElementById('mainAchSearch');
+    if (mainInput) mainInput.value = "";
+    const subManual = document.getElementById('subAchManual');
+    if (subManual) subManual.value = "";
+    const subSel = document.getElementById('subAchSelect');
+    if (subSel) subSel.value = "";
+    const container = document.getElementById('subAchContainer');
+    if (container) container.style.display = 'none';
+}
+
 function setupMainAchSearch() {
     const input = document.getElementById('mainAchSearch');
     const box = document.getElementById('achSuggestionBox');
@@ -709,9 +815,12 @@ function setupMainAchSearch() {
         const key = e.target.value.trim();
         if(key.length < 2) { box.style.display = 'none'; return; }
         
-        const { data } = await supabase.from('achievement_private')
+        let achQuery = supabase.from('achievement_private')
             .select('main_achievement, sub_achievement')
-            .eq('level_id', levelId).ilike('main_achievement', `%${key}%`).limit(10);
+            .eq('level_id', levelId);
+        if (subLevelId) achQuery = achQuery.eq('sub_level_id', subLevelId);
+        
+        const { data } = await achQuery.ilike('main_achievement', `%${key}%`).limit(10);
         
         if(!data || !data.length) {
             box.innerHTML = `<div class="suggestion-item" onclick="selectNewMain('${key}')">➕ Buat Baru: "${key}"</div>`;

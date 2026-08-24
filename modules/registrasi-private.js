@@ -12,6 +12,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 let editingGroupId = null;
 let editingClassId = null;
 let editingStudentId = null;
+let allSubLevels = [];
 
 // ==========================================
 // 1. INITIALIZATION
@@ -84,6 +85,12 @@ export async function init(canvas) {
                                 <select id="class-level" class="form-input" required><option>Loading...</option></select>
                             </div>
                             <div class="form-group half">
+                                <label>Sub-Level / Kit</label>
+                                <select id="class-sub-level" class="form-input"><option value="">-- Pilih Sub-Level --</option></select>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
                                 <label>Group Induk</label>
                                 <select id="class-group" class="form-input" required><option>Loading...</option></select>
                             </div>
@@ -393,14 +400,34 @@ function resetGroupForm() {
 // ==========================================
 
 async function loadLevelsDropdown() {
-    const { data } = await supabase.from('levels').select('id, kode').order('kode');
-    document.getElementById('class-level').innerHTML = '<option value="">-- Pilih Level --</option>' + 
-        data.map(l => `<option value="${l.id}">${l.kode}</option>`).join('');
+    const { data: lvData } = await supabase.from('levels').select('id, kode').order('kode');
+    const { data: subData } = await supabase.from('sub_levels').select('id, level_id, kode, name, kit_alat').order('name');
+    allSubLevels = subData || [];
+
+    const lvlSel = document.getElementById('class-level');
+    lvlSel.innerHTML = '<option value="">-- Pilih Level --</option>' + 
+        (lvData || []).map(l => `<option value="${l.id}">${l.kode}</option>`).join('');
+
+    lvlSel.onchange = (e) => {
+        populateSubLevelsDropdown(e.target.value);
+    };
+}
+
+function populateSubLevelsDropdown(levelId, currentSubId = null) {
+    const subSel = document.getElementById('class-sub-level');
+    if (!subSel) return;
+    const filtered = allSubLevels.filter(s => s.level_id === levelId);
+    if (filtered.length === 0) {
+        subSel.innerHTML = '<option value="">-- Tidak ada Sub-Level untuk Level ini --</option>';
+        return;
+    }
+    subSel.innerHTML = '<option value="">-- Pilih Sub-Level --</option>' + 
+        filtered.map(s => `<option value="${s.id}" ${currentSubId === s.id ? 'selected' : ''}>${s.name} ${s.kit_alat ? `[${s.kit_alat}]` : ''}</option>`).join('');
 }
 
 async function loadClasses() {
     const { data, error } = await supabase.from('class_private')
-        .select('id, name, is_active, level_id, group_id, group_private(code), levels(kode)')
+        .select('id, name, is_active, level_id, sub_level_id, group_id, group_private(code), levels(kode), sub_levels(name)')
         .order('name');
 
     const tbody = document.getElementById('list-class');
@@ -420,7 +447,10 @@ async function loadClasses() {
         return `
             <tr${isActive ? '' : ' style="opacity:0.55; background:#f8fafc;"'}>
                 <td style="font-weight:500;">${escapeHtml(c.name)}${isActive ? '' : '<span class="badge-inactive">Non-Aktif</span>'}</td>
-                <td><span class="badge-level">${escapeHtml(c.levels?.kode || '-')}</span></td>
+                <td>
+                    <span class="badge-level">${escapeHtml(c.levels?.kode || '-')}</span>
+                    ${c.sub_levels?.name ? `<span class="badge-level" style="background:#e0f2fe; color:#0369a1; border-color:#bae6fd;">${escapeHtml(c.sub_levels.name)}</span>` : ''}
+                </td>
                 <td>${escapeHtml(c.group_private?.code || '-')}</td>
                 <td>
                     <label class="switch" title="${isActive ? 'Klik untuk non-aktifkan' : 'Klik untuk aktifkan'}">
@@ -446,7 +476,8 @@ async function loadClasses() {
         data.map(c => {
             const isActive = c.is_active !== false;
             const tag = isActive ? '' : ' [Non-Aktif]';
-            return `<option value="${c.id}">${escapeHtml(c.name)} (${escapeHtml(c.levels?.kode || '-')})${tag}</option>`;
+            const subTag = c.sub_levels?.name ? ` - ${c.sub_levels.name}` : '';
+            return `<option value="${c.id}">${escapeHtml(c.name)} (${escapeHtml(c.levels?.kode || '-')}${escapeHtml(subTag)})${tag}</option>`;
         }).join('');
 }
 
@@ -455,6 +486,7 @@ async function handleSaveClass(e) {
     const payload = {
         name: document.getElementById('class-name').value.trim(),
         level_id: document.getElementById('class-level').value,
+        sub_level_id: document.getElementById('class-sub-level').value || null,
         group_id: document.getElementById('class-group').value
     };
 
@@ -474,6 +506,7 @@ async function editClass(id) {
     if(data) {
         document.getElementById('class-name').value = data.name;
         document.getElementById('class-level').value = data.level_id;
+        populateSubLevelsDropdown(data.level_id, data.sub_level_id);
         document.getElementById('class-group').value = data.group_id;
         editingClassId = id;
         document.getElementById('btn-save-class').textContent = 'Update Kelas';
@@ -491,6 +524,8 @@ async function deleteClass(id) {
 
 function resetClassForm() {
     document.getElementById('form-class').reset();
+    const subSel = document.getElementById('class-sub-level');
+    if (subSel) subSel.innerHTML = '<option value="">-- Pilih Sub-Level --</option>';
     editingClassId = null;
     document.getElementById('btn-save-class').textContent = 'Simpan Kelas';
     document.getElementById('btn-cancel-class').style.display = 'none';

@@ -44,10 +44,12 @@ CREATE TABLE public.classes (
   jadwal text,
   created_at timestamp with time zone DEFAULT now(),
   semester_id uuid,
+  sub_level_id uuid,
   CONSTRAINT classes_pkey PRIMARY KEY (id),
   CONSTRAINT classes_school_id_fkey FOREIGN KEY (school_id) REFERENCES public.schools(id),
   CONSTRAINT classes_academic_year_id_fkey FOREIGN KEY (academic_year_id) REFERENCES public.academic_years(id),
-  CONSTRAINT fk_classes_semester FOREIGN KEY (semester_id) REFERENCES public.semesters(id)
+  CONSTRAINT fk_classes_semester FOREIGN KEY (semester_id) REFERENCES public.semesters(id),
+  CONSTRAINT classes_sub_level_id_fkey FOREIGN KEY (sub_level_id) REFERENCES public.sub_levels(id)
 );
 CREATE TABLE public.students (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -81,9 +83,11 @@ CREATE TABLE public.materi (
   created_at timestamp with time zone DEFAULT now(),
   level_id uuid,
   image_url text,
+  sub_level_id uuid,
   CONSTRAINT materi_pkey PRIMARY KEY (id),
   CONSTRAINT materi_guru_id_fkey FOREIGN KEY (guru_id) REFERENCES public.teachers(id),
-  CONSTRAINT fk_materi_level FOREIGN KEY (level_id) REFERENCES public.levels(id)
+  CONSTRAINT fk_materi_level FOREIGN KEY (level_id) REFERENCES public.levels(id),
+  CONSTRAINT materi_sub_level_id_fkey FOREIGN KEY (sub_level_id) REFERENCES public.sub_levels(id)
 );
 CREATE TABLE public.attendance (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -137,8 +141,10 @@ CREATE TABLE public.materi_private (
   created_at timestamp with time zone DEFAULT now(),
   level_id uuid,
   image_url text,
+  sub_level_id uuid,
   CONSTRAINT materi_private_pkey PRIMARY KEY (id),
-  CONSTRAINT materi_private_level_id_fkey FOREIGN KEY (level_id) REFERENCES public.levels(id)
+  CONSTRAINT materi_private_level_id_fkey FOREIGN KEY (level_id) REFERENCES public.levels(id),
+  CONSTRAINT materi_private_sub_level_id_fkey FOREIGN KEY (sub_level_id) REFERENCES public.sub_levels(id)
 );
 CREATE TABLE public.achievement_private (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -149,9 +155,11 @@ CREATE TABLE public.achievement_private (
   level_id uuid,
   sub_achievement text,
   materi_id uuid,
+  sub_level_id uuid,
   CONSTRAINT achievement_private_pkey PRIMARY KEY (id),
   CONSTRAINT achievement_private_materi_id_fkey FOREIGN KEY (materi_id) REFERENCES public.materi_private(id),
-  CONSTRAINT achievement_private_level_id_fkey FOREIGN KEY (level_id) REFERENCES public.levels(id)
+  CONSTRAINT achievement_private_level_id_fkey FOREIGN KEY (level_id) REFERENCES public.levels(id),
+  CONSTRAINT achievement_private_sub_level_id_fkey FOREIGN KEY (sub_level_id) REFERENCES public.sub_levels(id)
 );
 CREATE TABLE public.class_private (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -161,9 +169,11 @@ CREATE TABLE public.class_private (
   created_at timestamp with time zone,
   level_id uuid,
   is_active boolean NOT NULL DEFAULT true,
+  sub_level_id uuid,
   CONSTRAINT class_private_pkey PRIMARY KEY (id),
   CONSTRAINT fk_class_level FOREIGN KEY (level_id) REFERENCES public.levels(id),
-  CONSTRAINT class_private_group_id_fkey FOREIGN KEY (group_id) REFERENCES public.group_private(id)
+  CONSTRAINT class_private_group_id_fkey FOREIGN KEY (group_id) REFERENCES public.group_private(id),
+  CONSTRAINT class_private_sub_level_id_fkey FOREIGN KEY (sub_level_id) REFERENCES public.sub_levels(id)
 );
 CREATE TABLE public.students_private (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -233,8 +243,10 @@ CREATE TABLE public.achievement_sekolah (
   sub_achievement text NOT NULL,
   level_id uuid,
   created_at timestamp with time zone DEFAULT now(),
+  sub_level_id uuid,
   CONSTRAINT achievement_sekolah_pkey PRIMARY KEY (id),
-  CONSTRAINT fk_ach_sekolah_level FOREIGN KEY (level_id) REFERENCES public.levels(id)
+  CONSTRAINT fk_ach_sekolah_level FOREIGN KEY (level_id) REFERENCES public.levels(id),
+  CONSTRAINT achievement_sekolah_sub_level_id_fkey FOREIGN KEY (sub_level_id) REFERENCES public.sub_levels(id)
 );
 CREATE TABLE public.achievement_kelas (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -349,4 +361,16 @@ CREATE TABLE public.activity_logs (
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT activity_logs_pkey PRIMARY KEY (id),
   CONSTRAINT activity_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.sub_levels (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  level_id uuid NOT NULL,
+  kode text NOT NULL,
+  name text NOT NULL,
+  kit_alat text,
+  description text,
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT sub_levels_pkey PRIMARY KEY (id),
+  CONSTRAINT sub_levels_level_id_fkey FOREIGN KEY (level_id) REFERENCES public.levels(id)
 );

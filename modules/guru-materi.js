@@ -15,6 +15,7 @@ let currentTab = "materi";
 let editingId = null;
 let selectedLevelId = "all";
 let levelsList = [];
+let subLevelsList = [];
 
 // ==========================================
 // 1. INITIALIZATION
@@ -111,15 +112,19 @@ export async function init(canvas) {
 // ==========================================
 async function fetchLevels() {
     try {
-        const { data, error } = await supabase
+        const { data: lvData } = await supabase
             .from('levels')
             .select('id, kode, detail')
             .order('kode', { ascending: true });
-        if (!error && data) {
-            levelsList = data;
-        }
+        if (lvData) levelsList = lvData;
+
+        const { data: subData } = await supabase
+            .from('sub_levels')
+            .select('id, level_id, kode, name, kit_alat, description, is_active')
+            .order('name', { ascending: true });
+        if (subData) subLevelsList = subData;
     } catch (e) {
-        console.error("Gagal memuat levels:", e);
+        console.error("Gagal memuat levels/sub_levels:", e);
     }
 }
 
@@ -430,6 +435,23 @@ async function injectFormFields(mode = "add", data = {}) {
     const formFields = document.getElementById("form-fields");
     document.getElementById("modal-title").innerText = `${mode === "edit" ? "Edit" : "Tambah"} ${currentTab === "materi" ? "Materi Sekolah" : "Achievement Sekolah"}`;
 
+    const levelOptions = levelsList.map(l => `
+        <option value="${l.id}" ${data.level_id === l.id ? 'selected' : ''}>
+            ${l.kode} ${l.detail ? `(${l.detail})` : ''}
+        </option>
+    `).join('');
+
+    const renderSubOptions = (lvlId, currentSubId) => {
+        const subs = subLevelsList.filter(s => s.level_id === lvlId);
+        if (!subs.length) return '<option value="">-- Tidak ada Sub-Level untuk Level ini --</option>';
+        return '<option value="">-- Pilih Sub-Level / Kit (Opsional) --</option>' + 
+            subs.map(s => `
+                <option value="${s.id}" ${currentSubId === s.id ? "selected" : ""}>
+                    ${s.name} ${s.kit_alat ? `[${s.kit_alat}]` : ''}
+                </option>
+            `).join('');
+    };
+
     if (currentTab === "materi") {
         const currentImg = data.image_url || "https://via.placeholder.com/200?text=Pilih+Foto+Project";
         const hasImg = Boolean(data.image_url);
@@ -438,11 +460,12 @@ async function injectFormFields(mode = "add", data = {}) {
             <label>Level Materi *</label>
             <select id="level_id" required>
                 <option value="">-- Pilih Level Kurikulum --</option>
-                ${levelsList.map(l => `
-                    <option value="${l.id}" ${data.level_id === l.id ? 'selected' : ''}>
-                        ${l.kode} ${l.detail ? `(${l.detail})` : ''}
-                    </option>
-                `).join('')}
+                ${levelOptions}
+            </select>
+
+            <label>Sub-Level / Kit (Opsional)</label>
+            <select id="sub_level_id">
+                ${renderSubOptions(data.level_id, data.sub_level_id)}
             </select>
 
             <label>Judul Materi *</label>
@@ -466,8 +489,16 @@ async function injectFormFields(mode = "add", data = {}) {
             <textarea id="detail" style="height:120px;" placeholder="Uraian langkah perakitan, komponen, coding, atau capaian pembelajaran...">${data.detail || ""}</textarea>
         `;
 
-        // Bind Upload Button via Universal 3:4 Cropper
+        // Cascading listener level_id -> sub_level_id
         setTimeout(() => {
+            const lvlSel = document.getElementById("level_id");
+            const subSel = document.getElementById("sub_level_id");
+            if (lvlSel && subSel) {
+                lvlSel.onchange = (e) => {
+                    subSel.innerHTML = renderSubOptions(e.target.value, null);
+                };
+            }
+
             const btn = document.getElementById("btn-upload-p");
             if (btn) {
                 btn.onclick = () => openImageCropper('robotic_school', url => {
@@ -475,18 +506,19 @@ async function injectFormFields(mode = "add", data = {}) {
                     document.getElementById("img-preview-p").src = url;
                 });
             }
-        }, 100);
+        }, 50);
 
     } else {
         formFields.innerHTML = `
             <label>Level Target *</label>
             <select id="level_id" required>
                 <option value="">-- Pilih Level Target --</option>
-                ${levelsList.map(l => `
-                    <option value="${l.id}" ${data.level_id === l.id ? 'selected' : ''}>
-                        ${l.kode} ${l.detail ? `(${l.detail})` : ''}
-                    </option>
-                `).join('')}
+                ${levelOptions}
+            </select>
+
+            <label>Sub-Level / Kit (Opsional)</label>
+            <select id="sub_level_id">
+                ${renderSubOptions(data.level_id, data.sub_level_id)}
             </select>
 
             <label>Topik Utama Achievement *</label>
@@ -501,13 +533,23 @@ async function injectFormFields(mode = "add", data = {}) {
             <div id="sub-ach-container" style="margin-top:10px;"></div>
         `;
 
-        const existingSubs = (data.sub_achievement || "").split('\n').filter(s => s.trim() !== "");
-        if (existingSubs.length > 0) {
-            existingSubs.forEach(val => addSubRow(val));
-        } else {
-            addSubRow();
-        }
-        document.getElementById("btn-add-sub").onclick = () => addSubRow();
+        setTimeout(() => {
+            const lvlSel = document.getElementById("level_id");
+            const subSel = document.getElementById("sub_level_id");
+            if (lvlSel && subSel) {
+                lvlSel.onchange = (e) => {
+                    subSel.innerHTML = renderSubOptions(e.target.value, null);
+                };
+            }
+
+            const existingSubs = (data.sub_achievement || "").split('\n').filter(s => s.trim() !== "");
+            if (existingSubs.length > 0) {
+                existingSubs.forEach(val => addSubRow(val));
+            } else {
+                addSubRow();
+            }
+            document.getElementById("btn-add-sub").onclick = () => addSubRow();
+        }, 50);
     }
 }
 

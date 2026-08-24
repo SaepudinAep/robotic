@@ -290,7 +290,6 @@ window.executeUpload = async () => {
             payloadBase.class_id = context.activeClassId; 
         } else {
             payloadBase.pertemuan_private_id = activeSessionId;
-            // Private tidak pakai class_id di gallery_contents (opsional tergantung schema, tapi aman dikosongkan)
         }
 
         if (isYt) {
@@ -309,11 +308,33 @@ window.executeUpload = async () => {
             const activeYear = localStorage.getItem("activeAcademicYear") || "Umum"; 
             const folderPath = `galeri-${context.mode.toLowerCase()}/${sanitize(activeYear)}/${sanitize(context.className)}/${sanitize(activeSessionDate)}`;
 
+            const totalFiles = files.length;
+            let fileIndex = 0;
             let startIndex = currentPhotos.length + 1;
 
             for (const file of files) {
-                status.innerHTML = `<span style="color:#2563eb">Mengupload ${file.name}...</span>`;
-                
+                fileIndex++;
+
+                const updateProgressUI = (filePercent) => {
+                    const overallPercent = Math.min(100, Math.round(((fileIndex - 1 + (filePercent / 100)) / totalFiles) * 100));
+                    status.innerHTML = `
+                        <div class="gm-progress-container" style="margin-top:14px; text-align:left; background:#f8fafc; padding:12px; border-radius:12px; border:1px solid #e2e8f0;">
+                            <div style="display:flex; justify-content:space-between; font-size:0.85rem; font-weight:700; color:#1e293b; margin-bottom:6px;">
+                                <span><i class="fa-solid fa-cloud-arrow-up" style="color:#2563eb;"></i> Upload ${fileIndex} dari ${totalFiles} foto</span>
+                                <span style="color:#2563eb; font-size:0.9rem;">${overallPercent}%</span>
+                            </div>
+                            <div style="width:100%; background:#e2e8f0; border-radius:10px; height:12px; overflow:hidden;">
+                                <div style="width:${overallPercent}%; background:linear-gradient(90deg, #2563eb, #3b82f6); height:100%; border-radius:10px; transition:width 0.15s ease;"></div>
+                            </div>
+                            <div style="font-size:0.75rem; color:#64748b; margin-top:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                                <i class="fa-regular fa-image"></i> ${escapeHtml(file.name)}
+                            </div>
+                        </div>
+                    `;
+                };
+
+                updateProgressUI(0);
+
                 const noUrut = startIndex.toString().padStart(2, '0');
                 const cleanCaption = `robopanda_${activeSessionDate}_${activeSessionTitle}_${noUrut}`;
                 startIndex++;
@@ -322,7 +343,7 @@ window.executeUpload = async () => {
                 
                 const { data: { session } } = await supabase.auth.getSession();
                 
-                // Panggil Edge Function
+                // Panggil Edge Function untuk signature
                 const signRes = await fetch('https://aedtrwpomswdqxarvsrg.supabase.co/functions/v1/cloudinary-sign', {
                     method: 'POST', 
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
@@ -339,9 +360,10 @@ window.executeUpload = async () => {
                 fd.append('signature', signData.signature);
                 fd.append('folder', folderPath);
 
-                const cloudRes = await fetch(`https://api.cloudinary.com/v1_1/${acc.cloud_name}/upload`, { method: 'POST', body: fd });
-                if(!cloudRes.ok) throw new Error("Gagal upload ke cloud.");
-                const cloudData = await cloudRes.json();
+                const uploadUrl = `https://api.cloudinary.com/v1_1/${acc.cloud_name}/upload`;
+                const cloudData = await uploadToCloudinaryWithXHR(uploadUrl, fd, (filePercent) => {
+                    updateProgressUI(filePercent);
+                });
 
                 await supabase.from('gallery_contents').insert({
                     ...payloadBase,
@@ -358,11 +380,44 @@ window.executeUpload = async () => {
         loadPhotos();
         showToast("Upload Berhasil!");
     } catch (err) { 
-        status.innerHTML = `<span style="color:#ef4444;">Error: ${err.message}</span>`; 
+        status.innerHTML = `<span style="color:#ef4444; font-weight:bold;">Error: ${escapeHtml(err.message)}</span>`; 
     } finally { 
         btn.disabled = false; btn.innerText = "Simpan Dokumentasi"; 
     }
 };
+
+// Helper upload XMLHttpRequest dengan event listener byte progress
+function uploadToCloudinaryWithXHR(url, formData, onProgress) {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', url, true);
+
+        xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable && onProgress) {
+                const percent = Math.round((e.loaded / e.total) * 100);
+                onProgress(percent);
+            }
+        };
+
+        xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    resolve(response);
+                } catch (err) {
+                    reject(new Error("Response JSON tidak valid dari Cloudinary"));
+                }
+            } else {
+                reject(new Error(`Gagal upload ke cloud (${xhr.status})`));
+            }
+        };
+
+        xhr.onerror = () => reject(new Error("Koneksi internet terputus saat upload."));
+        xhr.ontimeout = () => reject(new Error("Upload request timeout."));
+
+        xhr.send(formData);
+    });
+}
 
 window.togglePublish = async (id, cur) => { await supabase.from('gallery_contents').update({ is_published: !cur }).eq('id', id); loadPhotos(); };
 
@@ -379,15 +434,52 @@ window.deleteItem = async (id, isDel) => {
     loadPhotos();
 };
 
+window.openLightbox = (mediaType, fileUrl, id, rotation = 0) => {
+    const lightbox = document.getElementById('lightbox');
+    const img = document.getElementById('lb-img');
+    const vid = document.getElementById('lb-vid');
+    const rotateBtn = document.getElementById('btn-lb-rotate');
+
+    if (!lightbox) return;
+
+    if (mediaType === 'youtube') {
+        const ytId = getYoutubeId(fileUrl);
+        img.style.display = 'none';
+        vid.style.display = 'block';
+        vid.innerHTML = `<iframe width="100%" height="315" src="https://www.youtube.com/embed/${ytId}?autoplay=1" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen style="border-radius:12px; max-width:800px; width:90vw;"></iframe>`;
+        if (rotateBtn) rotateBtn.style.display = 'none';
+    } else if (mediaType === 'video') {
+        img.style.display = 'none';
+        vid.style.display = 'block';
+        vid.innerHTML = `<video src="${fileUrl}" controls autoplay style="max-width:90vw; max-height:75vh; border-radius:12px;"></video>`;
+        if (rotateBtn) rotateBtn.style.display = 'none';
+    } else {
+        vid.style.display = 'none';
+        vid.innerHTML = '';
+        img.style.display = 'block';
+        
+        let displayUrl = fileUrl;
+        if (rotation > 0 && fileUrl.includes('cloudinary')) {
+            displayUrl = fileUrl.replace('/upload/', `/upload/a_${rotation}/`);
+        }
+        img.src = displayUrl;
+
+        if (rotateBtn) {
+            rotateBtn.style.display = fileUrl.includes('cloudinary') ? 'flex' : 'none';
+            rotateBtn.onclick = () => window.rotateImage(id, rotation);
+        }
+    }
+
+    lightbox.style.display = 'flex';
+};
+
 window.rotateImage = async (id, curr) => {
     const newRot = (curr + 90) % 360;
     const img = document.getElementById('lb-img');
     
     // Manipulasi URL Cloudinary untuk rotasi instan di UI
-    // Cari segmen 'upload/' lalu sisipkan transformasi
     const parts = img.src.split('/upload/');
     if (parts.length === 2) {
-        // Hapus rotasi lama jika ada (a_90, etc)
         const cleanTail = parts[1].replace(/a_\d+\//, '');
         img.src = `${parts[0]}/upload/a_${newRot}/${cleanTail}`;
     }
@@ -396,7 +488,6 @@ window.rotateImage = async (id, curr) => {
     
     // Simpan ke DB
     await supabase.from('gallery_contents').update({ rotation: newRot }).eq('id', id);
-    // Tidak perlu reload photos agar lightbox tidak tertutup
 };
 
 // ==========================================
