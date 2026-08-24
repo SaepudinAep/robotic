@@ -1025,7 +1025,8 @@ async function saveTargetsToDB() {
         for(let t of currentTargets) {
             if(t.id) continue;
             let mid;
-            let {data:ex} = await supabase.from("achievement_sekolah").select("id").ilike("main_achievement", t.main).ilike("sub_achievement", t.sub).maybeSingle();
+            // [AUDIT FIX #2 lanjutan] dedup anti-error: limit(1) agar tak crash bila ada duplikat
+            let {data:ex} = await supabase.from("achievement_sekolah").select("id").ilike("main_achievement", t.main).ilike("sub_achievement", t.sub).limit(1);
             if(ex) mid=ex.id; else { const {data:n} = await supabase.from("achievement_sekolah").insert({main_achievement:t.main, sub_achievement:t.sub}).select().single(); mid=n.id; }
             await supabase.from("achievement_kelas").insert({pertemuan_id:selectedPertemuanId, class_id:localStorage.getItem("activeClassId"), achievement_sekolah_id:mid});
         }
