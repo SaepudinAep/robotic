@@ -61,6 +61,7 @@ export async function init(canvas) {
                     <div style="display: flex; gap: 8px;">
                         <button id="btnRekapAbsensi" class="tab-btn-mini active">Absensi</button>
                         <button id="btnRekapPembelajaran" class="tab-btn-mini">Pembelajaran</button>
+                        <button id="btnRekapMateri" class="tab-btn-mini">Silabus/Materi Terajarkan</button>
                     </div>
                     <div style="display: flex; align-items: center; gap: 10px;">
                         <label style="font-size:0.8rem;">Rentang:</label>
@@ -80,6 +81,9 @@ export async function init(canvas) {
                 </section>
                 <section id="rekapPembelajaranSection" class="rekap-section" style="display: none;">
                     <table id="rekapPembelajaranTable" class="rigid-table"></table>
+                </section>
+                <section id="rekapMateriSection" class="rekap-section" style="display: none;">
+                    <table id="rekapMateriTable" class="rigid-table"></table>
                 </section>
             </div>
         </div>
@@ -362,9 +366,73 @@ async function loadRekapPembelajaran() {
     table.innerHTML = html + `</tbody>`;
 }
 
+// --- REKAP SILABUS / MATERI YANG SUDAH DIAJARKAN ---
+async function loadRekapMateri() {
+    showSection("rekapMateriSection");
+    updateActiveBtn("btnRekapMateri");
+
+    const classId = document.getElementById("classSelect").value;
+    const startId = document.getElementById("pertemuanStartSelect").value;
+    const endId = document.getElementById("pertemuanEndSelect").value;
+    if(!startId || !endId) return;
+
+    let pSlice;
+    try { pSlice = await getPertemuanSlice(classId, startId, endId); }
+    catch(e) { return alert("Gagal memuat data pertemuan: " + e.message); }
+    if (!pSlice.length) return alert("Rentang pertemuan tidak valid atau belum ada data.");
+
+    // Ambil pertemuan + materi terkait (perlu colom tanggal; materi via join)
+    const { data: pertemuan, error: errP } = await supabase.from("pertemuan_kelas").select("id, tanggal, materi_id, materi(title, sub_level_id)").eq("class_id", classId);
+    if (errP) return alert("Gagal memuat pertemuan: " + errP.message);
+
+    const { data: levels } = await supabase.from("levels").select("id, kode");
+    const { data: subs } = await supabase.from("sub_levels").select("id, level_id, name");
+
+    const agg = {};   // kunci materi_id -> statistik
+    (pertemuan || []).forEach(p => {
+        if (!p.materi_id) return;
+        const inRange = pSlice.some(pp => pp.id === p.id);
+        const m = p.materi || {};
+        const key = m.id || p.materi_id;
+        if (!agg[key]) {
+            agg[key] = { title: m.title || "(tanpa judul)", subId: m.sub_level_id || null, total: 0, list: [] };
+        }
+        if (inRange) {
+            agg[key].total += 1;
+            agg[key].list.push({ tanggal: p.tanggal, id: p.id });
+        }
+    });
+
+    // path sub id -> level id -> kode
+    const subMap = (subs || []).reduce((acc, s) => { acc[s.id] = s; return acc; }, {});
+    const lvMap = (levels || []).reduce((acc, l) => { acc[l.id] = l; return acc; }, {});
+
+    const rows = Object.values(agg).filter(r => r.total > 0).sort((a,b)=> b.total - a.total || (a.title||"").localeCompare(b.title||""));
+
+    const table = document.getElementById("rekapMateriTable");
+    table.innerHTML = `<thead><tr>
+        <th width="40">No</th>
+        <th style="text-align:left;">Materi</th>
+        <th style="text-align:left;">Level → Sub-Level</th>
+        <th>Total</th>
+        <th>Tanggal Diajarkan</th>
+    </tr></thead><tbody>` + rows.map((r, i) => {
+        const sub = subMap[r.subId];
+        const lvKode = sub ? (lvMap[sub.level_id]?.kode || '-') : '-';
+        const tanggals = r.list.map(x => formatTanggal(x.tanggal)).join(", ");
+        return `<tr>
+            <td>${i+1}</td>
+            <td style="text-align:left;">${escapeHtml(r.title)}</td>
+            <td style="text-align:left;">${escapeHtml(lvKode)} → ${escapeHtml(sub?.name || 'Tanpa Sub-Level')}</td>
+            <td>${r.total}</td>
+            <td style="text-align:left;">${tanggals || '-'}</td>
+        </tr>`;
+    }).join("") + `</tbody>`;
+}
+
 // --- UTILS & EVENTS ---
 function showSection(id) {
-    ["rekapAbsensiSection", "rekapPembelajaranSection"].forEach(sid => {
+    ["rekapAbsensiSection", "rekapPembelajaranSection", "rekapMateriSection"].forEach(sid => {
         const el = document.getElementById(sid);
         if(el) el.style.display = (sid === id) ? "block" : "none";
     });
@@ -382,6 +450,7 @@ function setupEvents() {
     
     document.getElementById("btnRekapAbsensi").addEventListener("click", loadRekapAbsensi);
     document.getElementById("btnRekapPembelajaran").addEventListener("click", loadRekapPembelajaran);
+    document.getElementById("btnRekapMateri").addEventListener("click", loadRekapMateri);
     
     document.getElementById("btn-back").addEventListener("click", () => {
         if(window.dispatchModuleLoad) window.dispatchModuleLoad('absensi-sekolah', 'Absensi', 'Kelas');
