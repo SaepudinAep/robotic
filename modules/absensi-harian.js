@@ -70,6 +70,9 @@ export async function init(canvas) {
                 <button id="toggle-target-btn" class="btn-grid-action">
                     <i class="fas fa-bullseye"></i> Target Capaian
                 </button>
+                <button id="btn-silabus-modal" class="btn-grid-action">
+                    <i class="fas fa-book-open"></i> Silabus Ringkas
+                </button>
             </div>
 
             <!-- Form Data Pertemuan (Hidden by Default) -->
@@ -164,6 +167,26 @@ export async function init(canvas) {
 
         <!-- Toast Notification Container -->
         <div id="toast-container"></div>
+
+        <!-- MODAL SILABUS RINGKAS (rangkuman materi sub-level) -->
+        <div id="silabus-overlay" class="silabus-overlay" style="display:none;">
+            <div class="silabus-modal">
+                <div class="silabus-head">
+                    <div>
+                        <h4 style="margin:0; display:flex; align-items:center; gap:8px; color:#1e293b;">
+                            <i class="fas fa-book-open" style="color:#4d97ff;"></i> Silabus Pertemuan
+                        </h4>
+                        <div id="silabus-subtitle" style="font-size:0.75rem; color:#64748b; margin-top:3px;">...</div>
+                    </div>
+                    <button id="silabus-modal-close" class="silabus-close" title="Tutup">&times;</button>
+                </div>
+                <div id="silabus-progress" style="padding:0 16px;"></div>
+                <div id="silabus-list" class="silabus-list"></div>
+                <div class="silabus-foot" style="padding:8px 16px; border-top:1px solid #eef2f7; font-size:0.72rem; color:#94a3b8;">
+                    Murni alat bantu lihat — urutan mengikuti Silabus Kurikulum.
+                </div>
+            </div>
+        </div>
 
         <!-- Bottom Sheet Detail Siswa -->
         <div id="student-sheet">
@@ -328,6 +351,25 @@ function injectStyles() {
         @keyframes fadeInQuick { from { opacity:0; } to { opacity:1; } }
         @keyframes popIn { from { transform:scale(0.85); opacity:0; } to { transform:scale(1); opacity:1; } }
 
+        /* MODAL SILABUS RINGKAS (Rangkuman Materi per Sub-Level) */
+        .silabus-overlay { position:fixed; inset:0; background:rgba(15,23,42,0.55); z-index:9600; align-items:center; justify-content:center; padding:20px; animation:fadeInQuick 0.18s ease-out; }
+        .silabus-modal { background:white; border-radius:16px; max-width:430px; width:100%; box-shadow:0 25px 50px rgba(0,0,0,0.25); overflow:hidden; animation:popIn 0.2s cubic-bezier(0.34,1.56,0.64,1); display:flex; flex-direction:column; }
+        .silabus-head { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; padding:14px 16px; border-bottom:1px solid #eef2f7; }
+        .silabus-close { border:none; background:#f1f5f9; width:34px; height:34px; border-radius:10px; font-size:1.3rem; line-height:1; color:#64748b; cursor:pointer; flex-shrink:0; }
+        .silabus-close:hover { background:#fee2e2; color:#dc2626; }
+        .silabus-list { padding:8px 16px 12px; max-height:55vh; overflow-y:auto; }
+        .silabus-item { display:flex; align-items:center; gap:10px; padding:9px 8px; border-radius:10px; font-size:0.9rem; color:#334155; }
+        .silabus-item + .silabus-item { border-top:1px solid #f8fafc; }
+        .silabus-item.done { background:#f0fdf4; }
+        .silabus-check { width:22px; flex-shrink:0; font-size:1.05rem; display:flex; justify-content:center; }
+        .silabus-item.done .silabus-check { color:#16a34a; }
+        .silabus-item:not(.done) .silabus-check { color:#cbd5e1; }
+        .silabus-name { flex:1; min-width:0; word-break:break-word; }
+        .silabus-progressbar { height:7px; background:#eef2f7; border-radius:99px; overflow:hidden; margin-top:6px; }
+        .silabus-progressbar > div { height:100%; background:linear-gradient(90deg,#4d97ff,#22c55e); border-radius:99px; transition:width .3s ease; }
+        .silabus-extra-head { margin-top:12px; padding:10px 8px 4px; font-size:0.68rem; font-weight:800; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px; border-top:1px dashed #e2e8f0; }
+        .silabus-item.extra { background:#f8fafc; opacity:0.75; }
+
         /* UTILS */
         .compact-select { max-width: 160px; padding: 6px 10px; }
     `;
@@ -372,6 +414,16 @@ function setupEvents() {
     // 1. Grid Action Buttons (Micro Toggles)
     document.getElementById("toggle-form-btn").onclick = () => toggleFormPanel('materi-form-container', 'toggle-form-btn');
     document.getElementById("toggle-target-btn").onclick = () => toggleFormPanel('target-container', 'toggle-target-btn');
+
+    // 1b. Modal Silabus Ringkas (rangkuman materi per sub-level)
+    const btnSilabus = document.getElementById("btn-silabus-modal");
+    if (btnSilabus) {
+        btnSilabus.onclick = openSilabusModal;
+        document.getElementById("silabus-modal-close").onclick = closeSilabusModal;
+        document.getElementById("silabus-overlay").addEventListener("click", (e) => {
+            if (e.target.id === "silabus-overlay") closeSilabusModal();
+        });
+    }
     
     // 2. Button "Buat Baru" (guard: perubahan belum disimpan)
     document.getElementById("btn-new-session").onclick = async () => {
@@ -472,6 +524,107 @@ function setupEvents() {
         // Update Total Hadir Realtime
         if(type === 'status') updateTotalHadir();
     });
+}
+
+// --- MODAL SILABUS RINGKAS (Rangkuman Materi per Sub-Level) ---
+function openSilabusModal() {
+    const overlay = document.getElementById("silabus-overlay");
+    if (!overlay) return;
+    overlay.style.display = "flex";
+    refreshSilabusModal();
+}
+
+function closeSilabusModal() {
+    const overlay = document.getElementById("silabus-overlay");
+    if (overlay) overlay.style.display = "none";
+}
+
+function isSilabusOpen() {
+    const ov = document.getElementById("silabus-overlay");
+    return ov && ov.style.display !== "none";
+}
+
+async function refreshSilabusModal() {
+    const listEl = document.getElementById("silabus-list");
+    const progEl = document.getElementById("silabus-progress");
+    const subEl = document.getElementById("silabus-subtitle");
+    if (!listEl || !progEl || !subEl || !isSilabusOpen()) return; // hanya saat modal terbuka
+
+    const subLid = document.getElementById("materi-sub-level-filter")?.value || "";
+    const classId = localStorage.getItem("activeClassId");
+
+    if (!subLid) {
+        subEl.textContent = "Sub-Level: belum dipilih";
+        progEl.innerHTML = "";
+        listEl.innerHTML = `<div style="padding:18px; text-align:center; color:#94a3b8; font-size:0.85rem; line-height:1.5;">
+            <i class="fas fa-circle-info" style="margin-bottom:6px; display:block;"></i>
+            Pilih <b>Sub-Level</b> terlebih dahulu di form <b>Data Pertemuan</b> untuk melihat silabus ringkas.
+        </div>`;
+        return;
+    }
+
+    subEl.textContent = "Sub-Level: memuat...";
+    listEl.innerHTML = `<div style="padding:18px; text-align:center; color:#94a3b8;"><i class="fas fa-spinner fa-spin fa-lg"></i></div>`;
+    progEl.innerHTML = "";
+
+    try {
+        // Query paralel: info sub-level, materi silabus (urut order_index), materi yang pernah diajar
+        const [subRes, materiRes, pertemuanRes] = await Promise.all([
+            supabase.from("sub_levels").select("name, levels(kode)").eq("id", subLid).single(),
+            supabase.from("materi").select("id, title")
+                .eq("sub_level_id", subLid)
+                .order("order_index", { ascending: true, nullsFirst: false })
+                .order("created_at", { ascending: true }),
+            supabase.from("pertemuan_kelas").select("materi_id").eq("class_id", classId)
+        ]);
+        if (subRes.error) throw subRes.error;
+        if (materiRes.error) throw materiRes.error;
+        if (pertemuanRes.error) throw pertemuanRes.error;
+
+        const sub = subRes.data;
+        const materiList = materiRes.data || [];
+        const taught = new Set((pertemuanRes.data || []).map(p => p.materi_id).filter(Boolean));
+
+        subEl.textContent = (sub?.levels?.kode ? sub.levels.kode + " · " : "") + (sub?.name || "Sub-Level");
+
+        const done = materiList.filter(m => taught.has(m.id)).length;
+        const pct = materiList.length ? Math.min(100, Math.round(done / materiList.length * 100)) : 0;
+        progEl.innerHTML = `
+            <div style="display:flex; justify-content:space-between; font-size:0.78rem; color:#475569;">
+                <span><b>${done}</b> dari <b>${materiList.length}</b> materi telah diajarkan</span>
+                <span style="font-weight:700; color:${pct === 100 ? '#16a34a' : '#4d97ff'};">${pct}%</span>
+            </div>
+            <div class="silabus-progressbar"><div style="width:${pct}%"></div></div>`;
+
+        if (!materiList.length) {
+            listEl.innerHTML = `<div style="padding:18px; text-align:center; color:#94a3b8; font-size:0.85rem;">Belum ada materi terdaftar untuk sub-level ini di silabus.</div>`;
+        } else {
+            listEl.innerHTML = materiList.map(m => `
+                <div class="silabus-item ${taught.has(m.id) ? 'done' : ''}">
+                    <span class="silabus-check">${taught.has(m.id) ? '<i class="fas fa-check-circle"></i>' : '<i class="far fa-circle"></i>'}</span>
+                    <span class="silabus-name">${escapeHtml(m.title)}</span>
+                </div>`).join("");
+        }
+
+        // Materi lain yang pernah diajar (materi lama / di luar silabus sub-level ini)
+        const silabusIds = new Set(materiList.map(m => m.id));
+        const otherIds = [...taught].filter(id => !silabusIds.has(id));
+        if (otherIds.length) {
+            const { data: others } = await supabase.from("materi").select("id, title").in("id", otherIds.slice(0, 100));
+            if (others && others.length) {
+                listEl.innerHTML += `
+                    <div class="silabus-extra-head">Materi lain yang pernah diajar</div>` +
+                    others.map(m => `
+                    <div class="silabus-item extra">
+                        <span class="silabus-check"><i class="fas fa-arrow-right" style="font-size:0.7rem;"></i></span>
+                        <span class="silabus-name">${escapeHtml(m.title)}</span>
+                    </div>`).join("");
+            }
+        }
+    } catch (err) {
+        console.error("Silabus modal error:", err);
+        listEl.innerHTML = `<div style="padding:18px; text-align:center; color:#ef4444; font-size:0.85rem;">Gagal memuat silabus: ${escapeHtml(err.message || '?')}</div>`;
+    }
 }
 
 // --- CORE FUNCTION: LOAD FULL SESSION ---
@@ -865,6 +1018,7 @@ function populateSubLevelsFilter(levelId, currentSubId = "", silent = false) {
         if (titleEl && titleEl.value.trim().length >= 2 && levelId) {
             loadMateriSuggestions(titleEl.value.trim(), levelId);
         }
+        refreshSilabusModal(); // [Silabus Ringkas] ikut update bila modal terbuka
     };
 }
 async function loadGuruDropdowns() {
@@ -988,6 +1142,7 @@ async function handleMateriSubmit(e) {
         else { const res = await supabase.from("pertemuan_kelas").insert(payload).select().single(); selectedPertemuanId = res.data.id; }
         
         showToast("Data Pertemuan Tersimpan!");
+        refreshSilabusModal(); // [Silabus Ringkas] ceklis materi baru langsung muncul
         toggleFormPanel('materi-form-container', 'toggle-form-btn'); // Tutup form
         toggleFormPanel('target-container', 'toggle-target-btn'); // Buka target (Workflow)
         loadSesiPenuh(selectedPertemuanId);
