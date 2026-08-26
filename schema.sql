@@ -195,6 +195,7 @@ CREATE TABLE public.pertemuan_private (
   materi_id uuid,
   teacher_id uuid,
   created_at timestamp with time zone,
+  jumlah_sesi integer NOT NULL DEFAULT 1 CHECK (jumlah_sesi >= 1),
   CONSTRAINT pertemuan_private_pkey PRIMARY KEY (id),
   CONSTRAINT pertemuan_private_class_id_fkey FOREIGN KEY (class_id) REFERENCES public.class_private(id),
   CONSTRAINT pertemuan_private_materi_id_fkey FOREIGN KEY (materi_id) REFERENCES public.materi_private(id),
@@ -377,4 +378,18 @@ CREATE TABLE public.sub_levels (
   order_index integer,
   CONSTRAINT sub_levels_pkey PRIMARY KEY (id),
   CONSTRAINT sub_levels_level_id_fkey FOREIGN KEY (level_id) REFERENCES public.levels(id)
+);
+CREATE TABLE public.billing_periods (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  group_id uuid NOT NULL,
+  mode text NOT NULL DEFAULT 'prepaid'::text CHECK (mode = ANY (ARRAY['prepaid'::text, 'postpaid'::text])),
+  periode_label text,
+  start_date date NOT NULL,
+  end_date date,
+  quota_sessions integer NOT NULL DEFAULT 4,
+  status text NOT NULL DEFAULT 'aktif'::text CHECK (status = ANY (ARRAY['aktif'::text, 'selesai'::text])),
+  note text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT billing_periods_pkey PRIMARY KEY (id),
+  CONSTRAINT billing_periods_group_id_fkey FOREIGN KEY (group_id) REFERENCES public.group_private(id)
 );

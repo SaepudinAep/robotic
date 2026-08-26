@@ -16,7 +16,7 @@ let activeGroupId = null;
 let groupsCache = [];
 
 // ==========================================
-// 1. INITIALIZATION
+// 1. INITIALIZATION (SHELL: mode Private / Sekolah)
 // ==========================================
 export async function init(canvas) {
     injectStyles();
@@ -25,9 +25,50 @@ export async function init(canvas) {
         <div class="bp-container">
             <div class="bp-header">
                 <div>
-                    <h2>Summary Pertemuan (Billing Private)</h2>
-                    <p>Rekap jumlah sesi per group per periode (prepaid/postpaid)</p>
+                    <h2>Billing</h2>
+                    <p>Kelola siklus & tagihan — Private dan Sekolah</p>
                 </div>
+                <div class="bp-modes" id="bp-modes">
+                    <button class="bp-mode-btn active" data-mode="private">
+                        <i class="fas fa-user-lock"></i> Private
+                    </button>
+                    <button class="bp-mode-btn" data-mode="sekolah">
+                        <i class="fas fa-school"></i> Sekolah
+                    </button>
+                </div>
+            </div>
+            <div id="bp-view"></div>
+        </div>
+    `;
+
+    const view = document.getElementById('bp-view');
+    const buttons = Array.from(document.querySelectorAll('#bp-modes .bp-mode-btn'));
+    let currentMode = null;
+
+    const show = async (mode) => {
+        if (currentMode === mode) return;
+        currentMode = mode;
+        buttons.forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+        view.innerHTML = '<div style="text-align:center; padding:40px; color:#94a3b8;"><i class="fas fa-circle-notch fa-spin"></i></div>';
+        if (mode === 'sekolah') {
+            // dynamic import + cache-buster agar selalu versi terbaru
+            const mod = await import('./billing-sekolah.js?v=' + Date.now());
+            await mod.initSekolah(view);
+        } else {
+            await renderPrivate(view);
+        }
+    };
+
+    buttons.forEach(b => b.onclick = () => show(b.dataset.mode));
+    await show('private');
+}
+
+// ==========================================
+// 1b. MODE PRIVATE (logika lama, dipindah utuh)
+// ==========================================
+async function renderPrivate(view) {
+    view.innerHTML = `
+            <div style="display:flex; justify-content:flex-end; margin-bottom:14px;">
                 <button id="bp-add-period" class="bp-btn-primary">
                     <i class="fas fa-plus"></i> Deklarasi Periode
                 </button>
@@ -69,7 +110,6 @@ export async function init(canvas) {
             </div>
 
             <div id="bp-result"></div>
-        </div>
     `;
 
     await Promise.all([loadGroups(), loadModalGroups()]);
@@ -123,6 +163,10 @@ function injectStyles() {
         .bp-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
         .bp-header h2 { margin: 0; font-family: 'Fredoka One', cursive; color: #333; }
         .bp-header p { margin: 4px 0 0; color: #64748b; font-size: 0.85rem; }
+        .bp-modes { display: flex; gap: 8px; background:#f1f5f9; padding:5px; border-radius:12px; }
+        .bp-mode-btn { border:none; background:transparent; color:#475569; padding:9px 18px; border-radius:9px; cursor:pointer; font-weight:700; font-size:.88rem; display:inline-flex; align-items:center; gap:7px; transition:0.15s; }
+        .bp-mode-btn:hover { color:#1e293b; }
+        .bp-mode-btn.active { background:#fff; color:#2563eb; box-shadow:0 2px 8px rgba(15,23,42,.08); }
         .card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:16px; box-shadow:0 2px 8px rgba(0,0,0,.05); }
         .bp-btn-primary { background:linear-gradient(90deg,#4d97ff,#2563eb); color:#fff; border:none; padding:10px 16px; border-radius:8px; cursor:pointer; font-weight:600; }
         .bp-btn-secondary { background:#e2e8f0; color:#334155; border:none; padding:10px 16px; border-radius:8px; cursor:pointer; }
