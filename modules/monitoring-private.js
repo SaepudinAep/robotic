@@ -85,15 +85,15 @@ export async function init(canvas) {
                                 <select id="pilihGuru" class="input-modern"><option>Loading...</option></select>
                             </div>
                             <div class="form-group">
+                                <label>📦 Sub-Level / Kit Alat</label>
+                                <select id="pilihSubLevel" class="input-modern"><option value="">Loading Sub-Level...</option></select>
+                            </div>
+                            <div class="form-group">
                                 <label>🔢 Jumlah Sesi</label>
                                 <select id="jumlahSesi" class="input-modern" title="Berapa sesi yang tercatat untuk pertemuan ini (dipakai perhitungan billing)">
                                     <option value="1" selected>1 Sesi</option>
                                     <option value="2">2 Sesi</option>
                                 </select>
-                            </div>
-                            <div class="form-group full">
-                                <label>📦 Sub-Level / Kit Alat</label>
-                                <select id="pilihSubLevel" class="input-modern"><option value="">Loading Sub-Level...</option></select>
                             </div>
                             <div class="form-group full">
                                 <label>📚 Materi (Topik)</label>
@@ -331,14 +331,14 @@ async function fetchSubLevels() {
     const sel = document.getElementById('pilihSubLevel');
     if (!sel) return;
 
-    let query = supabase.from('sub_levels').select('id, name, kit_alat').order('name');
+    let query = supabase.from('sub_levels').select('id, name').order('name');
     if (levelId) query = query.eq('level_id', levelId);
     
     const { data } = await query;
     const list = data || [];
     
-    sel.innerHTML = '<option value="">-- Tanpa Sub-Level / Kit --</option>' +
-        list.map(s => `<option value="${s.id}">${s.name} ${s.kit_alat ? `[${s.kit_alat}]` : ''}</option>`).join('');
+    sel.innerHTML = '<option value="">-- Tanpa Sub-Level --</option>' +
+        list.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
 
     if (subLevelId) {
         sel.value = subLevelId;
@@ -347,7 +347,7 @@ async function fetchSubLevels() {
     sel.onchange = () => {
         subLevelId = sel.value || null;
         const opt = sel.options[sel.selectedIndex];
-        subLevelName = sel.value ? (opt ? opt.text.split(' [')[0] : '') : '';
+        subLevelName = sel.value ? (opt ? opt.text : '') : '';
 
         if (subLevelId) {
             localStorage.setItem("activeSubLevelId", subLevelId);
