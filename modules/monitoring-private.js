@@ -84,6 +84,13 @@ export async function init(canvas) {
                                 <label>👨‍🏫 Guru</label>
                                 <select id="pilihGuru" class="input-modern"><option>Loading...</option></select>
                             </div>
+                            <div class="form-group">
+                                <label>🔢 Jumlah Sesi</label>
+                                <select id="jumlahSesi" class="input-modern" title="Berapa sesi yang tercatat untuk pertemuan ini (dipakai perhitungan billing)">
+                                    <option value="1" selected>1 Sesi</option>
+                                    <option value="2">2 Sesi</option>
+                                </select>
+                            </div>
                             <div class="form-group full">
                                 <label>📦 Sub-Level / Kit Alat</label>
                                 <select id="pilihSubLevel" class="input-modern"><option value="">Loading Sub-Level...</option></select>
@@ -442,7 +449,8 @@ async function savePertemuan() {
             class_id: classId, 
             tanggal: tgl, 
             teacher_id: guru || null, 
-            materi_id: materiId 
+            materi_id: materiId,
+            jumlah_sesi: Number(document.getElementById('jumlahSesi')?.value) || 1
         };
         
         if (currentSessionId) {
@@ -731,6 +739,8 @@ async function loadSessionForEdit(sessionId) {
             document.getElementById('tglPertemuan').value = data.tanggal;
             if(data.teacher_id) document.getElementById('pilihGuru').value = String(data.teacher_id);
             document.getElementById('materiUtama').value = data.materi_private?.judul || "";
+            const jumlahSel = document.getElementById('jumlahSesi');
+            if (jumlahSel) jumlahSel.value = String(data.jumlah_sesi || 1);
 
             if (data.materi_private?.sub_level_id) {
                 const subSel = document.getElementById('pilihSubLevel');
@@ -784,6 +794,8 @@ function resetToNewMode() {
     
     document.getElementById('tglPertemuan').valueAsDate = new Date();
     document.getElementById('materiUtama').value = "";
+    const jumlahSel = document.getElementById('jumlahSesi');
+    if (jumlahSel) jumlahSel.value = '1';
     updateSessionStatus("BARU", false);
     
     document.getElementById("btn-reset-mode").style.display = 'none';

@@ -174,16 +174,27 @@ function injectStyles() {
 // ==========================================
 // 3. DATA HELPERS
 // ==========================================
+// Group yang ditampilkan = hanya yang masih punya minimal satu KELAS AKTIF
+async function fetchGroupsWithActiveClass() {
+    const [{ data: groups }, { data: classes }] = await Promise.all([
+        supabase.from('group_private').select('id, code, owner').order('owner'),
+        supabase.from('class_private').select('group_id, is_active')
+    ]);
+    const withActiveClass = new Set(
+        (classes || []).filter(c => c.is_active).map(c => c.group_id)
+    );
+    return (groups || []).filter(g => withActiveClass.has(g.id));
+}
+
 async function loadGroups() {
-    const { data } = await supabase.from('group_private').select('id, code, owner').order('owner');
-    groupsCache = data || [];
+    groupsCache = await fetchGroupsWithActiveClass();
 
     // render tab group di container
     const list = document.querySelector('#bp-group-tabs .bp-tabs-list');
     if (!list) return;
 
     if (groupsCache.length === 0) {
-        list.innerHTML = '<span class="bp-tab-empty">Belum ada group.</span>';
+        list.innerHTML = '<span class="bp-tab-empty">Tidak ada group dengan kelas aktif.</span>';
         return;
     }
 
@@ -225,9 +236,10 @@ async function deletePeriod(id) {
 window.bpDeletePeriod = deletePeriod;
 
 async function loadModalGroups() {
-    const { data } = await supabase.from('group_private').select('id, code, owner').order('owner');
+    const data = await fetchGroupsWithActiveClass();
     const sel = document.getElementById('bp-f-group');
-    (data || []).forEach(g => sel.add(new Option(`${g.code || ''} — ${g.owner}`, g.id)));
+    sel.innerHTML = '';
+    data.forEach(g => sel.add(new Option(`${g.code || ''} — ${g.owner}`, g.id)));
 }
 
 async function savePeriod() {
@@ -278,28 +290,31 @@ function fmtHari(t) {
     return d.toLocaleDateString('id-ID', { weekday: 'long' });
 }
 
-// Tabel rapi daftar tanggal pertemuan per kelas
-// Hanya menampilkan sesi SEBATAS kuota periode; baris info overflow hanya di siklus terakhir
-function renderDateTable(sessions, quota, isLastSiklus) {
+// Tabel rapi daftar pertemuan per kelas
+// Setiap baris = satu PERTEMUAN; kolom "Sesi" menunjukkan rentang sesi
+// (pertemuan bernilai 2 sesi tampil mis. "3–4"). Info overflow hanya di siklus terakhir.
+function renderDateTable(sessions, isLastSiklus, overflow) {
     if (!sessions || sessions.length === 0) {
         return '<tr><td colspan="5" style="text-align:center; color:#94a3b8; padding:12px;">Belum ada pertemuan pada periode ini.</td></tr>';
     }
-    const shown = sessions.slice(0, quota);          // hanya kuota sesi (mis. 4)
-    const overflow = sessions.length - shown.length; // sisanya milik siklus berikutnya
 
-    let html = shown.map((s, i) => `<tr>
+    let html = sessions.map((s, i) => {
+        const span = (s._mulai === s._sampai) ? `${s._mulai}` : `${s._mulai}–${s._sampai}`;
+        const bobot = (Number(s.jumlah_sesi) || 1) > 1
+            ? ` <span class="bp-badge over">×${Number(s.jumlah_sesi)}</span>` : '';
+        return `<tr>
         <td>${i + 1}</td>
         <td>${fmtTanggal(s.tanggal)}</td>
         <td>${fmtHari(s.tanggal)}</td>
-        <td>${s.pertemuan_ke || (i + 1)}</td>
+        <td><b>${span}</b>${bobot}</td>
         <td><span class="bp-badge ok">Dalam kuota</span></td>
-    </tr>`).join('');
+    </tr>`;
+    }).join('');
 
     if (isLastSiklus && overflow > 0) {
-        const nextStart = `${fmtTanggal(sessions[quota].tanggal)}`;
         html += `<tr class="bp-over">
             <td colspan="5" style="color:#92400e; padding:8px 10px;">
-                + ${overflow} sesi berikutnya (mulai ${nextStart}) otomatis masuk <b>siklus berikutnya</b>.
+                + ${overflow} sesi berikutnya otomatis masuk <b>siklus berikutnya</b>.
             </td>
         </tr>`;
     }
@@ -325,10 +340,11 @@ async function loadSummary() {
         .eq('group_id', groupId);
     const classIds = (classes || []).map(c => c.id);
 
-    // Semua sesi group dalam satu query (satu baris = satu sesi), urut tanggal
+    // Semua pertemuan group dalam satu query, urut tanggal.
+    // CATATAN: jumlah_sesi menentukan bobot sesi (default 1, bisa 2)
     const { data: allP } = classIds.length
         ? await supabase.from('pertemuan_private')
-            .select('id, class_id, tanggal, pertemuan_ke')
+            .select('id, class_id, tanggal, pertemuan_ke, jumlah_sesi')
             .in('class_id', classIds)
             .order('tanggal', { ascending: true })
         : { data: [] };
@@ -348,22 +364,37 @@ async function loadSummary() {
         let classCards = '';
         let blockPakai = 0;  // total sesi terpakai dalam kuota siklus ini
         let blockAll = 0;    // total sesi terdaftar sejak awal periode
+        let adaHabis = false;
         classesToShow.forEach(c => {
             const quota = bp.quota_sessions;
             const sessAll = inPeriod.filter(p => p.class_id === c.id);
-            blockAll += sessAll.length;
-            const sess = sessAll.slice(0, quota);  // hanya ambil sebatas kuota
-            blockPakai += sess.length;
-            const pakai = sess.length;
+            const classAllSesi = sessAll.reduce((t, s) => t + (Number(s.jumlah_sesi) || 1), 0);
+            blockAll += classAllSesi;
+
+            // Ambil pertemuan sampai kuota terpenuhi (berbobot jumlah_sesi).
+            // Pertemuan yang membuat total melewati kuota tetap masuk siklus ini penuh.
+            let acc = 0;
+            const sess = [];
+            for (const s of sessAll) {
+                if (acc >= quota) break;
+                const js = Number(s.jumlah_sesi) || 1;
+                sess.push({ ...s, _mulai: acc + 1, _sampai: acc + js });
+                acc += js;
+            }
+            blockPakai += acc;
+
+            const pakai = acc;
             const sisa = quota - pakai;
             const habis = sisa <= 0;
+            if (habis) adaHabis = true;
             const levelTxt = (c.levels?.kode || '') + (c.sub_levels?.name ? ' · ' + c.sub_levels.name : '');
-            const akhir = habis && sess[quota - 1]
-                ? fmtTanggal(sess[quota - 1].tanggal)   // otomatis = tanggal sesi ke-kuota
+            const akhir = habis && sess.length
+                ? fmtTanggal(sess[sess.length - 1].tanggal)   // otomatis = tanggal pertemuan yang mencapai/melewati kuota
                 : `Sesi ke-${quota} belum tercapai`;
             const statusTxt = habis
                 ? 'Kuota habis — siap siklus berikutnya'
                 : `Sisa kuota ${sisa}`;
+            const classOverflow = classAllSesi - acc;
 
             classCards += `
             <div class="bp-period-card card">
@@ -379,19 +410,15 @@ async function loadSummary() {
                 <table class="bp-date-table">
                     <thead><tr>
                         <th style="width:50px;">No</th><th>Tanggal</th><th>Hari</th>
-                        <th style="width:90px;">Sesi Ke-</th><th>Status Kuota</th>
+                        <th style="width:90px;">Sesi</th><th>Status Kuota</th>
                     </tr></thead>
                     <tbody>
-                        ${renderDateTable(sess, quota, isLastSiklus)}
+                        ${renderDateTable(sess, isLastSiklus, classOverflow)}
                     </tbody>
                 </table>
             </div>`;
         });
 
-        // Kelas sudah habis kuota = ada kelas yang terpakai >= kuota
-        const adaHabis = classesToShow.some(c =>
-            inPeriod.filter(p => p.class_id === c.id).length >= bp.quota_sessions
-        );
         const sisaTotal = (bp.quota_sessions * classesToShow.length) - blockPakai;
         const overflowTotal = blockAll - blockPakai;
 
@@ -429,8 +456,8 @@ async function loadSummary() {
         ${blocks}
         <p style="font-size:.78rem;color:#64748b;margin-top:14px;">
             Akhir periode ditentukan <b>otomatis setelah kuota sesi terpakai</b> (default 4).
-            Sesi dihitung dari <b>pertemuan_private</b> milik group sejak tanggal mulai
-            (sumber kebenaran: tabel pertemuan). Satu pertemuan = satu sesi, terlepas dari jumlah siswa.
+            Sesi dihitung dari <b>pertemuan_private</b> dengan bobot <b>jumlah_sesi</b> per pertemuan
+            (default 1, bisa 2). Satu pertemuan = satu baris, nilai sesinya mengikuti opsi saat input.
         </p>
     </div>`;
 }
