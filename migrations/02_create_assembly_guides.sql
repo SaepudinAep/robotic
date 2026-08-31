@@ -1,4 +1,4 @@
--- Migration: Create assembly_guide_steps table linked to materi and materi_private
+-- Migration: Create assembly_guide_steps table with Soft Delete support
 
 CREATE TABLE IF NOT EXISTS public.assembly_guide_steps (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -9,6 +9,9 @@ CREATE TABLE IF NOT EXISTS public.assembly_guide_steps (
   image_url text,
   instruction_text text,
   notes text,
+  is_deleted boolean DEFAULT false,
+  deleted_at timestamp with time zone,
+  deleted_by uuid,
   created_at timestamp with time zone DEFAULT now()
 );
 

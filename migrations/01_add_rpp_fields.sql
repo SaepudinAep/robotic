@@ -1,4 +1,4 @@
--- Migration: Add RPP (Lesson Plan) fields & Versioning to public.materi and public.materi_private
+-- Migration: Add RPP (Lesson Plan) fields, Versioning, and Soft Delete flags
 
 ALTER TABLE public.materi
   ADD COLUMN IF NOT EXISTS alokasi_waktu text,
@@ -9,7 +9,10 @@ ALTER TABLE public.materi
   ADD COLUMN IF NOT EXISTS kegiatan_penutup text,
   ADD COLUMN IF NOT EXISTS indikator_penilaian text,
   ADD COLUMN IF NOT EXISTS version text DEFAULT '1.0',
-  ADD COLUMN IF NOT EXISTS version_notes text;
+  ADD COLUMN IF NOT EXISTS version_notes text,
+  ADD COLUMN IF NOT EXISTS is_deleted boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS deleted_at timestamp with time zone,
+  ADD COLUMN IF NOT EXISTS deleted_by uuid;
 
 ALTER TABLE public.materi_private
   ADD COLUMN IF NOT EXISTS alokasi_waktu text,
@@ -20,7 +23,10 @@ ALTER TABLE public.materi_private
   ADD COLUMN IF NOT EXISTS kegiatan_penutup text,
   ADD COLUMN IF NOT EXISTS indikator_penilaian text,
   ADD COLUMN IF NOT EXISTS version text DEFAULT '1.0',
-  ADD COLUMN IF NOT EXISTS version_notes text;
+  ADD COLUMN IF NOT EXISTS version_notes text,
+  ADD COLUMN IF NOT EXISTS is_deleted boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS deleted_at timestamp with time zone,
+  ADD COLUMN IF NOT EXISTS deleted_by uuid;
 
 CREATE TABLE IF NOT EXISTS public.materi_versions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

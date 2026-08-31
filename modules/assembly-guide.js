@@ -1,6 +1,6 @@
 /**
  * Project: Assembly Guide Module (Petunjuk Perakitan Robot - Khusus Input Perakitan)
- * Version: 2.0 - Cascading Select (Kategori -> Level -> Sub-Level -> Materi), Auto Image Compression, Slider Viewer
+ * Version: 3.0 - Cascading Select, Auto Image Compression, Slider Viewer, RBAC Soft vs Hard Delete
  * Storage: Cloudinary (via config.js / dmm6avtxd / robotic_assembly folder) & Supabase
  */
 
@@ -11,12 +11,13 @@ import { openImageCropper } from '../assets/js/image-cropper.js';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // State Global
+let currentUserProfile = null;
+let userRole = 'teacher'; // 'super_admin' | 'teacher'
 let currentCategory = "sekolah"; // "sekolah" | "private"
 let levelsList = [];
 let subLevelsList = [];
 let materiListSekolah = [];
 let materiListPrivate = [];
-let assemblyItemsList = [];
 let selectedLevelId = "all";
 let editingMateriId = null;
 
@@ -29,7 +30,10 @@ let currentStepIndex = 0;
 // 1. INITIALIZATION
 // ==========================================
 
-export async function init(canvas) {
+export async function init(canvas, userProfile = null) {
+    currentUserProfile = userProfile;
+    userRole = userProfile?.role || 'teacher';
+
     await fetchData();
     injectStyles();
 
@@ -86,7 +90,7 @@ export async function init(canvas) {
             <i class="fas fa-plus"></i>
         </button>
 
-        <!-- MODAL STEP BUILDER DRAWER (KHUSUS INPUT PERAKITAN) -->
+        <!-- MODAL STEP BUILDER DRAWER -->
         <div id="modal-ag-builder" class="modal-overlay">
             <div class="modal-drawer ag-builder-drawer">
                 <div class="modal-header">
@@ -189,8 +193,8 @@ async function fetchData() {
         const [lv, sub, mSek, mPrv] = await Promise.all([
             supabase.from('levels').select('id, kode, detail').order('kode'),
             supabase.from('sub_levels').select('id, level_id, name, kode').order('name'),
-            supabase.from('materi').select('id, title, level_id, sub_level_id, image_url, description, detail, assembly_guide_steps(*)'),
-            supabase.from('materi_private').select('id, judul, level_id, sub_level_id, image_url, deskripsi, detail, assembly_guide_steps(*)')
+            supabase.from('materi').select('id, title, level_id, sub_level_id, image_url, description, detail, is_deleted, assembly_guide_steps(*)').or('is_deleted.is.null,is_deleted.eq.false'),
+            supabase.from('materi_private').select('id, judul, level_id, sub_level_id, image_url, deskripsi, detail, is_deleted, assembly_guide_steps(*)').or('is_deleted.is.null,is_deleted.eq.false')
         ]);
 
         if (lv.data) levelsList = lv.data;
@@ -202,7 +206,6 @@ async function fetchData() {
     }
 }
 
-// Helper untuk merender pilihan Sub-Level
 function renderSubOptions(lvlId, currentSubId) {
     const subs = subLevelsList.filter(s => s.level_id === lvlId);
     if (!subs.length) return '<option value="">-- Tanpa Sub-Level --</option>';
@@ -210,34 +213,25 @@ function renderSubOptions(lvlId, currentSubId) {
         subs.map(s => `<option value="${s.id}" ${currentSubId === s.id ? 'selected' : ''}>${s.name}</option>`).join('');
 }
 
-// Helper untuk merender pilihan Materi berdasarkan Level & Sub-Level
 function renderMateriOptions(category, lvlId, subLvlId, currentMateriId) {
     const list = category === 'private' ? materiListPrivate : materiListSekolah;
     let filtered = list;
 
-    if (lvlId) {
-        filtered = filtered.filter(m => m.level_id === lvlId);
-    }
-    if (subLvlId) {
-        filtered = filtered.filter(m => m.sub_level_id === subLvlId);
-    }
+    if (lvlId) filtered = filtered.filter(m => m.level_id === lvlId);
+    if (subLvlId) filtered = filtered.filter(m => m.sub_level_id === subLvlId);
 
-    if (!filtered.length) {
-        return '<option value="">-- Tidak ada materi ditemukan --</option>';
-    }
+    if (!filtered.length) return '<option value="">-- Tidak ada materi ditemukan --</option>';
 
     return '<option value="">-- Pilih Topik Materi / Robot --</option>' +
-        filtered.map(m => {
-            const title = m.title || m.judul || '(Tanpa Judul)';
-            return `<option value="${m.id}" ${currentMateriId === m.id ? 'selected' : ''}>${title}</option>`;
-        }).join('');
+        filtered.map(m => `<option value="${m.id}" ${currentMateriId === m.id ? 'selected' : ''}>${m.title || m.judul || '(Tanpa Judul)'}</option>`).join('');
 }
 
-// Parse Steps dari DB / JSON Fallback
 function parseMateriSteps(m) {
     let steps = [];
     if (m.assembly_guide_steps && Array.isArray(m.assembly_guide_steps) && m.assembly_guide_steps.length > 0) {
-        steps = m.assembly_guide_steps.sort((a, b) => (a.step_number || 0) - (b.step_number || 0));
+        steps = m.assembly_guide_steps
+            .filter(st => !st.is_deleted)
+            .sort((a, b) => (a.step_number || 0) - (b.step_number || 0));
     } else if (m.detail && m.detail.startsWith('{') && m.detail.endsWith('}')) {
         try {
             const parsed = JSON.parse(m.detail);
@@ -248,7 +242,7 @@ function parseMateriSteps(m) {
 }
 
 // ==========================================
-// 3. KOMPRESI GAMBAR CLIENT-SIDE (Otomatis <100KB)
+// 3. KOMPRESI GAMBAR CLIENT-SIDE
 // ==========================================
 async function compressImageBlob(blob, maxWidth = 800, quality = 0.75) {
     return new Promise((resolve, reject) => {
@@ -286,7 +280,6 @@ async function uploadCompressedToCloudinary(urlOrBlob, folderName = 'robotic_ass
             fileBlob = await fetched.blob();
         }
 
-        // Jalankan kompresi otomatis max width 800px, quality 0.75
         const compressedBlob = await compressImageBlob(fileBlob, 800, 0.75);
 
         const formData = new FormData();
@@ -316,7 +309,7 @@ async function uploadCompressedToCloudinary(urlOrBlob, folderName = 'robotic_ass
 // 4. STYLING (CSS INJECTION)
 // ==========================================
 function injectStyles() {
-    const styleId = 'assembly-guide-css-v2';
+    const styleId = 'assembly-guide-css-v3';
     if (document.getElementById(styleId)) return;
 
     const style = document.createElement('style');
@@ -327,7 +320,6 @@ function injectStyles() {
         .ag-header h2 { color: #1e293b; margin: 0; font-size: 1.5rem; font-weight: 800; }
         .ag-header p { color: #64748b; margin: 5px 0 0; font-size: 0.9rem; }
 
-        /* Main Tabs */
         .ag-tabs { display: flex; gap: 10px; margin-bottom: 15px; background: #fff; padding: 6px; border-radius: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
         .tab-btn { flex: 1; border: none; background: transparent; padding: 12px 15px; font-weight: 700; color: #64748b; cursor: pointer; border-radius: 10px; transition: 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.9rem; }
         .tab-btn.active { background: #4d97ff; color: white; box-shadow: 0 4px 12px rgba(77, 151, 255, 0.3); }
@@ -343,7 +335,6 @@ function injectStyles() {
         .level-chip { border: 1px solid #e2e8f0; background: white; padding: 8px 16px; border-radius: 20px; font-size: 0.85rem; font-weight: 600; color: #475569; cursor: pointer; white-space: nowrap; transition: 0.2s; display: flex; align-items: center; gap: 6px; }
         .level-chip.active { background: #1e293b; color: white; border-color: #1e293b; }
 
-        /* Grid Catalog Cards */
         .ag-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 18px; }
 
         .ag-card {
@@ -393,7 +384,7 @@ function injectStyles() {
         }
         .fab-btn:hover { transform: scale(1.08); background: #2563eb; }
 
-        /* Drawer & Section Box */
+        /* Modal & Drawer */
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); z-index: 1000; display: none; align-items: flex-end; backdrop-filter: blur(3px); }
         .modal-overlay.active { display: flex; animation: fadeIn 0.2s ease-out; }
         .modal-drawer { background: white; width: 100%; max-width: 680px; margin: 0 auto; border-radius: 24px 24px 0 0; padding: 25px; max-height: 92vh; overflow-y: auto; position: relative; animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
@@ -407,9 +398,6 @@ function injectStyles() {
         .ag-section-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px; }
         .ag-section-title { margin: 0 0 14px 0; font-size: 0.95rem; font-weight: 800; color: #1e293b; display: flex; align-items: center; gap: 8px; }
 
-        .btn-ag-upload { background: #4d97ff; color: white; border: none; padding: 9px 14px; border-radius: 10px; font-weight: 700; cursor: pointer; font-size: 0.82rem; width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; font-family: inherit; }
-        .btn-ag-upload:hover { background: #2563eb; }
-
         .btn-ag-secondary { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; padding: 7px 12px; border-radius: 8px; font-weight: 700; font-size: 0.8rem; cursor: pointer; }
         .btn-ag-secondary:hover { background: #dbeafe; }
 
@@ -420,11 +408,9 @@ function injectStyles() {
         .btn-primary { width: 100%; padding: 14px; background: #4d97ff; color: white; border: none; border-radius: 12px; font-weight: 700; cursor: pointer; font-size: 1rem; margin-top: 20px; transition: 0.2s; box-shadow: 0 4px 12px rgba(77, 151, 255, 0.3); }
         .btn-primary:hover { background: #2563eb; }
 
-        /* Step Row in Builder */
         .ag-step-row { background: white; border: 1px solid #cbd5e1; border-radius: 12px; padding: 14px; margin-bottom: 12px; }
         .ag-step-row-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-weight: 700; color: #1e293b; font-size: 0.9rem; }
 
-        /* Interactive Slider Viewer UI */
         .ag-viewer-body-content { display: flex; flex-direction: column; align-items: center; text-align: center; height: 100%; }
         .ag-step-image-box { width: 100%; max-height: 48vh; background: #0f172a; border-radius: 16px; overflow: hidden; display: flex; align-items: center; justify-content: center; margin-bottom: 16px; }
         .ag-step-image-box img { max-width: 100%; max-height: 48vh; object-fit: contain; }
@@ -516,6 +502,9 @@ async function loadCatalogData() {
                             <button class="btn-action-icon btn-edit-trigger" data-action="edit" data-id="${m.id}" title="Edit Petunjuk Perakitan">
                                 <i class="fas fa-pen"></i>
                             </button>
+                            <button class="btn-action-icon btn-delete-assembly" data-action="delete" data-id="${m.id}" title="Hapus Petunjuk Perakitan">
+                                <i class="fas fa-trash-can"></i>
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -551,7 +540,6 @@ async function injectFormFields(mode = "add", materiId = null) {
     formSub.innerHTML = renderSubOptions(lvlId, subLvlId);
     formMateri.innerHTML = renderMateriOptions(cat, lvlId, subLvlId, materiId);
 
-    // Dynamic Cascading Listeners
     formCategory.onchange = () => {
         formMateri.innerHTML = renderMateriOptions(formCategory.value, formLevel.value, formSub.value, null);
     };
@@ -616,7 +604,6 @@ function addStepRow(st = {}) {
         openImageCropper('robotic_assembly', async (urlOrBlob) => {
             try {
                 row.querySelector('.btn-upload-step-img').innerText = "Compressing...";
-                // Panggil fungsi kompresi gambar otomatis client-side
                 const secureUrl = await uploadCompressedToCloudinary(urlOrBlob, 'robotic_assembly');
                 row.querySelector('.step-image-url').value = secureUrl;
                 row.querySelector('.img-preview-step').src = secureUrl;
@@ -628,13 +615,11 @@ function addStepRow(st = {}) {
         });
     };
 
-    // Remove step
     row.querySelector('.btn-remove-step').onclick = () => {
         row.remove();
         reindexStepNumbers();
     };
 
-    // Move step
     row.querySelectorAll('.btn-move-step').forEach(b => {
         b.onclick = () => {
             const dir = parseInt(b.dataset.dir);
@@ -732,16 +717,14 @@ function renderSliderStep() {
 }
 
 // ==========================================
-// 8. EVENT HANDLERS
+// 8. EVENT HANDLERS & RBAC DELETION LOGIC
 // ==========================================
 function setupEventListeners() {
-    // Switch Category Tabs (Sekolah / Private)
     document.getElementById("btnCatSekolah").onclick = () => switchCategory('sekolah');
     document.getElementById("btnCatPrivate").onclick = () => switchCategory('private');
 
     document.getElementById("globalSearchAssembly").oninput = loadCatalogData;
 
-    // Filter Chips Event
     const chipContainer = document.getElementById("level-filter-bar-ag");
     chipContainer.onclick = (e) => {
         const chip = e.target.closest('.level-chip');
@@ -752,10 +735,8 @@ function setupEventListeners() {
         loadCatalogData();
     };
 
-    // Add Step Row Button
     document.getElementById("btn-add-step-row").onclick = () => addStepRow();
 
-    // FAB Add
     document.getElementById("fab-add-ag").onclick = async () => {
         await injectFormFields("add");
         document.getElementById("modal-ag-builder").classList.add("active");
@@ -769,7 +750,6 @@ function setupEventListeners() {
         document.getElementById("modal-ag-viewer").classList.remove("active");
     };
 
-    // Slider Prev / Next Buttons
     document.getElementById("btn-prev-step").onclick = () => {
         if (currentStepIndex > 0) {
             currentStepIndex--;
@@ -786,7 +766,6 @@ function setupEventListeners() {
         }
     };
 
-    // Slider Dots Click Event
     document.getElementById("viewer-dots-container").onclick = (e) => {
         const dot = e.target.closest('.ag-dot');
         if (dot) {
@@ -795,10 +774,8 @@ function setupEventListeners() {
         }
     };
 
-    // Form Submit
     document.getElementById("ag-form").onsubmit = handleFormSubmit;
 
-    // Catalog Item Action Clicks
     document.getElementById("assembly-catalog-list").onclick = async (e) => {
         const btnSlider = e.target.closest('[data-action="view-slider"]');
         if (btnSlider) {
@@ -810,6 +787,12 @@ function setupEventListeners() {
         if (btnEdit) {
             await injectFormFields("edit", btnEdit.dataset.id);
             document.getElementById("modal-ag-builder").classList.add("active");
+            return;
+        }
+
+        const btnDelete = e.target.closest('[data-action="delete"]');
+        if (btnDelete) {
+            deleteAssemblyGuide(btnDelete.dataset.id);
         }
     };
 }
@@ -832,7 +815,6 @@ async function handleFormSubmit(e) {
         return;
     }
 
-    // Kumpulkan Steps dari Builder
     const stepRows = Array.from(document.querySelectorAll(".ag-step-row"));
     const stepsPayload = stepRows.map((row, idx) => ({
         step_number: idx + 1,
@@ -845,7 +827,6 @@ async function handleFormSubmit(e) {
     const fkCol = cat === 'private' ? 'materi_private_id' : 'materi_id';
 
     try {
-        // Simpan steps ke tabel assembly_guide_steps
         try {
             await supabase.from('assembly_guide_steps').delete().eq(fkCol, targetMateriId);
             const fullSteps = stepsPayload.map(s => ({ ...s, [fkCol]: targetMateriId }));
@@ -854,7 +835,6 @@ async function handleFormSubmit(e) {
             console.warn("Tabel assembly_guide_steps error, menyimpan via JSON detail:", sErr);
         }
 
-        // Simpan JSON fallback ke kolom detail materi
         const list = cat === 'private' ? materiListPrivate : materiListSekolah;
         const targetMateri = list.find(m => m.id === targetMateriId);
         if (targetMateri) {
@@ -873,4 +853,50 @@ async function handleFormSubmit(e) {
     } catch (err) {
         alert("Gagal menyimpan Petunjuk Perakitan: " + err.message);
     }
+}
+
+// RBAC DELETION LOGIC: Soft Delete for Teacher, Hard/Soft Delete for Super Admin
+async function deleteAssemblyGuide(materiId) {
+    const tableName = currentCategory === 'private' ? 'materi_private' : 'materi';
+    const fkCol = currentCategory === 'private' ? 'materi_private_id' : 'materi_id';
+
+    if (userRole === 'super_admin') {
+        const action = confirm(
+            "Mode Super Admin:\n\nKlik 'OK' untuk Soft Delete (Disembunyikan)\nKlik 'Cancel' jika ingin Hard Delete Permanen dari Database."
+        );
+        if (action) {
+            // Soft Delete
+            await supabase.from(tableName).update({
+                is_deleted: true,
+                deleted_at: new Date().toISOString(),
+                deleted_by: currentUserProfile?.id || null
+            }).eq('id', materiId);
+            alert("Petunjuk perakitan telah disembunyikan (Soft Delete).");
+        } else {
+            // Hard Delete
+            if (confirm("PERINGATAN: Apakah Anda yakin ingin melakukan HARD DELETE PERMANEN dari database?")) {
+                try {
+                    await supabase.from('assembly_guide_steps').delete().eq(fkCol, materiId);
+                } catch (e) {}
+                await supabase.from(tableName).delete().eq('id', materiId);
+                alert("Petunjuk perakitan & materi berhasil dihapus permanen.");
+            }
+        }
+    } else {
+        // Teacher Role -> Always Soft Delete
+        if (!confirm("Apakah Anda yakin ingin menyembunyikan petunjuk perakitan ini? (Soft Delete)")) return;
+
+        try {
+            await supabase.from(tableName).update({
+                is_deleted: true,
+                deleted_at: new Date().toISOString(),
+                deleted_by: currentUserProfile?.id || null
+            }).eq('id', materiId);
+            alert("Petunjuk perakitan berhasil disembunyikan (Soft Delete).");
+        } catch (err) {
+            alert("Gagal menyembunyikan: " + err.message);
+        }
+    }
+
+    await loadCatalogData();
 }

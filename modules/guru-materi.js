@@ -1,6 +1,6 @@
 /**
  * Project: Guru & Materi Module (School)
- * Version: 7.0 - RPP Standar Sekolah, Versi RPP (v1.0/v2.0), RPP Reader & Interactive Assembly Slider Viewer
+ * Version: 8.0 - RPP Standar Sekolah, Versi RPP (v1.0/v2.0), RPP Reader & Interactive Assembly Slider Viewer, RBAC Soft vs Hard Delete
  * Format: Touch & Tablet Optimized UI
  */
 
@@ -11,6 +11,8 @@ import { openImageCropper } from '../assets/js/image-cropper.js';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // State Global
+let currentUserProfile = null;
+let userRole = 'teacher'; // 'super_admin' | 'teacher'
 let currentTab = "materi"; 
 let editingId = null;
 let selectedLevelId = "all";
@@ -27,7 +29,10 @@ let currentStepIndex = 0;
 // 1. INITIALIZATION
 // ==========================================
 
-export async function init(canvas) {
+export async function init(canvas, userProfile = null) {
+    currentUserProfile = userProfile;
+    userRole = userProfile?.role || 'teacher';
+
     await fetchLevels();
     injectStyles();
 
@@ -189,7 +194,9 @@ function parseMateriDetail(m) {
     };
 
     if (m.assembly_guide_steps && Array.isArray(m.assembly_guide_steps) && m.assembly_guide_steps.length > 0) {
-        result.assembly_steps = m.assembly_guide_steps.sort((a, b) => (a.step_number || 0) - (b.step_number || 0));
+        result.assembly_steps = m.assembly_guide_steps
+            .filter(st => !st.is_deleted)
+            .sort((a, b) => (a.step_number || 0) - (b.step_number || 0));
     }
 
     if (m.detail && m.detail.startsWith('{') && m.detail.endsWith('}')) {
@@ -210,7 +217,7 @@ function parseMateriDetail(m) {
 // 3. STYLING (CSS INJECTION)
 // ==========================================
 function injectStyles() {
-    const styleId = 'guru-materi-css-v7';
+    const styleId = 'guru-materi-css-v8';
     if (document.getElementById(styleId)) return;
 
     const style = document.createElement('style');
@@ -295,7 +302,6 @@ function injectStyles() {
         }
         .btn-assembly-view:hover { background: #059669; }
 
-        /* FAB Button */
         .fab-btn {
             position: fixed; bottom: 30px; right: 30px; width: 60px; height: 60px;
             border-radius: 50%; background: #4d97ff; color: white; border: none;
@@ -305,7 +311,6 @@ function injectStyles() {
         }
         .fab-btn:hover { transform: scale(1.08); background: #2563eb; }
 
-        /* Modal Drawer */
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); z-index: 1000; display: none; align-items: flex-end; backdrop-filter: blur(3px); }
         .modal-overlay.active { display: flex; animation: fadeIn 0.2s ease-out; }
         .modal-drawer { background: white; width: 100%; max-width: 650px; margin: 0 auto; border-radius: 24px 24px 0 0; padding: 25px; max-height: 92vh; overflow-y: auto; position: relative; animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
@@ -316,7 +321,6 @@ function injectStyles() {
         .modal-header h2 { margin: 0; font-size: 1.25rem; font-weight: 800; color: #1e293b; }
         .close-btn { background: none; border: none; font-size: 1.8rem; cursor: pointer; color: #94a3b8; }
         
-        /* 4 RPP Sub-Tabs */
         .rpp-form-tabs { display: flex; gap: 6px; margin-bottom: 18px; border-bottom: 2px solid #f1f5f9; padding-bottom: 8px; overflow-x: auto; scrollbar-width: none; }
         .rpp-tab-btn { border: none; background: #f8fafc; color: #64748b; padding: 8px 14px; border-radius: 10px; font-size: 0.82rem; font-weight: 700; cursor: pointer; white-space: nowrap; transition: 0.2s; display: flex; align-items: center; gap: 6px; }
         .rpp-tab-btn.active { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
@@ -330,7 +334,6 @@ function injectStyles() {
         .btn-primary { width: 100%; padding: 14px; background: #4d97ff; color: white; border: none; border-radius: 12px; font-weight: 700; cursor: pointer; font-size: 1rem; margin-top: 20px; transition: 0.2s; box-shadow: 0 4px 12px rgba(77, 151, 255, 0.3); }
         .btn-primary:hover { background: #2563eb; }
 
-        /* INTERACTIVE ASSEMBLY SLIDER VIEWER STYLES */
         .ag-viewer-body-content { display: flex; flex-direction: column; align-items: center; text-align: center; height: 100%; }
         .ag-step-image-box { width: 100%; max-height: 48vh; background: #0f172a; border-radius: 16px; overflow: hidden; display: flex; align-items: center; justify-content: center; margin-bottom: 16px; }
         .ag-step-image-box img { max-width: 100%; max-height: 48vh; object-fit: contain; }
@@ -347,7 +350,6 @@ function injectStyles() {
         .ag-dot { width: 10px; height: 10px; border-radius: 50%; background: #cbd5e1; cursor: pointer; flex-shrink: 0; transition: 0.2s; }
         .ag-dot.active { background: #10b981; transform: scale(1.3); }
 
-        /* RPP PREVIEW READER STYLES */
         .rpp-preview-card { background: #fafafa; border: 1px solid #e2e8f0; border-radius: 16px; padding: 24px; font-family: 'Poppins', sans-serif; color: #1e293b; }
         .rpp-header-box { text-align: center; border-bottom: 2px solid #cbd5e1; padding-bottom: 16px; margin-bottom: 20px; }
         .rpp-header-box h3 { margin: 0 0 6px 0; font-size: 1.3rem; color: #0f172a; font-weight: 800; }
@@ -392,6 +394,7 @@ async function loadData() {
             let query = supabase
                 .from('materi')
                 .select('*, levels(id, kode, detail), sub_levels(name, kode), assembly_guide_steps(*)')
+                .or('is_deleted.is.null,is_deleted.eq.false')
                 .order('created_at', { ascending: false });
 
             if (selectedLevelId !== "all") {
@@ -686,7 +689,6 @@ async function injectFormFields(mode = "add", data = {}) {
             </div>
         `;
 
-        // Switch Sub-Tab Handler
         setTimeout(() => {
             const paneBtns = formFields.querySelectorAll('.rpp-tab-btn');
             paneBtns.forEach(btn => {
@@ -995,7 +997,7 @@ function renderSliderStep() {
 }
 
 // ==========================================
-// 7. EVENT HANDLERS
+// 7. EVENT HANDLERS & RBAC DELETION
 // ==========================================
 
 function setupEventListeners() {
@@ -1003,7 +1005,6 @@ function setupEventListeners() {
     document.getElementById("btnAchievement").onclick = () => switchTab('achievement');
     document.getElementById("globalSearch").oninput = loadData;
 
-    // Filter Chips Event
     const chipContainer = document.getElementById("level-filter-bar");
     chipContainer.onclick = (e) => {
         const chip = e.target.closest('.level-chip');
@@ -1034,7 +1035,6 @@ function setupEventListeners() {
 
     document.getElementById("btn-print-rpp").onclick = () => window.print();
 
-    // Buka Slider Perakitan dari Modal RPP Reader
     document.getElementById("btn-open-assembly-from-rpp").onclick = () => {
         if (currentViewingMateri) {
             document.getElementById("modal-rpp-overlay").classList.remove("active");
@@ -1042,7 +1042,6 @@ function setupEventListeners() {
         }
     };
 
-    // Slider Prev / Next Buttons
     document.getElementById("btn-prev-step").onclick = () => {
         if (currentStepIndex > 0) {
             currentStepIndex--;
@@ -1059,7 +1058,6 @@ function setupEventListeners() {
         }
     };
 
-    // Slider Dots Click Event
     document.getElementById("viewer-dots-container").onclick = (e) => {
         const dot = e.target.closest('.ag-dot');
         if (dot) {
@@ -1204,9 +1202,40 @@ async function openEdit(type, id) {
     }
 }
 
+// RBAC DELETION LOGIC: Soft Delete for Teacher, Hard/Soft Delete for Super Admin
 async function deleteData(tableType, id) {
-    if (!confirm("Yakin ingin menghapus data ini?")) return;
-    const { error } = await supabase.from(tableType).delete().eq('id', id);
-    if (!error) loadData();
-    else alert("Gagal menghapus: " + error.message);
+    if (userRole === 'super_admin') {
+        const action = confirm(
+            "Mode Super Admin:\n\nKlik 'OK' untuk Soft Delete (Disembunyikan)\nKlik 'Cancel' untuk Hard Delete Permanen dari Database."
+        );
+        if (action) {
+            await supabase.from(tableType).update({
+                is_deleted: true,
+                deleted_at: new Date().toISOString(),
+                deleted_by: currentUserProfile?.id || null
+            }).eq('id', id);
+            alert("Data berhasil disembunyikan (Soft Delete).");
+        } else {
+            if (confirm("PERINGATAN: Yakin ingin melakukan HARD DELETE PERMANEN dari database?")) {
+                const { error } = await supabase.from(tableType).delete().eq('id', id);
+                if (error) alert("Gagal menghapus permanen: " + error.message);
+                else alert("Data berhasil dihapus permanen.");
+            }
+        }
+    } else {
+        // Teacher Role -> Always Soft Delete
+        if (!confirm("Yakin ingin menyembunyikan data ini? (Soft Delete)")) return;
+        try {
+            await supabase.from(tableType).update({
+                is_deleted: true,
+                deleted_at: new Date().toISOString(),
+                deleted_by: currentUserProfile?.id || null
+            }).eq('id', id);
+            alert("Data berhasil disembunyikan (Soft Delete).");
+        } catch (err) {
+            alert("Gagal menyembunyikan data: " + err.message);
+        }
+    }
+
+    loadData();
 }
