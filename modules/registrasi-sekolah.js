@@ -111,8 +111,7 @@ export async function init(canvas) {
                             <div class="form-group">
                                 <label>Level</label>
                                 <select id="input-class-level" class="form-input">
-                                    <option value="Kiddy">Kiddy</option>
-                                    <option value="Beginner">Beginner</option>
+                                    <option value="">-- Memuat level --</option>
                                 </select>
                             </div>
                             <div class="form-group">
@@ -166,34 +165,41 @@ export async function init(canvas) {
             </div>
 
             <div id="tab-setting-content" class="tab-content fade-in">
-                <div class="form-grid">
-                    <div class="card shadow-soft">
-                        <div class="card-header"><h4><i class="fas fa-calendar-alt"></i> Master Tahun Ajaran</h4></div>
-                        <div class="card-body">
-                            <div class="form-group">
-                                <label>Tambah Tahun Ajaran</label>
-                                <input type="text" id="input-setting-ta" class="form-input" placeholder="Contoh: 2026/2027">
-                            </div>
-                            <button id="btn-save-ta-global" class="btn-primary margin-top" style="width:100%;">Tambah TA</button>
-                            <hr class="form-divider">
-                            <div id="ta-table-container">Memuat data...</div>
+                <div class="card shadow-soft">
+                    <div class="card-header"><h4><i class="fas fa-calendar-alt"></i> Periode Aktif</h4></div>
+                    <div class="card-body">
+                        <div class="session-banner" id="periode-active-banner" style="margin-bottom:15px;">
+                            <i class="fas fa-info-circle"></i> Memuat periode aktif...
                         </div>
-                    </div>
 
-                    <div class="card shadow-soft">
-                        <div class="card-header"><h4><i class="fas fa-clock"></i> Master Semester</h4></div>
-                        <div class="card-body">
+                        <div class="form-grid">
                             <div class="form-group">
-                                <label>Pilih Konteks TA</label>
+                                <label>Tahun Ajaran</label>
                                 <select id="setting-ta-context-select" class="form-input"><option value="">-- Pilih TA --</option></select>
                             </div>
-                            <div class="form-group margin-top">
-                                <label>Nama Semester Baru</label>
-                                <input type="text" id="input-setting-semester" class="form-input" placeholder="Contoh: Semester 1" disabled>
+                            <div class="form-group">
+                                <label>Semester</label>
+                                <select id="setting-semester-select" class="form-input" disabled><option value="">-- Pilih TA terlebih dahulu --</option></select>
                             </div>
-                            <button id="btn-save-sem-global" class="btn-primary margin-top" style="width:100%;" disabled>Tambah Semester</button>
-                            <hr class="form-divider">
-                            <div id="sem-table-container"><p class="text-muted">Pilih Tahun Ajaran terlebih dahulu.</p></div>
+                        </div>
+
+                        <button id="btn-apply-periode" class="btn-primary margin-top" style="width:100%;">
+                            <i class="fas fa-check-circle"></i> Terapkan Periode Aktif</button>
+
+                        <hr class="form-divider">
+
+                        <div class="form-group">
+                            <label>Tambah Tahun Ajaran / Semester</label>
+                            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                                <input type="text" id="input-setting-ta" class="form-input" placeholder="Contoh: 2026/2027" style="flex:1; min-width:150px;">
+                                <button id="btn-save-ta-global" class="btn-primary" style="padding:10px 18px;">+ TA</button>
+                                <input type="text" id="input-setting-semester" class="form-input" placeholder="Contoh: Semester 1" style="flex:1; min-width:150px;" disabled>
+                                <button id="btn-save-sem-global" class="btn-primary" style="padding:10px 18px;" disabled>+ Semester</button>
+                            </div>
+                            <p class="text-muted" style="font-size:.78rem; margin-top:6px;">
+                                Tambah data master di sini, lalu pilih TA & Semester di dropdown atas
+                                dan klik <b>Terapkan Periode Aktif</b>.
+                            </p>
                         </div>
                     </div>
                 </div>
@@ -215,6 +221,7 @@ export async function init(canvas) {
     setupEvents();
     await fetchGlobalSession();
     await loadSchools();
+    await loadLevelOptions();
 }
 
 // ==========================================
@@ -222,7 +229,7 @@ export async function init(canvas) {
 // ==========================================
 function setupEvents() {
     document.getElementById('btn-siswa').onclick = () => switchTab('siswa');
-    document.getElementById('btn-kelas').onclick = () => { switchTab('kelas'); updateKelasBanner(); };
+    document.getElementById('btn-kelas').onclick = () => { switchTab('kelas'); updateKelasBanner(); renderClassesList(); };
     document.getElementById('btn-sekolah').onclick = () => switchTab('sekolah');
     document.getElementById('btn-setting').onclick = () => { switchTab('setting'); loadSettingModules(); };
 
@@ -233,7 +240,8 @@ function setupEvents() {
     classSelect.onchange = (e) => loadStudentsList(e.target.value);
 
     document.getElementById('filter-class-school').onchange = (e) => renderClassesList(e.target.value);
-    document.getElementById('setting-ta-context-select').onchange = (e) => loadSemesterTable(e.target.value);
+    document.getElementById('setting-ta-context-select').onchange = (e) => loadSemesterSelect(e.target.value);
+    document.getElementById('btn-apply-periode').onclick = applyActivePeriod;
 
     document.getElementById('add-row-btn').onclick = () => {
         if (currentEditStudentId) return alert("Peringatan: Mode ubah aktif. Selesaikan atau batalkan editing sebelum menambah baris!");
@@ -314,127 +322,135 @@ async function fetchGlobalSession() {
 }
 
 async function loadSettingModules() {
-    await loadAcademicYearTable();
-    const selectContext = document.getElementById('setting-ta-context-select');
-    const prevVal = selectContext.value;
-    selectContext.innerHTML = '<option value="">-- Pilih TA --</option>';
-    
-    const { data } = await supabase.from('academic_years').select('id, year').order('year', { ascending: false });
-    (data || []).forEach(ta => selectContext.add(new Option(ta.year, ta.id)));
-    
-    if (prevVal) {
-        selectContext.value = prevVal;
-        await loadSemesterTable(prevVal);
-    }
+    // Pastikan state periode aktif selalu sinkron dari DB sebelum render picker
+    await fetchGlobalSession();
+
+    // 1. Isi dropdown Tahun Ajaran
+    const selectTA = document.getElementById('setting-ta-context-select');
+    const prevVal = selectTA.value;
+    selectTA.innerHTML = '<option value="">-- Pilih TA --</option>';
+
+    const { data } = await supabase.from('academic_years').select('id, year, is_active').order('year', { ascending: false });
+    const rows = data || [];
+
+    // TA aktif dinaikkan ke paling atas agar mudah terlihat, sisanya urut tahun terbaru
+    const sorted = [...rows].sort((a, b) => {
+        if (a.is_active && !b.is_active) return -1;
+        if (!a.is_active && b.is_active) return 1;
+        return String(b.year).localeCompare(String(a.year));
+    });
+
+    sorted.forEach(ta => selectTA.add(new Option(
+        ta.is_active ? `${ta.year} (Aktif)` : ta.year, ta.id
+    )));
+
+    // Auto-pick: 1) nilai yang sedang dipilih, 2) TA aktif di DB, 3) TA teratas
+    const targetId =
+        (prevVal && rows.some(r => r.id === prevVal)) ? prevVal
+        : (activeAcademicYearId && rows.some(r => r.id === activeAcademicYearId)) ? activeAcademicYearId
+        : (sorted[0]?.id || '');
+    selectTA.value = targetId;
+
+    // 2. Isi dropdown Semester mengikuti TA terpilih
+    await loadSemesterSelect(targetId);
+
+    // 3. Perbarui banner info periode aktif
+    updatePeriodeBanner();
 }
 
-async function loadAcademicYearTable() {
-    const container = document.getElementById('ta-table-container');
-    container.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading data...';
-    
-    const { data } = await supabase.from('academic_years').select('*').order('year', { ascending: false });
-    
-    window.toggleAcademicYearActive = async (id, currentStatus, label) => {
-        if (currentStatus) return alert("Status: Tahun ajaran ini sudah berstatus aktif.");
-        const ask = confirm(`Konfirmasi: Apakah Anda yakin ingin mengaktifkan Tahun Ajaran ${label}? TA lain otomatis dinonaktifkan.`);
-        if (!ask) return await loadSettingModules();
-
-        try {
-            container.innerHTML = 'Memproses pembaruan data ke database (Pending)...';
-            await supabase.from('academic_years').update({ is_active: false }).eq('is_active', true);
-            const { error } = await supabase.from('academic_years').update({ is_active: true }).eq('id', id);
-            if (error) throw error;
-            
-            alert(`Sukses: Periode aktif berhasil dipindahkan ke TA ${label}!`);
-        } catch (err) {
-            alert(`Gagal memperbarui data: ${err.message}`);
-        } finally {
-            await fetchGlobalSession();
-            await loadSettingModules();
-        }
-    };
-
-    container.innerHTML = `
-        <table class="modern-table">
-            <thead><tr><th>Tahun Ajaran</th><th width="90">Status</th></tr></thead>
-            <tbody>
-                ${(data || []).map(ta => `
-                    <tr>
-                        <td><strong>${ta.year}</strong></td>
-                        <td>
-                            <label class="switch">
-                                <input type="checkbox" ${ta.is_active ? 'checked' : ''} onchange="window.toggleAcademicYearActive('${ta.id}', ${ta.is_active}, '${ta.year}')">
-                                <span class="slider round"></span>
-                            </label>
-                        </td>
-                    </tr>
-                `).join('')}
-            </tbody>
-        </table>
-    `;
-}
-
-async function loadSemesterTable(taId) {
-    const container = document.getElementById('sem-table-container');
+// Isi dropdown semester untuk TA tertentu; auto-pick semester aktif bila relevan
+async function loadSemesterSelect(taId) {
+    const selectSem = document.getElementById('setting-semester-select');
     const inputSem = document.getElementById('input-setting-semester');
     const btnSem = document.getElementById('btn-save-sem-global');
 
-    if (!taId) {
-        container.innerHTML = '<p class="text-muted">Pilih Tahun Ajaran di atas untuk memuat master semester.</p>';
-        inputSem.disabled = true;
-        btnSem.disabled = true;
-        return;
+    selectSem.innerHTML = '<option value="">-- Pilih Semester --</option>';
+    const noTa = !taId;
+    selectSem.disabled = noTa;
+    inputSem.disabled = noTa;
+    btnSem.disabled = noTa;
+    if (noTa) return;
+
+    const { data } = await supabase.from('semesters')
+        .select('id, name, is_active')
+        .eq('academic_year_id', taId)
+        .order('name');
+
+    const sems = data || [];
+    // Semester aktif dinaikkan ke paling atas, sisanya urut nama
+    const sorted = [...sems].sort((a, b) => {
+        if (a.is_active && !b.is_active) return -1;
+        if (!a.is_active && b.is_active) return 1;
+        return String(a.name).localeCompare(String(b.name));
+    });
+
+    sorted.forEach(sem => selectSem.add(new Option(
+        sem.is_active ? `${sem.name} (Aktif)` : sem.name, sem.id
+    )));
+
+    // Auto-pick semester aktif (hanya jika TA terpilih = TA aktif), else semester pertama
+    const activeSemHere = sems.find(s => s.is_active);
+    selectSem.value = (activeAcademicYearId === taId && activeSemHere) ? activeSemHere.id
+        : (sorted[0]?.id || '');
+}
+
+// Terapkan TA + Semester terpilih sebagai periode aktif sistem
+async function applyActivePeriod() {
+    const taId = document.getElementById('setting-ta-context-select').value;
+    const semId = document.getElementById('setting-semester-select').value;
+
+    if (!taId || !semId) return alert('Gagal: Pilih Tahun Ajaran dan Semester terlebih dahulu.');
+
+    const taLabel = document.querySelector('#setting-ta-context-select option:checked')?.text || '';
+    const semLabel = document.querySelector('#setting-semester-select option:checked')?.text || '';
+
+    const ok = confirm(`Terapkan periode aktif ke:\n\nTA ${taLabel} · ${semLabel}?\n\nPeriode lain otomatis dinonaktifkan.`);
+    if (!ok) return;
+
+    const btn = document.getElementById('btn-apply-periode');
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Menyimpan...';
+
+    try {
+        // Nonaktifkan semua TA & semester, lalu aktifkan yang terpilih
+        await supabase.from('academic_years').update({ is_active: false }).neq('is_active', null);
+        await supabase.from('academic_years').update({ is_active: true }).eq('id', taId);
+        await supabase.from('semesters').update({ is_active: false }).neq('is_active', null);
+        await supabase.from('semesters').update({ is_active: true }).eq('id', semId);
+
+        alert(`Sukses: Periode aktif dipindahkan ke TA ${taLabel} · ${semLabel}.`);
+    } catch (err) {
+        alert(`Gagal: ${err.message}`);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = orig;
+        await fetchGlobalSession();
+        await loadSettingModules();
+        updateKelasBanner();
     }
+}
 
-    inputSem.disabled = false;
-    btnSem.disabled = false;
-    container.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading data...';
-
-    const { data } = await supabase.from('semesters').select('*').eq('academic_year_id', taId).order('name');
-    
-    window.toggleSemesterActive = async (id, currentStatus, label) => {
-        if (currentStatus) return alert("Status: Semester ini sudah berstatus aktif.");
-        const ask = confirm(`Konfirmasi: Pindahkan status aktif aplikasi ke ${label}?`);
-        if (!ask) return await loadSemesterTable(taId);
-
-        try {
-            container.innerHTML = 'Memproses pembaruan data ke database (Pending)...';
-            await supabase.from('semesters').update({ is_active: false }).eq('is_active', true);
-            const { error } = await supabase.from('semesters').update({ is_active: true }).eq('id', id);
-            if (error) throw error;
-
-            alert(`Sukses: Sistem sekarang berjalan pada periode ${label}!`);
-        } catch (err) {
-            alert(`Gagal: ${err.message}`);
-        } finally {
-            await fetchGlobalSession();
-            await loadSemesterTable(taId);
-        }
-    };
-
-    if (!data || data.length === 0) {
-        container.innerHTML = '<p class="text-muted">Belum ada data semester untuk TA ini.</p>';
-        return;
+// Banner info di atas picker periode aktif
+function updatePeriodeBanner() {
+    const banner = document.getElementById('periode-active-banner');
+    if (!banner) return;
+    if (activeAcademicYearId && activeSemesterId) {
+        banner.innerHTML = `
+            <i class="fas fa-calendar-check"></i>
+            Periode aktif saat ini: <strong>TA ${activeYearLabel}</strong> —
+            <strong>${activeSemesterLabel}</strong>.
+            Pilih TA & Semester di bawah lalu klik <b>Terapkan</b> untuk mengganti.`;
+    } else {
+        banner.innerHTML = `
+            <i class="fas fa-exclamation-triangle"></i>
+            Belum ada periode aktif. Pilih TA & Semester di bawah lalu klik <b>Terapkan Periode Aktif</b>.`;
     }
+}
 
-    container.innerHTML = `
-        <table class="modern-table">
-            <thead><tr><th>Semester</th><th width="90">Status</th></tr></thead>
-            <tbody>
-                ${data.map(sem => `
-                    <tr>
-                        <td><strong>${sem.name}</strong></td>
-                        <td>
-                            <label class="switch">
-                                <input type="checkbox" ${sem.is_active ? 'checked' : ''} onchange="window.toggleSemesterActive('${sem.id}', ${sem.is_active}, '${sem.name}')">
-                                <span class="slider round"></span>
-                            </label>
-                        </td>
-                    </tr>
-                `).join('')}
-            </tbody>
-        </table>
-    `;
+async function loadSemesterTable(taId) {
+    // Legacy alias — aman bila ada kode luar yang masih memanggilnya.
+    await loadSemesterSelect(taId);
 }
 
 // ==========================================
@@ -452,7 +468,7 @@ async function loadSchools() {
 
     regSelect.innerHTML = '<option value="">-- Pilih Sekolah --</option>';
     classSelect.innerHTML = '<option value="">-- Pilih Sekolah --</option>';
-    filterSelect.innerHTML = '<option value="">-- Filter Berdasarkan Sekolah --</option>';
+    filterSelect.innerHTML = '<option value="">-- Semua Sekolah --</option>';
 
     (data || []).forEach(s => {
         regSelect.add(new Option(s.name, s.id));
@@ -465,6 +481,41 @@ async function loadSchools() {
     filterSelect.value = prevFilter;
 
     renderSchoolsList(data);
+}
+
+// Level Kelas selalu mengikuti MASTER `levels` (kode = nama level).
+// Dipanggil saat init; jika tabel levels gagal dibaca, fallback
+// ke Kiddy/Beginner agar form tetap berfungsi.
+async function loadLevelOptions() {
+    const select = document.getElementById('input-class-level');
+    if (!select) return;
+    const prevVal = select.value;
+    select.innerHTML = '';
+
+    let list = [];
+    try {
+        const { data, error } = await supabase
+            .from('levels')
+            .select('id, kode, order_index')
+            .order('order_index', { ascending: true, nullsFirst: false })
+            .order('kode', { ascending: true });
+        if (error) throw error;
+        list = data || [];
+    } catch (err) {
+        console.error('Gagal memuat level dari tabel levels:', err.message);
+    }
+
+    if (!list.length) {
+        // Fallback: pastikan form tetap bisa dipakai saat tabel levels kosong/gagal
+        list = [{ kode: 'Kiddy' }, { kode: 'Beginner' }];
+        console.warn('Level fallback (Kiddy/Beginner) dipakai karena tabel levels tidak tersedia.');
+    }
+
+    list.forEach(lv => select.add(new Option(lv.kode, lv.kode)));
+
+    // Default = level pertama sesuai order_index; saat edit, editClass()
+    // yang akan mengembalikan nilai lama (levat prevVal).
+    select.value = prevVal || (select.options[0]?.value || '');
 }
 
 async function handleSaveSchool() {
@@ -551,7 +602,16 @@ async function handleSaveClass() {
     const jadwal = document.getElementById('input-class-jadwal').value.trim();
 
     if (!schoolId || !name) return alert("Gagal: Sekolah dan Nama Kelas wajib ditentukan!");
-    
+    if (!level) return alert("Gagal: Level kelas wajib ditentukan.");
+
+    // [GARD] Pastikan level yang dipilih benar-benar terdaftar di master `levels`.
+    // Ini mencegah nilai hasil edit/migrasi lama yang tidak relevan terkirim ke DB.
+    const levelSelect = document.getElementById('input-class-level');
+    const isKnownLevel = Array.from(levelSelect.options).some(o => o.value === level);
+    if (!isKnownLevel) {
+        return alert(`Gagal: Level "${level}" tidak dikenali. Silakan pilih level dari daftar master.`);
+    }
+
     const btn = document.getElementById('btn-add-class');
     const originalText = btn.textContent;
     btn.disabled = true;
@@ -578,7 +638,16 @@ async function handleSaveClass() {
         resetClassForm();
         renderClassesList(document.getElementById('filter-class-school').value);
     } catch (err) {
-        alert("Gagal: " + err.message);
+        // [GARD] Error khusus CHECK constraint lama pada classes.level.
+        // Solusi permanen: jalankan migrasi migrations/2026-08-31-classes-level-dinamis.sql
+        // (DROP CONSTRAINT classes_level_check) di Supabase SQL Editor.
+        if (/check constraint|classes_level_check|violates check/i.test(err.message || '')) {
+            alert('Database masih membatasi level kelas (constraint classes_level_check). ' +
+                  'Jalankan migrasi "2026-08-31-classes-level-dinamis.sql" di Supabase SQL Editor terlebih dahulu, ' +
+                  'atau pilih level yang sudah diizinkan (Kiddy/Beginner).');
+        } else {
+            alert("Gagal: " + err.message);
+        }
     } finally {
         btn.disabled = false;
         btn.textContent = originalText;
@@ -587,25 +656,50 @@ async function handleSaveClass() {
 
 async function renderClassesList(schoolId) {
     const container = document.getElementById('class-list-container');
-    if (!schoolId) { container.innerHTML = '<p class="text-muted">Pilih sekolah untuk memfilter list kelas.</p>'; return; }
 
-    const { data } = await supabase.from('classes').select('*, academic_years(year), semesters(name)').eq('school_id', schoolId).order('name');
-    if (!data || data.length === 0) { container.innerHTML = '<p class="text-muted">Belum ada kelas yang terdaftar di sekolah ini.</p>'; return; }
+    // [FIX] Daftar kelas sekarang menampilkan SEMUA kelas pada periode aktif
+    // (TA + Semester aktif), tanpa wajib memilih sekolah. Filter sekolah (opsional)
+    // hanya mempersempit tampilan jika user memilihnya.
+    if (!activeAcademicYearId || !activeSemesterId) {
+        container.innerHTML = `<p class="text-muted">Periode aktif belum diatur. Set TA & Semester di tab <b>Periode Aktif</b> terlebih dahulu.</p>`;
+        return;
+    }
 
-    // Urutkan: periode terbaru di atas, lalu nama kelas
-    data.sort((a, b) => {
-        const ya = a.academic_years?.year || '', yb = b.academic_years?.year || '';
-        if (ya !== yb) return yb.localeCompare(ya);
-        const sa = a.semesters?.name || '', sb = b.semesters?.name || '';
-        if (sa !== sb) return sb.localeCompare(sa);
-        return a.name.localeCompare(b.name);
-    });
+    let query = supabase
+        .from('classes')
+        .select('*, schools(name), academic_years(year), semesters(name)')
+        .eq('academic_year_id', activeAcademicYearId)
+        .eq('semester_id', activeSemesterId)
+        .order('name');
+    // Filter sekolah bersifat opsional (default: semua sekolah)
+    if (schoolId) query = query.eq('school_id', schoolId);
+
+    const { data, error } = await query;
+    if (error) {
+        container.innerHTML = `<p class="text-muted">Gagal memuat kelas: ${error.message}</p>`;
+        return;
+    }
+    if (!data || data.length === 0) {
+        container.innerHTML = schoolId
+            ? '<p class="text-muted">Belum ada kelas terdaftar untuk sekolah ini pada periode aktif.</p>'
+            : '<p class="text-muted">Belum ada kelas terdaftar pada periode aktif.</p>';
+        return;
+    }
+
+    // Urutkan nama kelas A-Z (periode sudah seragam = periode aktif)
+    data.sort((a, b) => a.name.localeCompare(b.name));
 
     window.editClass = (id, school, name, level, jadwal) => {
         currentEditClassId = id;
         document.getElementById('kelas-school-select').value = school;
         document.getElementById('input-class-name').value = name;
-        document.getElementById('input-class-level').value = level;
+        // Jika level lama tidak ada daftar levels (kelas terdaftar sebelum migrasi),
+        // tambahkan sementara agar nilai lama tetap terbaca saat diedit.
+        const levelSel = document.getElementById('input-class-level');
+        if (level && !Array.from(levelSel.options).some(o => o.value === level)) {
+            levelSel.add(new Option(level, level));
+        }
+        levelSel.value = level || '';
         document.getElementById('input-class-jadwal').value = jadwal === 'null' || !jadwal ? '' : jadwal;
         
         document.getElementById('title-form-kelas').innerHTML = '<i class="fas fa-edit"></i> Edit Konfigurasi Kelas';
@@ -613,15 +707,25 @@ async function renderClassesList(schoolId) {
         document.getElementById('btn-cancel-class').style.display = 'inline-block';
     };
 
+    const filterLabel = schoolId
+        ? (Array.from(document.getElementById('filter-class-school').options).find(o => o.value === schoolId)?.text || '')
+        : 'semua sekolah';
+
     container.innerHTML = `
+        <div class="text-muted" style="margin-bottom:10px;">
+            Menampilkan <strong>${data.length}</strong> kelas pada periode aktif —
+            <strong>TA ${activeYearLabel}</strong> · <strong>${activeSemesterLabel}</strong>
+            ${schoolId ? ` — Sekolah: <strong>${filterLabel}</strong>` : ' — Semua Sekolah'}.
+        </div>
         <table class="modern-table">
-            <thead><tr><th>Nama Kelas</th><th>Level</th><th>Periode (TA · Semester)</th><th>Jadwal Belajar</th><th width="100">Aksi</th></tr></thead>
+            <thead><tr>
+                <th>Nama Kelas</th><th>Sekolah</th><th>Level</th><th>Periode (TA · Semester)</th><th>Jadwal Belajar</th><th width="100">Aksi</th>
+            </tr></thead>
             <tbody>
-                ${data.map(c => {
-                    const isActivePeriod = (c.academic_year_id === activeAcademicYearId && c.semester_id === activeSemesterId);
-                    return `
-                    <tr${isActivePeriod ? ' style="background:#f0f9ff;"' : ''}>
-                        <td><strong>${c.name}</strong>${isActivePeriod ? '<span class="badge-period-active">★ Aktif</span>' : ''}</td>
+                ${data.map(c => `
+                    <tr>
+                        <td><strong>${c.name}</strong></td>
+                        <td>${c.schools?.name || '-'}</td>
                         <td><span class="badge-grade">${c.level || '-'}</span></td>
                         <td><span class="badge-period">${c.academic_years?.year || '-'} · ${c.semesters?.name || '-'}</span></td>
                         <td><span class="text-muted">${c.jadwal || '-'}</span></td>
@@ -629,8 +733,7 @@ async function renderClassesList(schoolId) {
                             <button type="button" class="btn-icon text-primary" onclick="window.editClass('${c.id}', '${c.school_id}', '${c.name}', '${c.level}', '${c.jadwal ? c.jadwal.replace(/'/g, "\\'") : ''}')"><i class="fas fa-edit"></i></button>
                             <button type="button" class="btn-icon text-danger" onclick="window.openDeleteModal('${c.id}', 'class')"><i class="fas fa-trash"></i></button>
                         </td>
-                    </tr>`;
-                }).join('')}
+                    </tr>`).join('')}
             </tbody>
         </table>
     `;
@@ -797,11 +900,17 @@ async function handleAddAcademicYear() {
     if (!val) return alert("Gagal: Input Tahun Ajaran kosong.");
 
     try {
-        const { error } = await supabase.from('academic_years').insert([{ year: val, is_active: false }]);
+        // Langsung pilih TA yang baru ditambahkan agar bisa segera memuat semester-nya
+        const { data, error } = await supabase.from('academic_years').insert([{ year: val, is_active: false }]).select();
         if (error) throw error;
-        alert(`Sukses: Tahun Ajaran ${val} terdaftar di Master Data.`);
+        alert(`Sukses: Tahun Ajaran ${val} terdaftar.`);
         input.value = '';
+
         await loadSettingModules();
+        if (data?.[0]) {
+            document.getElementById('setting-ta-context-select').value = data[0].id;
+            await loadSemesterSelect(data[0].id);
+        }
     } catch (err) { alert("Gagal: " + err.message); }
 }
 
@@ -812,11 +921,14 @@ async function handleAddSemester() {
     if (!val || !taId) return alert("Gagal: Parameter tidak lengkap.");
 
     try {
-        const { error } = await supabase.from('semesters').insert([{ name: val, academic_year_id: taId, is_active: false }]);
+        // Langsung pilih semester yang baru ditambahkan pada dropdown semester
+        const { data, error } = await supabase.from('semesters').insert([{ name: val, academic_year_id: taId, is_active: false }]).select();
         if (error) throw error;
-        alert(`Sukses: ${val} berhasil ditambahkan ke dalam database.`);
+        alert(`Sukses: ${val} berhasil ditambahkan.`);
         input.value = '';
-        await loadSemesterTable(taId);
+
+        await loadSemesterSelect(taId);
+        if (data?.[0]) document.getElementById('setting-semester-select').value = data[0].id;
     } catch (err) { alert("Gagal: " + err.message); }
 }
 

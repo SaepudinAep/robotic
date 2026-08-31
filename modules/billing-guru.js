@@ -10,7 +10,9 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 let styleInjected = false;
 let allLevels     = [];
+let allLevelRows  = []; // baris level id+kode (dipakai untuk join level materi di client)
 let lastResult    = null;
+let runToken      = 0;   // guard race-condition saat auto-refresh checkbox
 
 // ========== 1. ENTRY POINT ==========
 export async function initGuru(container) {
@@ -45,30 +47,43 @@ export async function initGuru(container) {
             </p>
         </div>`;
 
-    allLevels = await fetchDistinctLevels();
+    allLevelRows = await fetchLevels();
+    allLevels = allLevelRows.map(r => r.kode).filter(Boolean);
     renderLevelCheckboxes();
     document.getElementById('bg-btn-show').onclick   = run;
     document.getElementById('bg-btn-export').onclick = exportCsv;
 }
 
 // ========== 2. FETCH ==========
-// Ambil level dari tabel MASTER `levels` (kode = nama level, urut order_index)
-// sehingga urutan konsisten dan semua level tampil walau belum ada kelasnya.
-async function fetchDistinctLevels() {
+// Ambil level dari tabel MASTER `levels` (kode = nama level, lengkap termasuk
+// Kiddy / Robotic / Beginner) sebagai acuan checkbox Juga dipakai untuk
+// menerjemahkan materi.level_id -> kode level.
+async function fetchLevels() {
     const { data, error } = await supabase
         .from('levels')
-        .select('kode, order_index')
+        .select('id,kode,order_index')
         .order('order_index', { ascending: true });
     if (error) { console.error('level fetch:', error.message); return []; }
-    return (data || []).map(r => r.kode).filter(Boolean);
+    return data || [];
 }
 
 async function fetchPertemuan(df, dt) {
     const { data, error } = await supabase
         .from('pertemuan_kelas')
-        .select('id,tanggal,guru_id,asisten_id,class_id,classes(id,name,level)')
+        .select('id,tanggal,guru_id,asisten_id,materi_id')
         .gte('tanggal', df).lte('tanggal', dt);
     if (error) throw new Error('pertemuan: ' + error.message);
+    return data || [];
+}
+
+// Materi diambil sebagai query terpisah lalu di-join di client.
+// (Menghindari nested embed yang rawan ambigu, mis. error
+//  "materi_1.name does not exist" — tabel materi kolom judulnya `title`.)
+async function fetchMateri() {
+    const { data, error } = await supabase
+        .from('materi')
+        .select('id,title,level_id,level');
+    if (error) throw new Error('materi: ' + error.message);
     return data || [];
 }
 
@@ -79,6 +94,26 @@ async function fetchAllTeachers() {
     return data || [];
 }
 
+// ========== 2b. LEVEL RESOLVER (ROUTING JAUH) ==========
+// Level sesungguhnya sebuah pertemuan, diselesaikan di CLIENT:
+//   pertemuan_kelas.materi_id -> materi.level_id -> levels.kode
+// Fallback 1: kolom teks materi.level (snapshot, isinya sama dengan levels.kode).
+// Fallback 2: 'Tanpa Level'.
+
+// Peta materi_id -> kode level, dibangun sekali per run().
+function buildLevelMap(materis, levelRows) {
+    const kodeByLevelId = new Map((levelRows || []).map(l => [l.id, l.kode]));
+    const map = new Map();
+    (materis || []).forEach(m => {
+        map.set(m.id, kodeByLevelId.get(m.level_id) || m.level || '');
+    });
+    return map;
+}
+
+function resolveLevel(materiId, levelByMateri) {
+    return levelByMateri.get(materiId) || 'Tanpa Level';
+}
+
 // ========== 3. CHECKBOXES ==========
 function renderLevelCheckboxes() {
     const box = document.getElementById('bg-level-checks');
@@ -87,6 +122,7 @@ function renderLevelCheckboxes() {
         box.innerHTML = '<span style="color:#94a3b8;font-size:.82rem;">Tidak ada level di database.</span>';
         return;
     }
+
     box.innerHTML = `
         <span class="bg-check-label">Filter Level:</span>
         ${allLevels.map(lv => `
@@ -94,12 +130,41 @@ function renderLevelCheckboxes() {
                 <input type="checkbox" class="bg-lv-check" value="${esc(lv)}" checked>
                 <span>${esc(lv)}</span>
             </label>`).join('')}
-        <button class="bg-check-toggle" onclick="window.bgToggleAll(true)">Semua</button>
-        <button class="bg-check-toggle" onclick="window.bgToggleAll(false)">Hapus</button>`;
+        <button type="button" class="bg-check-toggle" data-bg-toggle="all">Semua</button>
+        <button type="button" class="bg-check-toggle" data-bg-toggle="none">Hapus</button>`;
+
+    // 1) Checkbox berubah -> refresh hasil otomatis (filter & tabel selalu sinkron).
+    // Pakai event delegation agar aman walau checkbox di-render ulang.
+    box.addEventListener('change', (e) => {
+        if (!e.target.matches('.bg-lv-check')) return;
+
+        // Cegah kondisi "0 level terpilih" lewat klik individu:
+        // kembalikan centang agar filter tetap valid & hasil tidak hilang.
+        if (!getCheckedLevels().length) {
+            e.target.checked = true;
+            alert('Minimal satu level harus dipilih.');
+            return;
+        }
+        run();
+    });
+
+    // 2) Tombol "Semua" / "Hapus" — set lalu langsung refresh hasil.
+    const btnAll  = box.querySelector('[data-bg-toggle="all"]');
+    const btnNone = box.querySelector('[data-bg-toggle="none"]');
+    if (btnAll)  btnAll.onclick  = () => bgToggleAll(true);
+    if (btnNone) btnNone.onclick = () => bgToggleAll(false);
 }
 
-window.bgToggleAll = (s) =>
-    document.querySelectorAll('.bg-lv-check').forEach(cb => cb.checked = s);
+// Toggle semua checkbox lalu langsung memperbarui hasil, konsisten
+// dengan klik per-checkbox (filter & tabel tidak boleh tidak sinkron).
+function bgToggleAll(checked) {
+    document.querySelectorAll('.bg-lv-check')
+        .forEach(cb => { cb.checked = checked; });
+    run(); // run() akan menampilkan pesan validasi bila tidak ada level terpilih
+}
+
+// Ekspor ke window agar tetap kompatibel dengan handler lama bila ada.
+window.bgToggleAll = bgToggleAll;
 
 function getCheckedLevels() {
     return [...document.querySelectorAll('.bg-lv-check:checked')].map(cb => cb.value);
@@ -111,6 +176,7 @@ async function run() {
     const dt  = document.getElementById('bg-to').value;
     const lvs = getCheckedLevels();
     const box = document.getElementById('bg-result');
+    const myToken = ++runToken; // token untuk membatalkan respon basi (stale)
 
     if (!df || !dt) { alert('Pilih rentang tanggal!'); return; }
     if (dt < df)    { alert('Tanggal akhir tidak boleh lebih awal!'); return; }
@@ -126,11 +192,16 @@ async function run() {
     document.getElementById('bg-btn-export').style.display = 'none';
 
     try {
-        const [pertemuan, teachers] = await Promise.all([
-            fetchPertemuan(df, dt), fetchAllTeachers()
+        const [pertemuan, teachers, materis] = await Promise.all([
+            fetchPertemuan(df, dt), fetchAllTeachers(), fetchMateri()
         ]);
+        const levelByMateri = buildLevelMap(materis, allLevelRows);
 
-        const filtered = pertemuan.filter(p => p.classes && lvs.includes(p.classes.level));
+        // Jika user sudah mengubah filter/tanggal saat request berjalan,
+        // buang hasil basi ini agar tidak menimpa state yang lebih baru.
+        if (myToken !== runToken) return;
+
+        const filtered = pertemuan.filter(p => lvs.includes(resolveLevel(p.materi_id, levelByMateri)));
 
         if (!filtered.length) {
             box.innerHTML = `<p class="card" style="color:#94a3b8;text-align:center;margin-top:14px;">
@@ -142,7 +213,7 @@ async function run() {
         // Pivot: teacherId -> { level -> count }
         const pivot = {};
         filtered.forEach(p => {
-            const lv = p.classes?.level || 'Tanpa Level';
+            const lv = resolveLevel(p.materi_id, levelByMateri);
             [p.guru_id, p.asisten_id].forEach(tid => {
                 if (!tid) return;
                 if (!pivot[tid]) pivot[tid] = {};
@@ -213,6 +284,7 @@ async function run() {
         document.getElementById('bg-btn-export').style.display = 'inline-flex';
 
     } catch (e) {
+        if (myToken !== runToken) return; // respon basi — biarkan render terbaru
         console.error('[billing-guru]', e);
         box.innerHTML = `<p class="card" style="color:#dc2626;text-align:center;margin-top:14px;">
             <i class="fas fa-times-circle"></i> Gagal: ${esc(e.message)}</p>`;
