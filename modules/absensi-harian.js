@@ -1009,7 +1009,7 @@ function populateSubLevelsFilter(levelId, currentSubId = "", silent = false) {
         return;
     }
     subSel.innerHTML = '<option value="">-- Pilih Sub-Level --</option>' + 
-        filtered.map(sub => `<option value="${sub.id}" ${currentSubId === sub.id ? 'selected' : ''}>${escapeHtml(sub.name)} ${sub.kit_alat ? `[${escapeHtml(sub.kit_alat)}]` : ''}</option>`).join('');
+        filtered.map(sub => `<option value="${sub.id}" ${currentSubId === sub.id ? 'selected' : ''}>${escapeHtml(sub.name)}</option>`).join('');
 
     // [AUDIT FIX #3] ganti sub-level => segarkan saran materi sesuai pilihan baru
     subSel.onchange = () => {
