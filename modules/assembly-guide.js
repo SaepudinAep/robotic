@@ -1,24 +1,28 @@
 /**
- * Project: Assembly Guide Module (Petunjuk Perakitan Robot)
- * Version: 1.0 - Interactive Step-by-Step Slider & Step Builder Drawer
- * Storage: Cloudinary (via config.js / robotic_assembly folder) & Supabase
+ * Project: Assembly Guide Module (Petunjuk Perakitan Robot - Khusus Input Perakitan)
+ * Version: 2.0 - Cascading Select (Kategori -> Level -> Sub-Level -> Materi), Auto Image Compression, Slider Viewer
+ * Storage: Cloudinary (via config.js / dmm6avtxd / robotic_assembly folder) & Supabase
  */
 
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
-import { supabaseUrl, supabaseKey } from '../assets/js/config.js';
+import { supabaseUrl, supabaseKey, cloudinaryConfig } from '../assets/js/config.js';
 import { openImageCropper } from '../assets/js/image-cropper.js';
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // State Global
+let currentCategory = "sekolah"; // "sekolah" | "private"
 let levelsList = [];
 let subLevelsList = [];
-let guidesList = [];
+let materiListSekolah = [];
+let materiListPrivate = [];
+let assemblyItemsList = [];
 let selectedLevelId = "all";
-let editingGuideId = null;
+let editingMateriId = null;
 
 // Viewer State
-let currentViewingGuide = null;
+let currentViewingItem = null;
+let currentViewingSteps = [];
 let currentStepIndex = 0;
 
 // ==========================================
@@ -26,7 +30,7 @@ let currentStepIndex = 0;
 // ==========================================
 
 export async function init(canvas) {
-    await fetchLevels();
+    await fetchData();
     injectStyles();
 
     canvas.innerHTML = `
@@ -34,8 +38,18 @@ export async function init(canvas) {
             <div class="ag-header">
                 <div>
                     <h2>Assembly Guide (Petunjuk Perakitan Robot)</h2>
-                    <p>Panduan perakitan robot langkah demi langkah interaktif per level &amp; sub-level.</p>
+                    <p>Input &amp; panduan perakitan robot langkah demi langkah interaktif terintegrasi dengan Materi Sekolah &amp; Private.</p>
                 </div>
+            </div>
+
+            <!-- MAIN CATEGORY TABS -->
+            <div class="ag-tabs">
+                <button id="btnCatSekolah" class="tab-btn active" data-cat="sekolah">
+                    <i class="fas fa-school"></i> MATERI SEKOLAH
+                </button>
+                <button id="btnCatPrivate" class="tab-btn" data-cat="private">
+                    <i class="fas fa-user-shield"></i> MATERI PRIVATE
+                </button>
             </div>
 
             <!-- SEARCH & LEVEL FILTER BAR -->
@@ -67,64 +81,61 @@ export async function init(canvas) {
             </div>
         </div>
 
-        <!-- FLOATING ACTION BUTTON (ADD NEW GUIDE) -->
-        <button id="fab-add-ag" class="fab-btn" title="Tambah Assembly Guide Baru">
+        <!-- FLOATING ACTION BUTTON (ADD NEW ASSEMBLY GUIDE) -->
+        <button id="fab-add-ag" class="fab-btn" title="Tambah Petunjuk Perakitan Baru">
             <i class="fas fa-plus"></i>
         </button>
 
-        <!-- MODAL STEP BUILDER DRAWER (CREATE / EDIT) -->
+        <!-- MODAL STEP BUILDER DRAWER (KHUSUS INPUT PERAKITAN) -->
         <div id="modal-ag-builder" class="modal-overlay">
             <div class="modal-drawer ag-builder-drawer">
                 <div class="modal-header">
-                    <h2 id="ag-modal-title">Editor Assembly Guide</h2>
+                    <h2 id="ag-modal-title">Input Petunjuk Perakitan Robot</h2>
                     <button id="modal-ag-close" class="close-btn">&times;</button>
                 </div>
                 <div class="modal-body">
                     <form id="ag-form">
-                        <!-- MASTER INFO -->
+                        <!-- CASCADING SELECTION: LEVEL -> SUB-LEVEL -> MATERI -->
                         <div class="ag-section-box">
-                            <h3 class="ag-section-title"><i class="fas fa-robot"></i> Informasi Robot / Project</h3>
+                            <h3 class="ag-section-title"><i class="fas fa-sitemap"></i> Pilih Materi &amp; Robot Target</h3>
                             
+                            <label>Kategori Materi *</label>
+                            <select id="ag_form_category" required>
+                                <option value="sekolah" ${currentCategory === 'sekolah' ? 'selected' : ''}>Materi Sekolah</option>
+                                <option value="private" ${currentCategory === 'private' ? 'selected' : ''}>Materi Private</option>
+                            </select>
+
                             <div style="display:flex; gap:10px;">
                                 <div style="flex:1;">
-                                    <label>Level Target *</label>
-                                    <select id="ag_level_id" required>
+                                    <label>1. Level *</label>
+                                    <select id="ag_form_level_id" required>
                                         <option value="">-- Pilih Level --</option>
                                         ${levelsList.map(l => `<option value="${l.id}">${l.kode} ${l.detail ? `(${l.detail})` : ''}</option>`).join('')}
                                     </select>
                                 </div>
                                 <div style="flex:1;">
-                                    <label>Sub-Level (Opsional)</label>
-                                    <select id="ag_sub_level_id">
+                                    <label>2. Sub-Level (Opsional)</label>
+                                    <select id="ag_form_sub_level_id">
                                         <option value="">-- Pilih Sub-Level --</option>
                                     </select>
                                 </div>
                             </div>
 
-                            <label>Nama Robot / Project *</label>
-                            <input type="text" id="ag_title" placeholder="Contoh: Line Follower Robot v1" required>
-
-                            <label>Foto Sampul (Cover)</label>
-                            <div style="margin-bottom:12px;">
-                                <button type="button" id="btn-upload-cover-ag" class="btn-ag-upload">
-                                    <i class="fas fa-camera"></i> Upload Foto Sampul (Cloudinary)
-                                </button>
-                                <input type="hidden" id="ag_cover_url" value="">
-                                <div style="text-align:center; margin-top:8px;">
-                                    <img id="img-preview-cover-ag" src="https://via.placeholder.com/300x200?text=Foto+Sampul+Robot" style="max-height:160px; border-radius:12px; border:1px solid #e2e8f0; object-fit:cover;">
-                                </div>
-                            </div>
-
-                            <label>Deskripsi / Catatan Singkat</label>
-                            <textarea id="ag_description" rows="2" placeholder="Catatan umum perakitan atau komponen yang disiapkan..."></textarea>
+                            <label>3. Pilih Topik Materi / Robot *</label>
+                            <select id="ag_form_materi_id" required>
+                                <option value="">-- Pilih Level &amp; Sub-Level Dahulu --</option>
+                            </select>
                         </div>
 
                         <!-- STEP BUILDER CONTAINER -->
                         <div class="ag-section-box" style="margin-top:20px;">
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                                <h3 class="ag-section-title" style="margin:0;"><i class="fas fa-list-ol"></i> Langkah-Langkah Perakitan</h3>
-                                <button type="button" id="btn-add-step-row" class="btn-ag-secondary">
-                                    <i class="fas fa-plus"></i> Tambah Step Baru
+                                <div>
+                                    <h3 class="ag-section-title" style="margin:0;"><i class="fas fa-list-ol"></i> Langkah-Langkah Perakitan</h3>
+                                    <span style="font-size:0.75rem; color:#10b981; font-weight:600;"><i class="fas fa-compress"></i> Foto otomatis dikompresi (<100KB)</span>
+                                </div>
+                                <button type="button" id="btn-add-step-row" class="btn-ag-secondary" style="background:#10b981; color:white; border:none;">
+                                    <i class="fas fa-plus"></i> Tambah Step
                                 </button>
                             </div>
                             <div id="ag-steps-container"></div>
@@ -132,7 +143,7 @@ export async function init(canvas) {
 
                         <div class="form-footer">
                             <button type="submit" class="btn-primary">
-                                <i class="fas fa-save" style="margin-right:8px;"></i> Simpan Assembly Guide
+                                <i class="fas fa-save" style="margin-right:8px;"></i> Simpan Petunjuk Perakitan
                             </button>
                         </div>
                     </form>
@@ -167,21 +178,27 @@ export async function init(canvas) {
     `;
 
     setupEventListeners();
-    await loadData();
+    await loadCatalogData();
 }
 
 // ==========================================
 // 2. FETCH DATA & LEVELS
 // ==========================================
-async function fetchLevels() {
+async function fetchData() {
     try {
-        const { data: lvData } = await supabase.from('levels').select('id, kode, detail').order('kode');
-        if (lvData) levelsList = lvData;
+        const [lv, sub, mSek, mPrv] = await Promise.all([
+            supabase.from('levels').select('id, kode, detail').order('kode'),
+            supabase.from('sub_levels').select('id, level_id, name, kode').order('name'),
+            supabase.from('materi').select('id, title, level_id, sub_level_id, image_url, description, detail, assembly_guide_steps(*)'),
+            supabase.from('materi_private').select('id, judul, level_id, sub_level_id, image_url, deskripsi, detail, assembly_guide_steps(*)')
+        ]);
 
-        const { data: subData } = await supabase.from('sub_levels').select('id, level_id, name, kode').order('name');
-        if (subData) subLevelsList = subData;
+        if (lv.data) levelsList = lv.data;
+        if (sub.data) subLevelsList = sub.data;
+        if (mSek.data) materiListSekolah = mSek.data;
+        if (mPrv.data) materiListPrivate = mPrv.data;
     } catch (e) {
-        console.error("Gagal memuat level Assembly Guide:", e);
+        console.error("Gagal memuat data Assembly Guide:", e);
     }
 }
 
@@ -193,25 +210,113 @@ function renderSubOptions(lvlId, currentSubId) {
         subs.map(s => `<option value="${s.id}" ${currentSubId === s.id ? 'selected' : ''}>${s.name}</option>`).join('');
 }
 
-// Parse Guide Object & Steps (termasuk fallback jika disimpan di Supabase/JSON)
-function parseGuideSteps(g) {
+// Helper untuk merender pilihan Materi berdasarkan Level & Sub-Level
+function renderMateriOptions(category, lvlId, subLvlId, currentMateriId) {
+    const list = category === 'private' ? materiListPrivate : materiListSekolah;
+    let filtered = list;
+
+    if (lvlId) {
+        filtered = filtered.filter(m => m.level_id === lvlId);
+    }
+    if (subLvlId) {
+        filtered = filtered.filter(m => m.sub_level_id === subLvlId);
+    }
+
+    if (!filtered.length) {
+        return '<option value="">-- Tidak ada materi ditemukan --</option>';
+    }
+
+    return '<option value="">-- Pilih Topik Materi / Robot --</option>' +
+        filtered.map(m => {
+            const title = m.title || m.judul || '(Tanpa Judul)';
+            return `<option value="${m.id}" ${currentMateriId === m.id ? 'selected' : ''}>${title}</option>`;
+        }).join('');
+}
+
+// Parse Steps dari DB / JSON Fallback
+function parseMateriSteps(m) {
     let steps = [];
-    if (g.assembly_guide_steps && Array.isArray(g.assembly_guide_steps) && g.assembly_guide_steps.length > 0) {
-        steps = g.assembly_guide_steps.sort((a, b) => (a.step_number || 0) - (b.step_number || 0));
-    } else if (g.description && g.description.startsWith('{') && g.description.endsWith('}')) {
+    if (m.assembly_guide_steps && Array.isArray(m.assembly_guide_steps) && m.assembly_guide_steps.length > 0) {
+        steps = m.assembly_guide_steps.sort((a, b) => (a.step_number || 0) - (b.step_number || 0));
+    } else if (m.detail && m.detail.startsWith('{') && m.detail.endsWith('}')) {
         try {
-            const parsed = JSON.parse(g.description);
-            if (parsed.steps) steps = parsed.steps;
+            const parsed = JSON.parse(m.detail);
+            if (parsed.assembly_steps) steps = parsed.assembly_steps;
         } catch (e) {}
     }
     return steps;
 }
 
 // ==========================================
-// 3. STYLING (CSS INJECTION)
+// 3. KOMPRESI GAMBAR CLIENT-SIDE (Otomatis <100KB)
+// ==========================================
+async function compressImageBlob(blob, maxWidth = 800, quality = 0.75) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.src = URL.createObjectURL(blob);
+        img.onload = () => {
+            let width = img.width;
+            let height = img.height;
+
+            if (width > maxWidth) {
+                height = Math.round((height * maxWidth) / width);
+                width = maxWidth;
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+
+            canvas.toBlob((compressedBlob) => {
+                URL.revokeObjectURL(img.src);
+                resolve(compressedBlob);
+            }, 'image/jpeg', quality);
+        };
+        img.onerror = (err) => reject(err);
+    });
+}
+
+async function uploadCompressedToCloudinary(urlOrBlob, folderName = 'robotic_assembly') {
+    try {
+        let fileBlob = urlOrBlob;
+        if (typeof urlOrBlob === 'string' && urlOrBlob.startsWith('blob:')) {
+            const fetched = await fetch(urlOrBlob);
+            fileBlob = await fetched.blob();
+        }
+
+        // Jalankan kompresi otomatis max width 800px, quality 0.75
+        const compressedBlob = await compressImageBlob(fileBlob, 800, 0.75);
+
+        const formData = new FormData();
+        formData.append('file', compressedBlob, `assembly_${Date.now()}.jpg`);
+        formData.append('upload_preset', cloudinaryConfig.uploadPreset);
+        formData.append('folder', folderName);
+
+        const res = await fetch(cloudinaryConfig.uploadUrl, {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!res.ok) {
+            const errJson = await res.json().catch(() => ({}));
+            throw new Error(errJson.error?.message || `Upload gagal (${res.status})`);
+        }
+
+        const data = await res.json();
+        return data.secure_url;
+    } catch (e) {
+        console.error("Cloudinary upload error:", e);
+        throw e;
+    }
+}
+
+// ==========================================
+// 4. STYLING (CSS INJECTION)
 // ==========================================
 function injectStyles() {
-    const styleId = 'assembly-guide-css-v1';
+    const styleId = 'assembly-guide-css-v2';
     if (document.getElementById(styleId)) return;
 
     const style = document.createElement('style');
@@ -222,11 +327,21 @@ function injectStyles() {
         .ag-header h2 { color: #1e293b; margin: 0; font-size: 1.5rem; font-weight: 800; }
         .ag-header p { color: #64748b; margin: 5px 0 0; font-size: 0.9rem; }
 
+        /* Main Tabs */
+        .ag-tabs { display: flex; gap: 10px; margin-bottom: 15px; background: #fff; padding: 6px; border-radius: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+        .tab-btn { flex: 1; border: none; background: transparent; padding: 12px 15px; font-weight: 700; color: #64748b; cursor: pointer; border-radius: 10px; transition: 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.9rem; }
+        .tab-btn.active { background: #4d97ff; color: white; box-shadow: 0 4px 12px rgba(77, 151, 255, 0.3); }
+
         .ag-filter-section { margin-bottom: 20px; display: flex; flex-direction: column; gap: 12px; }
         .ag-search-wrapper { position: relative; width: 100%; }
         .ag-search-wrapper i { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: #94a3b8; }
         .ag-search-wrapper input { width: 100%; padding: 12px 15px 12px 42px; border: 1px solid #cbd5e1; border-radius: 12px; font-size: 0.95rem; outline: none; background: white; box-sizing: border-box; }
         .ag-search-wrapper input:focus { border-color: #4d97ff; box-shadow: 0 0 0 3px rgba(77, 151, 255, 0.15); }
+
+        .level-filter-bar { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 5px; scrollbar-width: none; }
+        .level-filter-bar::-webkit-scrollbar { display: none; }
+        .level-chip { border: 1px solid #e2e8f0; background: white; padding: 8px 16px; border-radius: 20px; font-size: 0.85rem; font-weight: 600; color: #475569; cursor: pointer; white-space: nowrap; transition: 0.2s; display: flex; align-items: center; gap: 6px; }
+        .level-chip.active { background: #1e293b; color: white; border-color: #1e293b; }
 
         /* Grid Catalog Cards */
         .ag-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 18px; }
@@ -243,7 +358,10 @@ function injectStyles() {
         .ag-card-thumb i { font-size: 2.5rem; color: #cbd5e1; }
         
         .ag-card-badge-top { position: absolute; top: 12px; left: 12px; display: flex; gap: 6px; }
-        
+        .badge-level-tag { background: #e0f2fe; color: #0369a1; padding: 3px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
+        .badge-sublevel-tag { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; padding: 3px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; }
+        .badge-rpp-pill { background: #f0f5ff; color: #3b82f6; border: 1px solid #bfdbfe; padding: 3px 10px; border-radius: 6px; font-size: 0.72rem; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; }
+
         .ag-card-body { padding: 16px; flex: 1; display: flex; flex-direction: column; justify-content: space-between; }
         .ag-card-title { margin: 0 0 8px 0; font-size: 1.1rem; font-weight: 700; color: #0f172a; line-height: 1.3; }
         .ag-card-desc { font-size: 0.84rem; color: #64748b; margin-bottom: 14px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -251,15 +369,40 @@ function injectStyles() {
         .ag-card-footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #f1f5f9; padding-top: 12px; margin-top: auto; }
         
         .btn-start-build {
-            background: #4d97ff; color: white; border: none; padding: 10px 16px;
+            background: #10b981; color: white; border: none; padding: 10px 16px;
             border-radius: 10px; font-weight: 700; font-size: 0.85rem; cursor: pointer;
             display: inline-flex; align-items: center; gap: 6px; transition: 0.2s;
+            box-shadow: 0 3px 10px rgba(16, 185, 129, 0.25);
         }
-        .btn-start-build:hover { background: #2563eb; }
+        .btn-start-build:hover { background: #059669; }
+
+        .btn-action-icon {
+            background: #f8fafc; border: 1px solid #e2e8f0; width: 36px; height: 36px;
+            border-radius: 10px; cursor: pointer; color: #64748b; display: flex;
+            align-items: center; justify-content: center; font-size: 0.9rem; transition: 0.2s;
+        }
+        .btn-action-icon:hover { background: #fee2e2; color: #ef4444; border-color: #fecaca; }
+
+        /* FAB Button */
+        .fab-btn {
+            position: fixed; bottom: 30px; right: 30px; width: 60px; height: 60px;
+            border-radius: 50%; background: #4d97ff; color: white; border: none;
+            font-size: 24px; box-shadow: 0 6px 20px rgba(77, 151, 255, 0.4);
+            cursor: pointer; z-index: 100; display: flex; align-items: center; justify-content: center;
+            transition: transform 0.2s, background 0.2s;
+        }
+        .fab-btn:hover { transform: scale(1.08); background: #2563eb; }
 
         /* Drawer & Section Box */
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); z-index: 1000; display: none; align-items: flex-end; backdrop-filter: blur(3px); }
+        .modal-overlay.active { display: flex; animation: fadeIn 0.2s ease-out; }
+        .modal-drawer { background: white; width: 100%; max-width: 680px; margin: 0 auto; border-radius: 24px 24px 0 0; padding: 25px; max-height: 92vh; overflow-y: auto; position: relative; animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
         .ag-builder-drawer { max-width: 720px; }
-        .ag-viewer-drawer { max-width: 820px; height: 92vh; }
+        .ag-viewer-drawer { max-width: 840px; height: 92vh; }
+        
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #f1f5f9; padding-bottom: 12px; }
+        .modal-header h2 { margin: 0; font-size: 1.25rem; font-weight: 800; color: #1e293b; }
+        .close-btn { background: none; border: none; font-size: 1.8rem; cursor: pointer; color: #94a3b8; }
         
         .ag-section-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px; }
         .ag-section-title { margin: 0 0 14px 0; font-size: 0.95rem; font-weight: 800; color: #1e293b; display: flex; align-items: center; gap: 8px; }
@@ -270,37 +413,45 @@ function injectStyles() {
         .btn-ag-secondary { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; padding: 7px 12px; border-radius: 8px; font-weight: 700; font-size: 0.8rem; cursor: pointer; }
         .btn-ag-secondary:hover { background: #dbeafe; }
 
-        /* Step Item Row in Builder */
-        .ag-step-row { background: white; border: 1px solid #cbd5e1; border-radius: 12px; padding: 14px; margin-bottom: 12px; position: relative; }
+        #ag-form label { display: block; font-weight: 700; margin-bottom: 6px; color: #334155; font-size: 0.85rem; margin-top: 14px; text-transform: uppercase; letter-spacing: 0.5px; }
+        #ag-form input, #ag-form textarea, #ag-form select { width: 100%; padding: 12px 14px; border: 1px solid #cbd5e1; border-radius: 10px; font-size: 0.93rem; font-family: inherit; box-sizing: border-box; outline: none; transition: 0.2s; }
+        #ag-form input:focus, #ag-form textarea:focus, #ag-form select:focus { border-color: #4d97ff; box-shadow: 0 0 0 3px rgba(77, 151, 255, 0.15); }
+
+        .btn-primary { width: 100%; padding: 14px; background: #4d97ff; color: white; border: none; border-radius: 12px; font-weight: 700; cursor: pointer; font-size: 1rem; margin-top: 20px; transition: 0.2s; box-shadow: 0 4px 12px rgba(77, 151, 255, 0.3); }
+        .btn-primary:hover { background: #2563eb; }
+
+        /* Step Row in Builder */
+        .ag-step-row { background: white; border: 1px solid #cbd5e1; border-radius: 12px; padding: 14px; margin-bottom: 12px; }
         .ag-step-row-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-weight: 700; color: #1e293b; font-size: 0.9rem; }
 
         /* Interactive Slider Viewer UI */
         .ag-viewer-body-content { display: flex; flex-direction: column; align-items: center; text-align: center; height: 100%; }
-        .ag-step-image-box { width: 100%; max-height: 50vh; background: #0f172a; border-radius: 16px; overflow: hidden; display: flex; align-items: center; justify-content: center; margin-bottom: 16px; }
-        .ag-step-image-box img { max-width: 100%; max-height: 50vh; object-fit: contain; }
+        .ag-step-image-box { width: 100%; max-height: 48vh; background: #0f172a; border-radius: 16px; overflow: hidden; display: flex; align-items: center; justify-content: center; margin-bottom: 16px; }
+        .ag-step-image-box img { max-width: 100%; max-height: 48vh; object-fit: contain; }
         .ag-step-text-box { width: 100%; background: white; border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px; text-align: left; }
         .ag-step-text-box h4 { margin: 0 0 6px 0; font-size: 1rem; color: #0f172a; font-weight: 800; }
         .ag-step-text-box p { margin: 0; color: #334155; font-size: 0.92rem; line-height: 1.6; }
 
         .ag-viewer-footer { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid #e2e8f0; padding-top: 14px; margin-top: 14px; }
         .btn-ag-nav { background: #f1f5f9; border: 1px solid #cbd5e1; color: #334155; padding: 10px 18px; border-radius: 10px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px; }
-        .btn-ag-nav.primary { background: #4d97ff; color: white; border-color: #4d97ff; }
+        .btn-ag-nav.primary { background: #10b981; color: white; border-color: #10b981; }
         .btn-ag-nav:disabled { opacity: 0.4; cursor: not-allowed; }
 
         .ag-dots-bar { display: flex; gap: 6px; overflow-x: auto; max-width: 260px; scrollbar-width: none; }
         .ag-dot { width: 10px; height: 10px; border-radius: 50%; background: #cbd5e1; cursor: pointer; flex-shrink: 0; transition: 0.2s; }
-        .ag-dot.active { background: #4d97ff; transform: scale(1.3); }
+        .ag-dot.active { background: #10b981; transform: scale(1.3); }
 
         .fade-in { animation: fadeIn 0.3s ease-out; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
     `;
     document.head.appendChild(style);
 }
 
 // ==========================================
-// 4. LOAD CATALOG DATA
+// 5. LOAD CATALOG DATA
 // ==========================================
-async function loadData() {
+async function loadCatalogData() {
     const search = document.getElementById("globalSearchAssembly").value.toLowerCase();
     const catalogContainer = document.getElementById("assembly-catalog-list");
     const loading = document.getElementById("loading-state-ag");
@@ -308,110 +459,117 @@ async function loadData() {
     loading.style.display = 'block';
     catalogContainer.innerHTML = '';
 
-    try {
-        let query = supabase
-            .from('assembly_guides')
-            .select('*, levels(id, kode, detail), sub_levels(name, kode), assembly_guide_steps(*)')
-            .order('created_at', { ascending: false });
+    await fetchData();
 
-        if (selectedLevelId !== "all") {
-            query = query.eq('level_id', selectedLevelId);
-        }
+    const list = currentCategory === 'private' ? materiListPrivate : materiListSekolah;
 
-        let { data, error } = await query;
-        loading.style.display = 'none';
+    let filtered = list.filter(m => {
+        if (selectedLevelId !== "all" && m.level_id !== selectedLevelId) return false;
+        const title = (m.title || m.judul || '').toLowerCase();
+        const desc = (m.description || m.deskripsi || '').toLowerCase();
+        return title.includes(search) || desc.includes(search);
+    });
 
-        if (error) {
-            console.warn("Mencoba fallback data assembly_guides:", error);
-            data = [];
-        }
+    loading.style.display = 'none';
 
-        guidesList = data || [];
+    if (!filtered.length) {
+        catalogContainer.innerHTML = `
+            <div style="grid-column:1/-1; text-align:center; padding:50px; color:#94a3b8; background:white; border-radius:16px; border:2px dashed #e2e8f0;">
+                <i class="fas fa-robot" style="font-size:2.5rem; margin-bottom:10px; color:#cbd5e1;"></i>
+                <p style="margin:0; font-weight:700;">Belum ada materi/robot untuk kategori ${currentCategory === 'private' ? 'Private' : 'Sekolah'} pada filter ini.</p>
+                <p style="margin:5px 0 0 0; font-size:0.85rem;">Klik tombol <strong>+</strong> di kanan bawah untuk menginput petunjuk perakitan.</p>
+            </div>`;
+        return;
+    }
 
-        const filtered = guidesList.filter(g => {
-            const titleMatch = g.title?.toLowerCase().includes(search);
-            const descMatch = g.description?.toLowerCase().includes(search);
-            const levelMatch = g.levels?.kode?.toLowerCase().includes(search);
-            return titleMatch || descMatch || levelMatch;
-        });
+    catalogContainer.innerHTML = filtered.map(m => {
+        const steps = parseMateriSteps(m);
+        const title = m.title || m.judul || '(Tanpa Judul)';
+        const desc = m.description || m.deskripsi || 'Tidak ada deskripsi singkat.';
+        const coverImg = m.image_url || (steps.length && steps[0].image_url) || null;
+        const subLevelName = m.sub_level_id ? (subLevelsList.find(s => s.id === m.sub_level_id)?.name || '') : '';
+        const levelKode = levelsList.find(l => l.id === m.level_id)?.kode || 'Umum';
 
-        if (!filtered.length) {
-            catalogContainer.innerHTML = `
-                <div style="grid-column:1/-1; text-align:center; padding:50px; color:#94a3b8; background:white; border-radius:16px; border:2px dashed #e2e8f0;">
-                    <i class="fas fa-robot" style="font-size:2.5rem; margin-bottom:10px; color:#cbd5e1;"></i>
-                    <p style="margin:0; font-weight:700;">Belum ada Assembly Guide untuk filter ini.</p>
-                    <p style="margin:5px 0 0 0; font-size:0.85rem;">Klik tombol <strong>+</strong> di pojok kanan bawah untuk menambah panduan baru.</p>
-                </div>`;
-            return;
-        }
-
-        catalogContainer.innerHTML = filtered.map(g => {
-            const steps = parseGuideSteps(g);
-            const levelName = g.levels?.kode || 'Umum';
-            const subLevelName = g.sub_level_id ? (g.sub_levels?.name || g.sub_levels?.kode || '') : '';
-            const coverImg = g.cover_image_url || (steps.length && steps[0].image_url) || null;
-
-            return `
-                <div class="ag-card" data-id="${g.id}">
-                    <div class="ag-card-thumb">
-                        ${coverImg 
-                            ? `<img src="${coverImg}" alt="${g.title}" loading="lazy">` 
-                            : `<i class="fas fa-robot"></i>`
-                        }
-                        <div class="ag-card-badge-top">
-                            <span class="badge-level-tag"><i class="fas fa-layer-group"></i> ${levelName}</span>
-                            ${subLevelName ? `<span class="badge-sublevel-tag"><i class="fas fa-tag"></i> ${subLevelName}</span>` : ''}
-                        </div>
+        return `
+            <div class="ag-card" data-id="${m.id}">
+                <div class="ag-card-thumb">
+                    ${coverImg 
+                        ? `<img src="${coverImg}" alt="${title}" loading="lazy">` 
+                        : `<i class="fas fa-robot"></i>`
+                    }
+                    <div class="ag-card-badge-top">
+                        <span class="badge-level-tag"><i class="fas fa-layer-group"></i> ${levelKode}</span>
+                        ${subLevelName ? `<span class="badge-sublevel-tag"><i class="fas fa-tag"></i> ${subLevelName}</span>` : ''}
                     </div>
-                    <div class="ag-card-body">
-                        <div>
-                            <h3 class="ag-card-title">${g.title}</h3>
-                            <p class="ag-card-desc">${g.description || 'Tidak ada deskripsi singkat.'}</p>
-                        </div>
-                        <div class="ag-card-footer">
-                            <span class="badge-rpp-pill"><i class="fas fa-list-ol"></i> ${steps.length} Step Perakitan</span>
-                            <div style="display:flex; gap:6px;">
-                                <button class="btn-start-build" data-action="view-slider" data-id="${g.id}">
-                                    <i class="fas fa-play"></i> Rakit
-                                </button>
-                                <button class="btn-action-icon btn-edit-trigger" data-action="edit" data-id="${g.id}" title="Edit Guide">
-                                    <i class="fas fa-pen"></i>
-                                </button>
-                                <button class="btn-action-icon btn-delete" data-action="delete" data-id="${g.id}" title="Hapus Guide">
-                                    <i class="fas fa-trash-can"></i>
-                                </button>
-                            </div>
+                </div>
+                <div class="ag-card-body">
+                    <div>
+                        <h3 class="ag-card-title">${title}</h3>
+                        <p class="ag-card-desc">${desc}</p>
+                    </div>
+                    <div class="ag-card-footer">
+                        <span class="badge-rpp-pill"><i class="fas fa-list-ol"></i> ${steps.length} Step Perakitan</span>
+                        <div style="display:flex; gap:6px;">
+                            <button class="btn-start-build" data-action="view-slider" data-id="${m.id}">
+                                <i class="fas fa-play"></i> Rakit
+                            </button>
+                            <button class="btn-action-icon btn-edit-trigger" data-action="edit" data-id="${m.id}" title="Edit Petunjuk Perakitan">
+                                <i class="fas fa-pen"></i>
+                            </button>
                         </div>
                     </div>
                 </div>
-            `;
-        }).join("");
-
-    } catch (err) {
-        loading.innerHTML = `<span style="color:red; font-weight:600;">Error: ${err.message}</span>`;
-    }
+            </div>
+        `;
+    }).join("");
 }
 
 // ==========================================
-// 5. STEP BUILDER DRAWER FORM
+// 6. STEP BUILDER DRAWER FORM
 // ==========================================
-async function injectFormFields(mode = "add", data = {}) {
-    editingGuideId = mode === "edit" ? data.id : null;
-    document.getElementById("ag-modal-title").innerText = `${mode === "edit" ? "Edit" : "Tambah"} Assembly Guide`;
-    
-    document.getElementById("ag_level_id").value = data.level_id || "";
-    const subSel = document.getElementById("ag_sub_level_id");
-    subSel.innerHTML = renderSubOptions(data.level_id, data.sub_level_id);
-    
-    document.getElementById("ag_title").value = data.title || "";
-    document.getElementById("ag_cover_url").value = data.cover_image_url || "";
-    document.getElementById("img-preview-cover-ag").src = data.cover_image_url || "https://via.placeholder.com/300x200?text=Foto+Sampul+Robot";
-    document.getElementById("ag_description").value = data.description && !data.description.startsWith('{') ? data.description : "";
+async function injectFormFields(mode = "add", materiId = null) {
+    editingMateriId = materiId;
+    document.getElementById("ag-modal-title").innerText = `${mode === "edit" ? "Edit" : "Input"} Petunjuk Perakitan Robot`;
 
-    const container = document.getElementById("ag-steps-container");
-    container.innerHTML = "";
+    const formCategory = document.getElementById("ag_form_category");
+    const formLevel = document.getElementById("ag_form_level_id");
+    const formSub = document.getElementById("ag_form_sub_level_id");
+    const formMateri = document.getElementById("ag_form_materi_id");
 
-    const steps = parseGuideSteps(data);
+    let currentMateri = null;
+    if (materiId) {
+        const list = currentCategory === 'private' ? materiListPrivate : materiListSekolah;
+        currentMateri = list.find(m => m.id === materiId);
+    }
+
+    const cat = currentCategory;
+    const lvlId = currentMateri ? currentMateri.level_id : "";
+    const subLvlId = currentMateri ? currentMateri.sub_level_id : "";
+
+    formCategory.value = cat;
+    formLevel.value = lvlId;
+    formSub.innerHTML = renderSubOptions(lvlId, subLvlId);
+    formMateri.innerHTML = renderMateriOptions(cat, lvlId, subLvlId, materiId);
+
+    // Dynamic Cascading Listeners
+    formCategory.onchange = () => {
+        formMateri.innerHTML = renderMateriOptions(formCategory.value, formLevel.value, formSub.value, null);
+    };
+
+    formLevel.onchange = (e) => {
+        const newLvl = e.target.value;
+        formSub.innerHTML = renderSubOptions(newLvl, null);
+        formMateri.innerHTML = renderMateriOptions(formCategory.value, newLvl, formSub.value, null);
+    };
+
+    formSub.onchange = (e) => {
+        formMateri.innerHTML = renderMateriOptions(formCategory.value, formLevel.value, e.target.value, null);
+    };
+
+    const stepsContainer = document.getElementById("ag-steps-container");
+    stepsContainer.innerHTML = "";
+
+    const steps = currentMateri ? parseMateriSteps(currentMateri) : [];
     if (steps.length > 0) {
         steps.forEach(st => addStepRow(st));
     } else {
@@ -439,10 +597,10 @@ function addStepRow(st = {}) {
             </div>
         </div>
         <div style="display:flex; gap:12px; flex-wrap:wrap;">
-            <div style="width:120px; text-align:center;">
-                <img class="img-preview-step" src="${previewImg}" style="width:100%; height:85px; object-fit:cover; border-radius:10px; border:1px solid #cbd5e1;">
+            <div style="width:110px; text-align:center;">
+                <img class="img-preview-step" src="${previewImg}" style="width:100%; height:80px; object-fit:cover; border-radius:10px; border:1px solid #cbd5e1;">
                 <button type="button" class="btn-ag-secondary btn-upload-step-img" style="width:100%; margin-top:6px; font-size:0.75rem; padding:4px;">
-                    <i class="fas fa-camera"></i> Foto
+                    <i class="fas fa-camera"></i> Foto Step
                 </button>
                 <input type="hidden" class="step-image-url" value="${imgUrl}">
             </div>
@@ -453,23 +611,32 @@ function addStepRow(st = {}) {
         </div>
     `;
 
-    // Handler upload foto step via Cloudinary (config.js)
+    // Handler Upload Foto Step dengan Kompresi Otomatis
     row.querySelector('.btn-upload-step-img').onclick = () => {
-        openImageCropper('robotic_assembly', url => {
-            row.querySelector('.step-image-url').value = url;
-            row.querySelector('.img-preview-step').src = url;
+        openImageCropper('robotic_assembly', async (urlOrBlob) => {
+            try {
+                row.querySelector('.btn-upload-step-img').innerText = "Compressing...";
+                // Panggil fungsi kompresi gambar otomatis client-side
+                const secureUrl = await uploadCompressedToCloudinary(urlOrBlob, 'robotic_assembly');
+                row.querySelector('.step-image-url').value = secureUrl;
+                row.querySelector('.img-preview-step').src = secureUrl;
+                row.querySelector('.btn-upload-step-img').innerHTML = `<i class="fas fa-check"></i> Tersimpan`;
+            } catch (err) {
+                alert("Gagal mengompres/upload foto: " + err.message);
+                row.querySelector('.btn-upload-step-img').innerHTML = `<i class="fas fa-camera"></i> Coba Lagi`;
+            }
         });
     };
 
-    // Handler remove step
+    // Remove step
     row.querySelector('.btn-remove-step').onclick = () => {
         row.remove();
         reindexStepNumbers();
     };
 
-    // Handler move step
+    // Move step
     row.querySelectorAll('.btn-move-step').forEach(b => {
-        b.onclick = (e) => {
+        b.onclick = () => {
             const dir = parseInt(b.dataset.dir);
             if (dir === -1 && row.previousElementSibling) {
                 container.insertBefore(row, row.previousElementSibling);
@@ -493,27 +660,32 @@ function reindexStepNumbers() {
 }
 
 // ==========================================
-// 6. INTERACTIVE STEP SLIDER VIEWER
+// 7. INTERACTIVE STEP SLIDER VIEWER
 // ==========================================
-function openSliderViewer(guideId) {
-    const g = guidesList.find(item => item.id === guideId);
-    if (!g) return;
+function openSliderViewer(materiId) {
+    const list = currentCategory === 'private' ? materiListPrivate : materiListSekolah;
+    const m = list.find(item => item.id === materiId);
+    if (!m) return;
 
-    currentViewingGuide = g;
+    currentViewingItem = m;
+    currentViewingSteps = parseMateriSteps(m);
     currentStepIndex = 0;
-    const steps = parseGuideSteps(g);
 
-    document.getElementById("viewer-robot-title").innerText = g.title || 'Assembly Guide';
-    renderSliderStep(steps);
+    const title = m.title || m.judul || 'Assembly Guide';
+    document.getElementById("viewer-robot-title").innerText = title;
+    renderSliderStep();
 
     document.getElementById("modal-ag-viewer").classList.add("active");
 }
 
-function renderSliderStep(steps) {
+function renderSliderStep() {
+    const steps = currentViewingSteps;
+    const container = document.getElementById("viewer-slider-body");
+
     if (!steps || !steps.length) {
-        document.getElementById("viewer-slider-body").innerHTML = `
+        container.innerHTML = `
             <div style="text-align:center; padding:40px; color:#94a3b8;">
-                <i class="fas fa-triangle-exclamation fa-2x"></i>
+                <i class="fas fa-puzzle-piece fa-3x" style="margin-bottom:12px; color:#cbd5e1;"></i>
                 <p>Belum ada langkah perakitan untuk robot ini.</p>
             </div>`;
         return;
@@ -526,8 +698,7 @@ function renderSliderStep(steps) {
     const st = steps[currentStepIndex];
     document.getElementById("viewer-step-badge").innerText = `Step ${currentStepIndex + 1} dari ${total}`;
 
-    const body = document.getElementById("viewer-slider-body");
-    body.innerHTML = `
+    container.innerHTML = `
         <div class="ag-viewer-body-content fade-in">
             <div class="ag-step-image-box">
                 ${st.image_url 
@@ -538,12 +709,10 @@ function renderSliderStep(steps) {
             <div class="ag-step-text-box">
                 <h4>${st.title || `Langkah ${currentStepIndex + 1}`}</h4>
                 <p>${st.instruction_text || 'Tidak ada instruksi khusus.'}</p>
-                ${st.notes ? `<div style="margin-top:8px; font-size:0.82rem; color:#d97706; background:#fffbe6; padding:6px 10px; border-radius:8px;"><i class="fas fa-lightbulb"></i> Tips: ${st.notes}</div>` : ''}
             </div>
         </div>
     `;
 
-    // Update Button Nav State
     const btnPrev = document.getElementById("btn-prev-step");
     const btnNext = document.getElementById("btn-next-step");
     if (btnPrev) btnPrev.disabled = currentStepIndex === 0;
@@ -554,7 +723,6 @@ function renderSliderStep(steps) {
             : `Selanjutnya <i class="fas fa-arrow-right"></i>`;
     }
 
-    // Render Dots Bar
     const dotsContainer = document.getElementById("viewer-dots-container");
     if (dotsContainer) {
         dotsContainer.innerHTML = steps.map((_, i) => `
@@ -564,10 +732,14 @@ function renderSliderStep(steps) {
 }
 
 // ==========================================
-// 7. EVENT HANDLERS
+// 8. EVENT HANDLERS
 // ==========================================
 function setupEventListeners() {
-    document.getElementById("globalSearchAssembly").oninput = loadData;
+    // Switch Category Tabs (Sekolah / Private)
+    document.getElementById("btnCatSekolah").onclick = () => switchCategory('sekolah');
+    document.getElementById("btnCatPrivate").onclick = () => switchCategory('private');
+
+    document.getElementById("globalSearchAssembly").oninput = loadCatalogData;
 
     // Filter Chips Event
     const chipContainer = document.getElementById("level-filter-bar-ag");
@@ -577,20 +749,7 @@ function setupEventListeners() {
         chipContainer.querySelectorAll('.level-chip').forEach(c => c.classList.remove('active'));
         chip.classList.add('active');
         selectedLevelId = chip.dataset.level;
-        loadData();
-    };
-
-    // Form Level cascading -> Sub Level
-    document.getElementById("ag_level_id").onchange = (e) => {
-        document.getElementById("ag_sub_level_id").innerHTML = renderSubOptions(e.target.value, null);
-    };
-
-    // Upload Cover Button
-    document.getElementById("btn-upload-cover-ag").onclick = () => {
-        openImageCropper('robotic_assembly', url => {
-            document.getElementById("ag_cover_url").value = url;
-            document.getElementById("img-preview-cover-ag").src = url;
-        });
+        loadCatalogData();
     };
 
     // Add Step Row Button
@@ -612,37 +771,34 @@ function setupEventListeners() {
 
     // Slider Prev / Next Buttons
     document.getElementById("btn-prev-step").onclick = () => {
-        if (currentViewingGuide && currentStepIndex > 0) {
+        if (currentStepIndex > 0) {
             currentStepIndex--;
-            renderSliderStep(parseGuideSteps(currentViewingGuide));
+            renderSliderStep();
         }
     };
 
     document.getElementById("btn-next-step").onclick = () => {
-        if (currentViewingGuide) {
-            const steps = parseGuideSteps(currentViewingGuide);
-            if (currentStepIndex < steps.length - 1) {
-                currentStepIndex++;
-                renderSliderStep(steps);
-            } else {
-                document.getElementById("modal-ag-viewer").classList.remove("active");
-            }
+        if (currentStepIndex < currentViewingSteps.length - 1) {
+            currentStepIndex++;
+            renderSliderStep();
+        } else {
+            document.getElementById("modal-ag-viewer").classList.remove("active");
         }
     };
 
     // Slider Dots Click Event
     document.getElementById("viewer-dots-container").onclick = (e) => {
         const dot = e.target.closest('.ag-dot');
-        if (dot && currentViewingGuide) {
+        if (dot) {
             currentStepIndex = parseInt(dot.dataset.idx);
-            renderSliderStep(parseGuideSteps(currentViewingGuide));
+            renderSliderStep();
         }
     };
 
-    // Form Submit (Save / Edit Guide & Steps)
+    // Form Submit
     document.getElementById("ag-form").onsubmit = handleFormSubmit;
 
-    // Catalog Actions (View Slider / Edit / Delete)
+    // Catalog Item Action Clicks
     document.getElementById("assembly-catalog-list").onclick = async (e) => {
         const btnSlider = e.target.closest('[data-action="view-slider"]');
         if (btnSlider) {
@@ -652,33 +808,31 @@ function setupEventListeners() {
 
         const btnEdit = e.target.closest('[data-action="edit"]');
         if (btnEdit) {
-            const guide = guidesList.find(g => g.id === btnEdit.dataset.id);
-            if (guide) {
-                await injectFormFields("edit", guide);
-                document.getElementById("modal-ag-builder").classList.add("active");
-            }
-            return;
-        }
-
-        const btnDelete = e.target.closest('[data-action="delete"]');
-        if (btnDelete) {
-            deleteGuide(btnDelete.dataset.id);
+            await injectFormFields("edit", btnEdit.dataset.id);
+            document.getElementById("modal-ag-builder").classList.add("active");
         }
     };
+}
+
+function switchCategory(cat) {
+    currentCategory = cat;
+    document.getElementById("btnCatSekolah").className = cat === 'sekolah' ? 'tab-btn active' : 'tab-btn';
+    document.getElementById("btnCatPrivate").className = cat === 'private' ? 'tab-btn active' : 'tab-btn';
+    loadCatalogData();
 }
 
 async function handleFormSubmit(e) {
     e.preventDefault();
     
-    const masterPayload = {
-        level_id: document.getElementById("ag_level_id").value || null,
-        sub_level_id: document.getElementById("ag_sub_level_id").value || null,
-        title: document.getElementById("ag_title").value.trim(),
-        cover_image_url: document.getElementById("ag_cover_url").value || null,
-        description: document.getElementById("ag_description").value.trim()
-    };
+    const cat = document.getElementById("ag_form_category").value;
+    const targetMateriId = document.getElementById("ag_form_materi_id").value;
 
-    // Kumpulkan Steps dari Form Builder
+    if (!targetMateriId) {
+        alert("Pilih Materi / Topik Robot terlebih dahulu.");
+        return;
+    }
+
+    // Kumpulkan Steps dari Builder
     const stepRows = Array.from(document.querySelectorAll(".ag-step-row"));
     const stepsPayload = stepRows.map((row, idx) => ({
         step_number: idx + 1,
@@ -687,47 +841,36 @@ async function handleFormSubmit(e) {
         instruction_text: row.querySelector('.step-instruction-input').value.trim() || ''
     }));
 
+    const tableName = cat === 'private' ? 'materi_private' : 'materi';
+    const fkCol = cat === 'private' ? 'materi_private_id' : 'materi_id';
+
     try {
-        let guideId = editingGuideId;
+        // Simpan steps ke tabel assembly_guide_steps
+        try {
+            await supabase.from('assembly_guide_steps').delete().eq(fkCol, targetMateriId);
+            const fullSteps = stepsPayload.map(s => ({ ...s, [fkCol]: targetMateriId }));
+            await supabase.from('assembly_guide_steps').insert(fullSteps);
+        } catch (sErr) {
+            console.warn("Tabel assembly_guide_steps error, menyimpan via JSON detail:", sErr);
+        }
 
-        // Simpan master assembly_guides
-        if (editingGuideId) {
-            const { error: updateErr } = await supabase.from('assembly_guides').update(masterPayload).eq('id', editingGuideId);
-            if (updateErr) throw updateErr;
-        } else {
-            const { data: newGuide, error: insertErr } = await supabase.from('assembly_guides').insert([masterPayload]).select('id').single();
-            if (insertErr) {
-                // Fallback: Jika tabel assembly_guides belum di-alter di Supabase SQL, kembalikan notifikasi ramah
-                throw insertErr;
+        // Simpan JSON fallback ke kolom detail materi
+        const list = cat === 'private' ? materiListPrivate : materiListSekolah;
+        const targetMateri = list.find(m => m.id === targetMateriId);
+        if (targetMateri) {
+            let detailObj = {};
+            if (targetMateri.detail && targetMateri.detail.startsWith('{') && targetMateri.detail.endsWith('}')) {
+                try { detailObj = JSON.parse(targetMateri.detail); } catch (pErr) {}
             }
-            guideId = newGuide.id;
-        }
+            detailObj.is_rpp = true;
+            detailObj.assembly_steps = stepsPayload;
 
-        // Hapus steps lama jika edit, lalu simpan steps baru
-        if (editingGuideId) {
-            await supabase.from('assembly_guide_steps').delete().eq('guide_id', editingGuideId);
-        }
-
-        const fullStepsPayload = stepsPayload.map(s => ({ ...s, guide_id: guideId }));
-        if (fullStepsPayload.length > 0) {
-            await supabase.from('assembly_guide_steps').insert(fullStepsPayload);
+            await supabase.from(tableName).update({ detail: JSON.stringify(detailObj) }).eq('id', targetMateriId);
         }
 
         document.getElementById("modal-ag-builder").classList.remove("active");
-        await loadData();
+        await loadCatalogData();
     } catch (err) {
-        alert("Gagal menyimpan Assembly Guide: " + err.message + "\n\nPastikan script migrations/02_create_assembly_guides.sql telah dijalankan pada Supabase SQL Editor.");
+        alert("Gagal menyimpan Petunjuk Perakitan: " + err.message);
     }
 }
-
-async function deleteGuide(id) {
-    if (!confirm("Yakin ingin menghapus Assembly Guide ini?")) return;
-    try {
-        const { error } = await supabase.from('assembly_guides').delete().eq('id', id);
-        if (!error) loadData();
-        else alert("Gagal menghapus: " + error.message);
-    } catch (err) {
-        alert("Error: " + err.message);
-    }
-}
-

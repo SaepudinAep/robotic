@@ -1,6 +1,6 @@
 /**
  * Project: Guru & Materi Module (School)
- * Version: 5.0 - RPP Standar Sekolah, Versioning (v1.0, v1.1, History), Sectioned Drawer, RPP Reader Modal
+ * Version: 7.0 - RPP Standar Sekolah, Versi RPP (v1.0/v2.0), RPP Reader & Interactive Assembly Slider Viewer
  * Format: Touch & Tablet Optimized UI
  */
 
@@ -18,23 +18,24 @@ let levelsList = [];
 let subLevelsList = [];
 let currentMateriCache = [];
 
+// Viewer State untuk Assembly Slider
+let currentViewingMateri = null;
+let currentViewingSteps = [];
+let currentStepIndex = 0;
+
 // ==========================================
 // 1. INITIALIZATION
 // ==========================================
 
 export async function init(canvas) {
-    // 1. Fetch Levels List for Filters & Forms
     await fetchLevels();
-
-    // 2. Inject CSS
     injectStyles();
 
-    // 3. Render HTML Structure
     canvas.innerHTML = `
         <div class="gm-container fade-in">
             <div class="gm-header">
                 <div>
-                    <h2>Kurikulum & Lesson Plan (RPP) Sekolah</h2>
+                    <h2>Kurikulum &amp; RPP Sekolah</h2>
                     <p>Kelola materi pembelajaran, RPP terstruktur, versi kurikulum (v1.0/v2.0), dan target achievement.</p>
                 </div>
             </div>
@@ -42,7 +43,7 @@ export async function init(canvas) {
             <!-- MAIN TABS -->
             <div class="gm-tabs">
                 <button id="btnMateri" class="tab-btn active" data-tab="materi">
-                    <i class="fas fa-book-bookmark"></i> MATERI & RPP SEKOLAH
+                    <i class="fas fa-book-bookmark"></i> MATERI &amp; RPP SEKOLAH
                 </button>
                 <button id="btnAchievement" class="tab-btn" data-tab="achievement">
                     <i class="fas fa-trophy"></i> ACHIEVEMENT SEKOLAH
@@ -70,8 +71,9 @@ export async function init(canvas) {
 
             <!-- CONTENT LIST AREA -->
             <div id="main-content-area" class="gm-content">
-                <div id="loading-state" style="text-align:center; padding:40px; color:#999;">
-                    <i class="fas fa-circle-notch fa-spin"></i> Memuat data...
+                <div id="loading-state" style="text-align:center; padding:40px; color:#94a3b8;">
+                    <i class="fas fa-circle-notch fa-spin fa-2x"></i>
+                    <p style="margin-top:10px; font-weight:600;">Memuat data materi...</p>
                 </div>
                 <div id="materi-list" class="content-list active"></div>
                 <div id="achievement-list" class="content-list" style="display:none;"></div>
@@ -83,7 +85,7 @@ export async function init(canvas) {
             <i class="fas fa-plus"></i>
         </button>
 
-        <!-- MODAL FORM DRAWER -->
+        <!-- MODAL FORM DRAWER (4 RPP TABS) -->
         <div id="modal-overlay" class="modal-overlay">
             <div class="modal-drawer">
                 <div class="modal-header">
@@ -111,6 +113,9 @@ export async function init(canvas) {
                         <i class="fas fa-file-signature" style="color:#4d97ff;"></i> Detail Lesson Plan (RPP)
                     </h2>
                     <div style="display:flex; gap:8px; align-items:center;">
+                        <button id="btn-open-assembly-from-rpp" type="button" class="btn-action-icon" title="Buka Petunjuk Perakitan Robot" style="background:#f0fdf4; color:#16a34a; border-color:#bbf7d0; width:auto; padding:0 12px; font-weight:700; font-size:0.82rem; gap:6px;">
+                            <i class="fas fa-puzzle-piece"></i> Petunjuk Perakitan
+                        </button>
                         <button id="btn-print-rpp" type="button" class="btn-action-icon" title="Cetak RPP" style="background:#eff6ff; color:#2563eb; border-color:#bfdbfe;">
                             <i class="fas fa-print"></i>
                         </button>
@@ -122,6 +127,31 @@ export async function init(canvas) {
                 </div>
             </div>
         </div>
+
+        <!-- MODAL INTERACTIVE ASSEMBLY SLIDER VIEWER -->
+        <div id="modal-ag-viewer" class="modal-overlay">
+            <div class="modal-drawer ag-viewer-drawer">
+                <div class="modal-header">
+                    <div>
+                        <h2 id="viewer-robot-title" style="font-size:1.15rem; margin:0; color:#0f172a;">Nama Robot</h2>
+                        <span id="viewer-step-badge" class="badge-sublevel-tag" style="margin-top:4px;">Step 1 dari 1</span>
+                    </div>
+                    <button id="modal-ag-viewer-close" class="close-btn">&times;</button>
+                </div>
+                <div class="modal-body" id="viewer-slider-body">
+                    <!-- Dynamic Step Slide Content -->
+                </div>
+                <div class="ag-viewer-footer">
+                    <button id="btn-prev-step" class="btn-ag-nav" disabled>
+                        <i class="fas fa-arrow-left"></i> Sebelumnya
+                    </button>
+                    <div id="viewer-dots-container" class="ag-dots-bar"></div>
+                    <button id="btn-next-step" class="btn-ag-nav primary">
+                        Selanjutnya <i class="fas fa-arrow-right"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
     `;
 
     setupEventListeners();
@@ -129,29 +159,22 @@ export async function init(canvas) {
 }
 
 // ==========================================
-// 2. FETCH LEVELS LIST
+// 2. FETCH LEVELS & DATA PARSING
 // ==========================================
 async function fetchLevels() {
     try {
-        const { data: lvData } = await supabase
-            .from('levels')
-            .select('id, kode, detail')
-            .order('kode', { ascending: true });
+        const { data: lvData } = await supabase.from('levels').select('id, kode, detail').order('kode');
         if (lvData) levelsList = lvData;
 
-        const { data: subData } = await supabase
-            .from('sub_levels')
-            .select('id, level_id, kode, name, kit_alat, description, is_active')
-            .order('name', { ascending: true });
+        const { data: subData } = await supabase.from('sub_levels').select('id, level_id, kode, name, kit_alat, description, is_active').order('name');
         if (subData) subLevelsList = subData;
     } catch (e) {
-        console.error("Gagal memuat levels/sub_levels:", e);
+        console.error("Gagal memuat levels:", e);
     }
 }
 
-// Helper parsing data RPP terstruktur & versioning dari object database
-function parseRppData(m) {
-    let rpp = {
+function parseMateriDetail(m) {
+    let result = {
         version: m.version || '1.0',
         version_notes: m.version_notes || '',
         alokasi_waktu: m.alokasi_waktu || '',
@@ -161,105 +184,94 @@ function parseRppData(m) {
         kegiatan_inti: m.kegiatan_inti || '',
         kegiatan_penutup: m.kegiatan_penutup || '',
         indikator_penilaian: m.indikator_penilaian || '',
+        assembly_steps: [],
         history: []
     };
 
-    // Fallback: Parsing JSON jika data disimpan di dalam kolom detail
+    if (m.assembly_guide_steps && Array.isArray(m.assembly_guide_steps) && m.assembly_guide_steps.length > 0) {
+        result.assembly_steps = m.assembly_guide_steps.sort((a, b) => (a.step_number || 0) - (b.step_number || 0));
+    }
+
     if (m.detail && m.detail.startsWith('{') && m.detail.endsWith('}')) {
         try {
             const jsonDetail = JSON.parse(m.detail);
             if (jsonDetail && jsonDetail.is_rpp) {
-                rpp = { ...rpp, ...jsonDetail };
+                result = { ...result, ...jsonDetail };
+                if ((!result.assembly_steps || result.assembly_steps.length === 0) && jsonDetail.assembly_steps) {
+                    result.assembly_steps = jsonDetail.assembly_steps;
+                }
             }
-        } catch (e) {
-            // Ignore parse error
-        }
+        } catch (e) {}
     }
-    return rpp;
+    return result;
 }
 
 // ==========================================
 // 3. STYLING (CSS INJECTION)
 // ==========================================
 function injectStyles() {
-    const styleId = 'guru-materi-css-v5';
+    const styleId = 'guru-materi-css-v7';
     if (document.getElementById(styleId)) return;
 
     const style = document.createElement('style');
     style.id = styleId;
     style.textContent = `
-        .gm-container { max-width: 1000px; margin: 0 auto; padding-bottom: 90px; font-family: 'Poppins', sans-serif; }
+        .gm-container { max-width: 1040px; margin: 0 auto; padding-bottom: 90px; font-family: 'Poppins', sans-serif; }
         .gm-header { margin-bottom: 20px; border-bottom: 1px solid #e2e8f0; padding-bottom: 15px; }
         .gm-header h2 { color: #1e293b; margin: 0; font-size: 1.5rem; font-weight: 800; }
         .gm-header p { color: #64748b; margin: 5px 0 0; font-size: 0.9rem; }
 
-        /* Main Tabs */
         .gm-tabs { display: flex; gap: 10px; margin-bottom: 15px; background: #fff; padding: 6px; border-radius: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
         .tab-btn { flex: 1; border: none; background: transparent; padding: 12px 15px; font-weight: 700; color: #64748b; cursor: pointer; border-radius: 10px; transition: 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.9rem; }
         .tab-btn.active { background: #4d97ff; color: white; box-shadow: 0 4px 12px rgba(77, 151, 255, 0.3); }
 
-        /* Search & Filter Bar */
         .gm-filter-section { margin-bottom: 20px; display: flex; flex-direction: column; gap: 12px; }
         .gm-search-wrapper { position: relative; width: 100%; }
         .gm-search-wrapper i { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: #94a3b8; }
-        .gm-search-wrapper input { width: 100%; padding: 12px 15px 12px 42px; border: 1px solid #cbd5e1; border-radius: 12px; font-size: 0.95rem; outline: none; background: white; box-sizing: border-box; transition: 0.2s; }
+        .gm-search-wrapper input { width: 100%; padding: 12px 15px 12px 42px; border: 1px solid #cbd5e1; border-radius: 12px; font-size: 0.95rem; outline: none; background: white; box-sizing: border-box; }
         .gm-search-wrapper input:focus { border-color: #4d97ff; box-shadow: 0 0 0 3px rgba(77, 151, 255, 0.15); }
 
-        /* Level Filter Chips */
         .level-filter-bar { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 5px; scrollbar-width: none; }
         .level-filter-bar::-webkit-scrollbar { display: none; }
         .level-chip { border: 1px solid #e2e8f0; background: white; padding: 8px 16px; border-radius: 20px; font-size: 0.85rem; font-weight: 600; color: #475569; cursor: pointer; white-space: nowrap; transition: 0.2s; display: flex; align-items: center; gap: 6px; }
-        .level-chip:hover { background: #f8fafc; border-color: #cbd5e1; }
-        .level-chip.active { background: #1e293b; color: white; border-color: #1e293b; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
+        .level-chip.active { background: #1e293b; color: white; border-color: #1e293b; }
 
-        /* Content List & Cards */
         .content-list { display: flex; flex-direction: column; gap: 14px; }
 
-        /* MATERI CARD WITH RICH INDICATORS & RPP BUTTON */
         .materi-card {
             background: white; border-radius: 16px; padding: 16px 20px;
             display: flex; justify-content: space-between; align-items: center;
             box-shadow: 0 3px 10px rgba(0,0,0,0.03); border: 1px solid #edf2f7;
-            transition: transform 0.2s, box-shadow 0.2s;
-            position: relative; overflow: hidden;
+            transition: transform 0.2s, box-shadow 0.2s; position: relative; overflow: hidden;
         }
         .materi-card:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0,0,0,0.08); border-color: #bfdbfe; }
         
         .materi-left { display: flex; align-items: center; gap: 16px; flex: 1; min-width: 0; cursor: pointer; }
         
-        /* Mini Thumbnail */
         .materi-thumb {
-            width: 70px; height: 70px; border-radius: 12px; flex-shrink: 0;
+            width: 75px; height: 75px; border-radius: 12px; flex-shrink: 0;
             background: #f1f5f9; display: flex; align-items: center; justify-content: center;
             overflow: hidden; border: 1px solid #e2e8f0; position: relative;
         }
         .materi-thumb img { width: 100%; height: 100%; object-fit: cover; }
-        .materi-thumb i { font-size: 1.6rem; color: #94a3b8; }
+        .materi-thumb i { font-size: 1.8rem; color: #94a3b8; }
         
         .materi-info { flex: 1; min-width: 0; }
         
-        /* Badges Top Row */
-        .materi-badges-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+        .materi-badges-top { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
         .badge-level-tag { background: #e0f2fe; color: #0369a1; padding: 3px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; }
-        .badge-sublevel-tag { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; padding: 3px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; gap: 5px; }
+        .badge-sublevel-tag { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; padding: 3px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; }
         .badge-version-tag { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; padding: 3px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; }
         .badge-rpp-pill { background: #f0f5ff; color: #3b82f6; border: 1px solid #bfdbfe; padding: 3px 10px; border-radius: 6px; font-size: 0.72rem; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; }
-        .badge-status-pill { padding: 3px 10px; border-radius: 20px; font-size: 0.72rem; font-weight: 700; display: inline-flex; align-items: center; gap: 5px; }
-        .status-complete { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
-        .status-draft { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+        .badge-assembly-pill { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; padding: 3px 10px; border-radius: 6px; font-size: 0.72rem; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; }
 
         .materi-title { margin: 0 0 8px 0; font-size: 1.05rem; font-weight: 700; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-        /* Indicators Pill Row */
         .materi-indicators { display: flex; gap: 6px; flex-wrap: wrap; }
-        .ind-pill {
-            font-size: 0.72rem; font-weight: 600; padding: 3px 8px; border-radius: 6px;
-            display: inline-flex; align-items: center; gap: 4px;
-        }
+        .ind-pill { font-size: 0.72rem; font-weight: 600; padding: 3px 8px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; }
         .ind-ok { background: #f0fdf4; color: #16a34a; border: 1px solid #dcfce7; }
         .ind-no { background: #fef2f2; color: #dc2626; border: 1px solid #fee2e2; }
 
-        /* Card Actions */
         .materi-actions { display: flex; align-items: center; gap: 8px; margin-left: 15px; }
         .btn-action-icon {
             background: #f8fafc; border: 1px solid #e2e8f0; width: 38px; height: 38px;
@@ -267,24 +279,21 @@ function injectStyles() {
             align-items: center; justify-content: center; font-size: 0.95rem; transition: 0.2s;
         }
         .btn-action-icon:hover { background: #fee2e2; color: #ef4444; border-color: #fecaca; }
+        
         .btn-rpp-view {
-            background: #4d97ff; color: white; border: none; padding: 8px 14px;
+            background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; padding: 8px 12px;
             border-radius: 10px; font-weight: 700; font-size: 0.82rem; cursor: pointer;
             display: inline-flex; align-items: center; gap: 6px; transition: 0.2s;
         }
-        .btn-rpp-view:hover { background: #2563eb; }
+        .btn-rpp-view:hover { background: #dbeafe; }
 
-        /* ACHIEVEMENT FOLDER CARD */
-        .achievement-folder {
-            background: white; border-radius: 16px; padding: 18px 20px;
-            box-shadow: 0 3px 10px rgba(0,0,0,0.03); border: 1px solid #edf2f7;
-            border-left: 5px solid #f59e0b; cursor: pointer; transition: 0.2s;
+        .btn-assembly-view {
+            background: #10b981; color: white; border: none; padding: 8px 14px;
+            border-radius: 10px; font-weight: 700; font-size: 0.82rem; cursor: pointer;
+            display: inline-flex; align-items: center; gap: 6px; transition: 0.2s;
+            box-shadow: 0 3px 10px rgba(16, 185, 129, 0.25);
         }
-        .achievement-folder:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,0.08); }
-        .ach-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
-        .ach-title-block { display: flex; flex-direction: column; gap: 4px; }
-        .ach-title { font-size: 1.1rem; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 8px; }
-        .ach-list { margin: 0; padding-left: 22px; color: #475569; font-size: 0.88rem; line-height: 1.6; }
+        .btn-assembly-view:hover { background: #059669; }
 
         /* FAB Button */
         .fab-btn {
@@ -296,16 +305,18 @@ function injectStyles() {
         }
         .fab-btn:hover { transform: scale(1.08); background: #2563eb; }
 
-        /* Modal Drawer & RPP Form Sub-Tabs */
+        /* Modal Drawer */
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); z-index: 1000; display: none; align-items: flex-end; backdrop-filter: blur(3px); }
         .modal-overlay.active { display: flex; animation: fadeIn 0.2s ease-out; }
-        .modal-drawer { background: white; width: 100%; max-width: 680px; margin: 0 auto; border-radius: 24px 24px 0 0; padding: 25px; max-height: 90vh; overflow-y: auto; position: relative; animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
-        .rpp-view-drawer { max-width: 780px; }
+        .modal-drawer { background: white; width: 100%; max-width: 650px; margin: 0 auto; border-radius: 24px 24px 0 0; padding: 25px; max-height: 92vh; overflow-y: auto; position: relative; animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        .rpp-view-drawer { max-width: 800px; }
+        .ag-viewer-drawer { max-width: 840px; height: 92vh; }
+        
         .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #f1f5f9; padding-bottom: 12px; }
         .modal-header h2 { margin: 0; font-size: 1.25rem; font-weight: 800; color: #1e293b; }
         .close-btn { background: none; border: none; font-size: 1.8rem; cursor: pointer; color: #94a3b8; }
         
-        /* RPP Drawer Sub-Tabs */
+        /* 4 RPP Sub-Tabs */
         .rpp-form-tabs { display: flex; gap: 6px; margin-bottom: 18px; border-bottom: 2px solid #f1f5f9; padding-bottom: 8px; overflow-x: auto; scrollbar-width: none; }
         .rpp-tab-btn { border: none; background: #f8fafc; color: #64748b; padding: 8px 14px; border-radius: 10px; font-size: 0.82rem; font-weight: 700; cursor: pointer; white-space: nowrap; transition: 0.2s; display: flex; align-items: center; gap: 6px; }
         .rpp-tab-btn.active { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
@@ -319,6 +330,23 @@ function injectStyles() {
         .btn-primary { width: 100%; padding: 14px; background: #4d97ff; color: white; border: none; border-radius: 12px; font-weight: 700; cursor: pointer; font-size: 1rem; margin-top: 20px; transition: 0.2s; box-shadow: 0 4px 12px rgba(77, 151, 255, 0.3); }
         .btn-primary:hover { background: #2563eb; }
 
+        /* INTERACTIVE ASSEMBLY SLIDER VIEWER STYLES */
+        .ag-viewer-body-content { display: flex; flex-direction: column; align-items: center; text-align: center; height: 100%; }
+        .ag-step-image-box { width: 100%; max-height: 48vh; background: #0f172a; border-radius: 16px; overflow: hidden; display: flex; align-items: center; justify-content: center; margin-bottom: 16px; }
+        .ag-step-image-box img { max-width: 100%; max-height: 48vh; object-fit: contain; }
+        .ag-step-text-box { width: 100%; background: white; border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px; text-align: left; }
+        .ag-step-text-box h4 { margin: 0 0 6px 0; font-size: 1.05rem; color: #0f172a; font-weight: 800; }
+        .ag-step-text-box p { margin: 0; color: #334155; font-size: 0.93rem; line-height: 1.6; }
+
+        .ag-viewer-footer { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid #e2e8f0; padding-top: 14px; margin-top: 14px; }
+        .btn-ag-nav { background: #f1f5f9; border: 1px solid #cbd5e1; color: #334155; padding: 10px 18px; border-radius: 10px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+        .btn-ag-nav.primary { background: #10b981; color: white; border-color: #10b981; }
+        .btn-ag-nav:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        .ag-dots-bar { display: flex; gap: 6px; overflow-x: auto; max-width: 280px; scrollbar-width: none; }
+        .ag-dot { width: 10px; height: 10px; border-radius: 50%; background: #cbd5e1; cursor: pointer; flex-shrink: 0; transition: 0.2s; }
+        .ag-dot.active { background: #10b981; transform: scale(1.3); }
+
         /* RPP PREVIEW READER STYLES */
         .rpp-preview-card { background: #fafafa; border: 1px solid #e2e8f0; border-radius: 16px; padding: 24px; font-family: 'Poppins', sans-serif; color: #1e293b; }
         .rpp-header-box { text-align: center; border-bottom: 2px solid #cbd5e1; padding-bottom: 16px; margin-bottom: 20px; }
@@ -326,10 +354,6 @@ function injectStyles() {
         .rpp-meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; background: white; padding: 12px 16px; border-radius: 12px; border: 1px solid #e2e8f0; margin-top: 12px; text-align: left; }
         .rpp-meta-item label { font-size: 0.72rem; font-weight: 700; color: #64748b; text-transform: uppercase; display: block; }
         .rpp-meta-item span { font-size: 0.88rem; font-weight: 700; color: #1e293b; }
-        
-        .rpp-version-bar { display: flex; align-items: center; justify-content: space-between; background: #fffbe6; border: 1px solid #ffe58f; padding: 10px 16px; border-radius: 12px; margin-bottom: 16px; gap: 10px; flex-wrap: wrap; }
-        .rpp-version-bar label { font-size: 0.82rem; font-weight: 700; color: #d48806; display: flex; align-items: center; gap: 6px; }
-        .rpp-version-bar select { padding: 6px 12px; border-radius: 8px; border: 1px solid #ffd591; font-weight: 700; font-size: 0.85rem; color: #8c8c8c; background: white; outline: none; }
 
         .rpp-block { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 14px; }
         .rpp-block h4 { margin: 0 0 10px 0; font-size: 0.95rem; font-weight: 800; color: #2563eb; display: flex; align-items: center; gap: 8px; border-bottom: 1px dashed #e2e8f0; padding-bottom: 6px; }
@@ -343,7 +367,7 @@ function injectStyles() {
             .materi-card { flex-direction: column; align-items: flex-start; gap: 12px; }
             .materi-left { width: 100%; }
             .materi-actions { width: 100%; justify-content: space-between; margin-left: 0; border-top: 1px solid #f1f5f9; padding-top: 10px; }
-            .materi-thumb { width: 60px; height: 60px; }
+            .materi-thumb { width: 65px; height: 65px; }
         }
     `;
     document.head.appendChild(style);
@@ -367,7 +391,7 @@ async function loadData() {
         if (currentTab === "materi") {
             let query = supabase
                 .from('materi')
-                .select('*, levels(id, kode, detail), sub_levels(name, kode)')
+                .select('*, levels(id, kode, detail), sub_levels(name, kode), assembly_guide_steps(*)')
                 .order('created_at', { ascending: false });
 
             if (selectedLevelId !== "all") {
@@ -384,9 +408,9 @@ async function loadData() {
                 const titleMatch = m.title?.toLowerCase().includes(search);
                 const descMatch = m.description?.toLowerCase().includes(search);
                 const levelMatch = m.levels?.kode?.toLowerCase().includes(search) || m.level?.toLowerCase().includes(search);
-                const rppData = parseRppData(m);
-                const versionMatch = ('v' + rppData.version).toLowerCase().includes(search);
-                const rppMatch = (rppData.tujuan_pembelajaran + rppData.alat_bahan).toLowerCase().includes(search);
+                const rpp = parseMateriDetail(m);
+                const versionMatch = ('v' + rpp.version).toLowerCase().includes(search);
+                const rppMatch = (rpp.tujuan_pembelajaran + rpp.alat_bahan).toLowerCase().includes(search);
                 return titleMatch || descMatch || levelMatch || versionMatch || rppMatch;
             }) : [];
             
@@ -400,11 +424,12 @@ async function loadData() {
             }
 
             containerMateri.innerHTML = filtered.map(m => {
-                const rpp = parseRppData(m);
+                const rpp = parseMateriDetail(m);
                 const hasTitle = Boolean(m.title && m.title.trim());
                 const hasImg = Boolean(m.image_url && m.image_url.trim());
                 const hasDesc = Boolean((m.description && m.description.trim()) || (m.detail && m.detail.trim()));
                 const hasRpp = Boolean(rpp.tujuan_pembelajaran || rpp.kegiatan_inti);
+                const hasAssembly = Boolean(rpp.assembly_steps && rpp.assembly_steps.length > 0);
                 const isComplete = hasTitle && hasImg && hasDesc;
                 const levelName = m.levels?.kode || m.level || 'Umum';
                 const subLevelName = m.sub_level_id ? (m.sub_levels?.name || m.sub_levels?.kode || '') : '';
@@ -415,7 +440,7 @@ async function loadData() {
                             <div class="materi-thumb">
                                 ${hasImg 
                                     ? `<img src="${m.image_url}" alt="${m.title}" loading="lazy">` 
-                                    : `<i class="fas fa-camera"></i>`
+                                    : `<i class="fas fa-robot"></i>`
                                 }
                             </div>
                             <div class="materi-info">
@@ -425,7 +450,8 @@ async function loadData() {
                                     </span>
                                     ${subLevelName ? `<span class="badge-sublevel-tag"><i class="fas fa-tag"></i> ${subLevelName}</span>` : ''}
                                     <span class="badge-version-tag"><i class="fas fa-code-branch"></i> v${rpp.version}</span>
-                                    ${hasRpp ? `<span class="badge-rpp-pill"><i class="fas fa-file-circle-check"></i> RPP Ada</span>` : ''}
+                                    ${hasRpp ? `<span class="badge-rpp-pill"><i class="fas fa-file-circle-check"></i> RPP</span>` : ''}
+                                    ${hasAssembly ? `<span class="badge-assembly-pill"><i class="fas fa-puzzle-piece"></i> ${rpp.assembly_steps.length} Steps</span>` : ''}
                                     <span class="badge-status-pill ${isComplete ? 'status-complete' : 'status-draft'}">
                                         <i class="fas ${isComplete ? 'fa-circle-check' : 'fa-triangle-exclamation'}"></i>
                                         ${isComplete ? 'Lengkap' : 'Belum Lengkap'}
@@ -443,13 +469,19 @@ async function loadData() {
                                     <span class="ind-pill ${hasRpp ? 'ind-ok' : 'ind-no'}" title="Status RPP">
                                         <i class="fas ${hasRpp ? 'fa-check' : 'fa-xmark'}"></i> RPP
                                     </span>
+                                    <span class="ind-pill ${hasAssembly ? 'ind-ok' : 'ind-no'}" title="Status Perakitan">
+                                        <i class="fas ${hasAssembly ? 'fa-check' : 'fa-xmark'}"></i> Perakitan
+                                    </span>
                                 </div>
                             </div>
                         </div>
 
                         <div class="materi-actions">
-                            <button class="btn-rpp-view" data-action="view-rpp" data-id="${m.id}">
+                            <button class="btn-rpp-view" data-action="view-rpp" data-id="${m.id}" title="Lihat RPP">
                                 <i class="fas fa-file-signature"></i> RPP
+                            </button>
+                            <button class="btn-assembly-view" data-action="view-assembly" data-id="${m.id}" title="Buka Petunjuk Perakitan Slider">
+                                <i class="fas fa-puzzle-piece"></i> Perakitan
                             </button>
                             <button class="btn-action-icon btn-delete" data-id="${m.id}" data-type="materi" title="Hapus Materi">
                                 <i class="fas fa-trash-can"></i>
@@ -525,7 +557,7 @@ async function loadData() {
 }
 
 // ==========================================
-// 5. FORM HANDLING (SECTIONED DRAWER & VERSIONING)
+// 5. FORM HANDLING (4 RPP SUB-TABS)
 // ==========================================
 
 async function injectFormFields(mode = "add", data = {}) {
@@ -550,18 +582,18 @@ async function injectFormFields(mode = "add", data = {}) {
     };
 
     if (currentTab === "materi") {
-        const rpp = parseRppData(data);
+        const rpp = parseMateriDetail(data);
         const currentImg = data.image_url || "https://via.placeholder.com/200?text=Pilih+Foto+Project";
         const hasImg = Boolean(data.image_url);
 
         formFields.innerHTML = `
-            <!-- SUB-TABS UNTUK INPUT RPP TERSTRUKTUR -->
+            <!-- 4 RPP SUB-TABS -->
             <div class="rpp-form-tabs">
                 <button type="button" class="rpp-tab-btn active" data-pane="pane-umum">
-                    <i class="fas fa-info-circle"></i> 1. Umum & Versi
+                    <i class="fas fa-info-circle"></i> 1. Umum &amp; Versi
                 </button>
                 <button type="button" class="rpp-tab-btn" data-pane="pane-tujuan">
-                    <i class="fas fa-bullseye"></i> 2. Tujuan & Kit
+                    <i class="fas fa-bullseye"></i> 2. Tujuan &amp; Kit
                 </button>
                 <button type="button" class="rpp-tab-btn" data-pane="pane-kegiatan">
                     <i class="fas fa-list-ol"></i> 3. Langkah RPP
@@ -602,7 +634,7 @@ async function injectFormFields(mode = "add", data = {}) {
                     ${renderSubOptions(data.level_id, data.sub_level_id)}
                 </select>
 
-                <label>Judul Materi / Topik RPP *</label>
+                <label>Judul Materi / Topik Robot *</label>
                 <input type="text" id="title" value="${data.title || ""}" placeholder="Contoh: Line Follower Robot" required>
                 
                 <label>Alokasi Waktu / Durasi Sesi</label>
@@ -742,15 +774,15 @@ function addSubRow(value = "") {
 }
 
 // ==========================================
-// 6. RPP PREVIEW / READER MODAL WITH HISTORY
+// 6. RPP READER & INTERACTIVE SLIDER VIEWER
 // ==========================================
 async function openRppReader(id) {
     const m = currentMateriCache.find(item => item.id === id);
     if (!m) return;
 
-    const mainRpp = parseRppData(m);
+    currentViewingMateri = m;
+    const mainRpp = parseMateriDetail(m);
     
-    // Ambil riwayat versi dari tabel materi_versions jika ada
     let versionHistory = [];
     try {
         const { data: vData } = await supabase
@@ -766,18 +798,7 @@ async function openRppReader(id) {
                 rpp: v.snapshot || {}
             }));
         }
-    } catch (e) {
-        // Ignore DB version history table missing
-    }
-
-    // Gabungkan dengan history internal dari rpp JSON fallback jika ada
-    if (mainRpp.history && mainRpp.history.length) {
-        mainRpp.history.forEach(h => {
-            if (!versionHistory.some(vh => vh.version === h.version)) {
-                versionHistory.push(h);
-            }
-        });
-    }
+    } catch (e) {}
 
     const container = document.getElementById('rpp-preview-container');
     const levelName = m.levels?.kode || m.level || 'Umum';
@@ -785,6 +806,8 @@ async function openRppReader(id) {
 
     function renderRppCard(rppData, selectedVer) {
         const isCurrent = selectedVer === mainRpp.version;
+        const steps = rppData.assembly_steps || mainRpp.assembly_steps || [];
+
         return `
             <div class="rpp-preview-card" id="rpp-printable-area">
                 <div class="rpp-version-bar">
@@ -822,8 +845,8 @@ async function openRppReader(id) {
                             <span>${rppData.alokasi_waktu || '1 Sesi (60-90 Menit)'}</span>
                         </div>
                         <div class="rpp-meta-item">
-                            <label>Versi</label>
-                            <span>v${selectedVer}</span>
+                            <label>Perakitan</label>
+                            <span>${steps.length} Langkah</span>
                         </div>
                     </div>
                 </div>
@@ -877,7 +900,6 @@ async function openRppReader(id) {
 
     container.innerHTML = renderRppCard(mainRpp, mainRpp.version);
 
-    // Bind event ganti versi RPP di preview
     setTimeout(() => {
         const verSel = document.getElementById('rpp-version-select');
         if (verSel) {
@@ -888,17 +910,88 @@ async function openRppReader(id) {
                 } else {
                     const foundHist = versionHistory.find(vh => vh.version === targetVer);
                     if (foundHist) {
-                        const histData = foundHist.rpp || foundHist;
-                        container.innerHTML = renderRppCard(histData, targetVer);
+                        container.innerHTML = renderRppCard(foundHist.rpp || foundHist, targetVer);
                     }
                 }
-                // Re-bind listener setelah re-render
-                openRppReader(id);
             };
         }
     }, 50);
 
     document.getElementById('modal-rpp-overlay').classList.add('active');
+}
+
+// Buka Interactive Assembly Slider
+function openAssemblySlider(materiId) {
+    const m = currentMateriCache.find(item => item.id === materiId);
+    if (!m) return;
+
+    currentViewingMateri = m;
+    const rpp = parseMateriDetail(m);
+    currentViewingSteps = rpp.assembly_steps || [];
+    currentStepIndex = 0;
+
+    document.getElementById("viewer-robot-title").innerText = m.title || 'Petunjuk Perakitan Robot';
+    renderSliderStep();
+
+    document.getElementById("modal-ag-viewer").classList.add("active");
+}
+
+function renderSliderStep() {
+    const steps = currentViewingSteps;
+    const container = document.getElementById("viewer-slider-body");
+
+    if (!steps || !steps.length) {
+        container.innerHTML = `
+            <div style="text-align:center; padding:50px; color:#94a3b8;">
+                <i class="fas fa-puzzle-piece fa-3x" style="margin-bottom:12px; color:#cbd5e1;"></i>
+                <h3 style="margin:0 0 6px 0; color:#1e293b;">Belum ada Langkah Perakitan</h3>
+                <p style="margin:0; font-size:0.9rem;">Buka modul <strong>Assembly Guide</strong> untuk menambahkan foto langkah perakitan robot ini.</p>
+            </div>`;
+        document.getElementById("btn-prev-step").disabled = true;
+        document.getElementById("btn-next-step").disabled = true;
+        document.getElementById("viewer-step-badge").innerText = `0 Step`;
+        document.getElementById("viewer-dots-container").innerHTML = '';
+        return;
+    }
+
+    const total = steps.length;
+    if (currentStepIndex < 0) currentStepIndex = 0;
+    if (currentStepIndex >= total) currentStepIndex = total - 1;
+
+    const st = steps[currentStepIndex];
+    document.getElementById("viewer-step-badge").innerText = `Step ${currentStepIndex + 1} dari ${total}`;
+
+    container.innerHTML = `
+        <div class="ag-viewer-body-content fade-in">
+            <div class="ag-step-image-box">
+                ${st.image_url 
+                    ? `<img src="${st.image_url}" alt="Step ${currentStepIndex + 1}">` 
+                    : `<i class="fas fa-camera" style="font-size:3rem; color:#475569;"></i>`
+                }
+            </div>
+            <div class="ag-step-text-box">
+                <h4>${st.title || `Langkah ${currentStepIndex + 1}`}</h4>
+                <p>${st.instruction_text || 'Tidak ada instruksi khusus.'}</p>
+            </div>
+        </div>
+    `;
+
+    const btnPrev = document.getElementById("btn-prev-step");
+    const btnNext = document.getElementById("btn-next-step");
+    if (btnPrev) btnPrev.disabled = currentStepIndex === 0;
+    if (btnNext) {
+        btnNext.disabled = currentStepIndex === total - 1;
+        btnNext.innerHTML = currentStepIndex === total - 1 
+            ? `Selesai <i class="fas fa-check-circle"></i>` 
+            : `Selanjutnya <i class="fas fa-arrow-right"></i>`;
+    }
+
+    const dotsContainer = document.getElementById("viewer-dots-container");
+    if (dotsContainer) {
+        dotsContainer.innerHTML = steps.map((_, i) => `
+            <div class="ag-dot ${i === currentStepIndex ? 'active' : ''}" data-idx="${i}"></div>
+        `).join("");
+    }
 }
 
 // ==========================================
@@ -935,8 +1028,44 @@ function setupEventListeners() {
         document.getElementById("modal-rpp-overlay").classList.remove("active");
     };
 
-    document.getElementById("btn-print-rpp").onclick = () => {
-        window.print();
+    document.getElementById("modal-ag-viewer-close").onclick = () => {
+        document.getElementById("modal-ag-viewer").classList.remove("active");
+    };
+
+    document.getElementById("btn-print-rpp").onclick = () => window.print();
+
+    // Buka Slider Perakitan dari Modal RPP Reader
+    document.getElementById("btn-open-assembly-from-rpp").onclick = () => {
+        if (currentViewingMateri) {
+            document.getElementById("modal-rpp-overlay").classList.remove("active");
+            openAssemblySlider(currentViewingMateri.id);
+        }
+    };
+
+    // Slider Prev / Next Buttons
+    document.getElementById("btn-prev-step").onclick = () => {
+        if (currentStepIndex > 0) {
+            currentStepIndex--;
+            renderSliderStep();
+        }
+    };
+
+    document.getElementById("btn-next-step").onclick = () => {
+        if (currentStepIndex < currentViewingSteps.length - 1) {
+            currentStepIndex++;
+            renderSliderStep();
+        } else {
+            document.getElementById("modal-ag-viewer").classList.remove("active");
+        }
+    };
+
+    // Slider Dots Click Event
+    document.getElementById("viewer-dots-container").onclick = (e) => {
+        const dot = e.target.closest('.ag-dot');
+        if (dot) {
+            currentStepIndex = parseInt(dot.dataset.idx);
+            renderSliderStep();
+        }
     };
 
     document.getElementById("dynamic-form").onsubmit = handleFormSubmit;
@@ -953,6 +1082,13 @@ function setupEventListeners() {
         if (btnRpp) {
             e.stopPropagation();
             openRppReader(btnRpp.dataset.id);
+            return;
+        }
+
+        const btnAssembly = e.target.closest('.btn-assembly-view');
+        if (btnAssembly) {
+            e.stopPropagation();
+            openAssemblySlider(btnAssembly.dataset.id);
             return;
         }
 
@@ -983,35 +1119,28 @@ async function handleFormSubmit(e) {
 
     const shouldSaveHistory = Boolean(document.getElementById('save_history_snapshot')?.checked);
 
-    // Sinkronkan teks level dari level_id yang dipilih
     if (payload.level_id) {
         const matchedLevel = levelsList.find(l => l.id === payload.level_id);
-        if (matchedLevel) {
-            payload.level = matchedLevel.kode;
-        }
+        if (matchedLevel) payload.level = matchedLevel.kode;
     }
 
     if (currentTab === "materi") {
-        // Jika sedang edit materi dan centang save_history_snapshot, simpan snapshot lama dulu
         if (editingId && shouldSaveHistory) {
             const oldMateri = currentMateriCache.find(m => m.id === editingId);
             if (oldMateri) {
-                const oldRpp = parseRppData(oldMateri);
+                const oldDetail = parseMateriDetail(oldMateri);
                 try {
                     await supabase.from('materi_versions').insert([{
                         materi_id: editingId,
-                        version: oldRpp.version || '1.0',
+                        version: oldDetail.version || '1.0',
                         title: oldMateri.title,
-                        version_notes: oldRpp.version_notes || 'Versi sebelum diperbarui',
-                        snapshot: oldRpp
+                        version_notes: oldDetail.version_notes || 'Versi sebelum diperbarui',
+                        snapshot: oldDetail
                     }]);
-                } catch (vErr) {
-                    console.warn("Gagal simpan snapshot ke materi_versions table:", vErr);
-                }
+                } catch (vErr) {}
             }
         }
 
-        // Simpan JSON fallback RPP ke dalam field detail agar fleksibel & kompatibel
         const rppBackup = {
             is_rpp: true,
             version: payload.version || '1.0',
@@ -1024,50 +1153,50 @@ async function handleFormSubmit(e) {
             kegiatan_penutup: payload.kegiatan_penutup || '',
             indikator_penilaian: payload.indikator_penilaian || ''
         };
-        // Jika detail kosong, isi dengan JSON RPP
-        if (!payload.detail) {
-            payload.detail = JSON.stringify(rppBackup);
+        payload.detail = JSON.stringify(rppBackup);
+
+        try {
+            const { error: saveErr } = editingId 
+                ? await supabase.from('materi').update(payload).eq('id', editingId)
+                : await supabase.from('materi').insert([payload]);
+
+            if (saveErr) {
+                delete payload.version; delete payload.version_notes; delete payload.alokasi_waktu;
+                delete payload.tujuan_pembelajaran; delete payload.alat_bahan; delete payload.kegiatan_apersepsi;
+                delete payload.kegiatan_inti; delete payload.kegiatan_penutup; delete payload.indikator_penilaian;
+
+                const { error: retryErr } = editingId 
+                    ? await supabase.from('materi').update(payload).eq('id', editingId)
+                    : await supabase.from('materi').insert([payload]);
+                if (retryErr) throw retryErr;
+            }
+
+            document.getElementById("modal-overlay").classList.remove("active");
+            loadData();
+            return;
+        } catch (err) {
+            alert("Error: " + err.message);
+            return;
         }
     }
 
     if (currentTab === "achievement") {
         const subInputs = Array.from(document.querySelectorAll(".sub-input"));
         payload.sub_achievement = subInputs.map(i => i.value.trim()).filter(v => v !== "").join('\n');
-    }
-
-    try {
         const { error } = editingId 
-            ? await supabase.from(tableMap[currentTab]).update(payload).eq('id', editingId) 
-            : await supabase.from(tableMap[currentTab]).insert([payload]);
-            
-        if (error) {
-            // Jika error karena kolom baru belum di-alter di Supabase DB, hapus field versi/rpp baru & simpan via JSON detail
-            delete payload.version;
-            delete payload.version_notes;
-            delete payload.alokasi_waktu;
-            delete payload.tujuan_pembelajaran;
-            delete payload.alat_bahan;
-            delete payload.kegiatan_apersepsi;
-            delete payload.kegiatan_inti;
-            delete payload.kegiatan_penutup;
-            delete payload.indikator_penilaian;
-
-            const { error: retryError } = editingId 
-                ? await supabase.from(tableMap[currentTab]).update(payload).eq('id', editingId) 
-                : await supabase.from(tableMap[currentTab]).insert([payload]);
-            if (retryError) throw retryError;
+            ? await supabase.from('achievement_sekolah').update(payload).eq('id', editingId)
+            : await supabase.from('achievement_sekolah').insert([payload]);
+        if (error) alert("Error: " + error.message);
+        else {
+            document.getElementById("modal-overlay").classList.remove("active");
+            loadData();
         }
-
-        document.getElementById("modal-overlay").classList.remove("active");
-        loadData();
-    } catch (err) {
-        alert("Error: " + err.message);
     }
 }
 
 async function openEdit(type, id) {
     const table = type === 'materi' ? 'materi' : 'achievement_sekolah';
-    const { data } = await supabase.from(table).select('*').eq('id', id).single();
+    const { data } = await supabase.from(table).select('*, assembly_guide_steps(*)').eq('id', id).single();
     if (data) {
         editingId = id;
         await injectFormFields("edit", data);
