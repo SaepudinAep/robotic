@@ -193,10 +193,12 @@ function parseMateriDetail(m) {
         history: []
     };
 
-    if (m.assembly_guide_steps && Array.isArray(m.assembly_guide_steps) && m.assembly_guide_steps.length > 0) {
-        result.assembly_steps = m.assembly_guide_steps
+    // Prioritas: dari join assembly_guides (nama tabel aktual di DB)
+    const guideRows = m.assembly_guides || m.assembly_guide_steps;
+    if (guideRows && Array.isArray(guideRows) && guideRows.length > 0) {
+        result.assembly_steps = guideRows
             .filter(st => !st.is_deleted)
-            .sort((a, b) => (a.step_number || 0) - (b.step_number || 0));
+            .sort((a, b) => (a.step_number || a.order_index || 0) - (b.step_number || b.order_index || 0));
     }
 
     if (m.detail && m.detail.startsWith('{') && m.detail.endsWith('}')) {
@@ -391,9 +393,10 @@ async function loadData() {
 
     try {
         if (currentTab === "materi") {
+            // === Query dengan kolom baru (setelah migrasi) ===
             let query = supabase
                 .from('materi')
-                .select('*, levels(id, kode, detail), sub_levels(name, kode), assembly_guide_steps(*)')
+                .select('*, levels(id, kode, detail), sub_levels(name, kode), assembly_guides(id, created_at)')
                 .or('is_deleted.is.null,is_deleted.eq.false')
                 .order('created_at', { ascending: false });
 
@@ -401,7 +404,25 @@ async function loadData() {
                 query = query.eq('level_id', selectedLevelId);
             }
 
-            const { data, error } = await query;
+            let { data, error } = await query;
+
+            // === Fallback: Jika tabel/kolom baru belum ada (migrasi belum dijalankan) ===
+            if (error) {
+                console.warn('[guru-materi] Query utama gagal, mencoba fallback:', error.message);
+                let fallbackQuery = supabase
+                    .from('materi')
+                    .select('*, levels(id, kode, detail), sub_levels(name, kode)')
+                    .order('created_at', { ascending: false });
+
+                if (selectedLevelId !== "all") {
+                    fallbackQuery = fallbackQuery.eq('level_id', selectedLevelId);
+                }
+
+                const fallback = await fallbackQuery;
+                data = fallback.data;
+                error = fallback.error;
+            }
+
             loading.style.display = 'none';
             if (error) throw error;
 
@@ -1194,7 +1215,7 @@ async function handleFormSubmit(e) {
 
 async function openEdit(type, id) {
     const table = type === 'materi' ? 'materi' : 'achievement_sekolah';
-    const { data } = await supabase.from(table).select('*, assembly_guide_steps(*)').eq('id', id).single();
+    const { data } = await supabase.from(table).select('*, assembly_guides(id, title, description, created_at)').eq('id', id).single();
     if (data) {
         editingId = id;
         await injectFormFields("edit", data);

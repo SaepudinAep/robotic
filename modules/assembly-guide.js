@@ -193,8 +193,8 @@ async function fetchData() {
         const [lv, sub, mSek, mPrv] = await Promise.all([
             supabase.from('levels').select('id, kode, detail').order('kode'),
             supabase.from('sub_levels').select('id, level_id, name, kode').order('name'),
-            supabase.from('materi').select('id, title, level_id, sub_level_id, image_url, description, detail, is_deleted, assembly_guide_steps(*)').or('is_deleted.is.null,is_deleted.eq.false'),
-            supabase.from('materi_private').select('id, judul, level_id, sub_level_id, image_url, deskripsi, detail, is_deleted, assembly_guide_steps(*)').or('is_deleted.is.null,is_deleted.eq.false')
+            supabase.from('materi').select('id, title, level_id, sub_level_id, image_url, description, detail, is_deleted, assembly_guides(id, title, description, created_at)').or('is_deleted.is.null,is_deleted.eq.false'),
+            supabase.from('materi_private').select('id, judul, level_id, sub_level_id, image_url, deskripsi, detail, is_deleted, assembly_guides(id, title, description, created_at)').or('is_deleted.is.null,is_deleted.eq.false')
         ]);
 
         if (lv.data) levelsList = lv.data;
@@ -228,7 +228,14 @@ function renderMateriOptions(category, lvlId, subLvlId, currentMateriId) {
 
 function parseMateriSteps(m) {
     let steps = [];
-    if (m.assembly_guide_steps && Array.isArray(m.assembly_guide_steps) && m.assembly_guide_steps.length > 0) {
+    // Prioritas 1: dari join assembly_guides (tabel DB aktual)
+    const guideRows = m.assembly_guides;
+    if (guideRows && Array.isArray(guideRows) && guideRows.length > 0) {
+        steps = guideRows
+            .filter(st => !st.is_deleted)
+            .sort((a, b) => (a.step_number || a.order_index || 0) - (b.step_number || b.order_index || 0));
+    } else if (m.assembly_guide_steps && Array.isArray(m.assembly_guide_steps) && m.assembly_guide_steps.length > 0) {
+        // Fallback ke nama lama jika ada
         steps = m.assembly_guide_steps
             .filter(st => !st.is_deleted)
             .sort((a, b) => (a.step_number || 0) - (b.step_number || 0));
@@ -828,11 +835,19 @@ async function handleFormSubmit(e) {
 
     try {
         try {
-            await supabase.from('assembly_guide_steps').delete().eq(fkCol, targetMateriId);
-            const fullSteps = stepsPayload.map(s => ({ ...s, [fkCol]: targetMateriId }));
-            await supabase.from('assembly_guide_steps').insert(fullSteps);
+            // Gunakan tabel 'assembly_guides' (nama tabel aktual di DB)
+            // Hapus entri lama lalu insert baru
+            await supabase.from('assembly_guides').delete().eq(fkCol, targetMateriId);
+            const fullSteps = stepsPayload.map(s => ({
+                [fkCol]: targetMateriId,
+                title: s.title,
+                description: s.instruction_text  // kolom 'description' di DB = instruction_text di UI
+            }));
+            if (fullSteps.length > 0) {
+                await supabase.from('assembly_guides').insert(fullSteps);
+            }
         } catch (sErr) {
-            console.warn("Tabel assembly_guide_steps error, menyimpan via JSON detail:", sErr);
+            console.warn("Tabel assembly_guides error, menyimpan via JSON detail:", sErr);
         }
 
         const list = cat === 'private' ? materiListPrivate : materiListSekolah;
@@ -876,7 +891,7 @@ async function deleteAssemblyGuide(materiId) {
             // Hard Delete
             if (confirm("PERINGATAN: Apakah Anda yakin ingin melakukan HARD DELETE PERMANEN dari database?")) {
                 try {
-                    await supabase.from('assembly_guide_steps').delete().eq(fkCol, materiId);
+                    await supabase.from('assembly_guides').delete().eq(fkCol, materiId);
                 } catch (e) {}
                 await supabase.from(tableName).delete().eq('id', materiId);
                 alert("Petunjuk perakitan & materi berhasil dihapus permanen.");

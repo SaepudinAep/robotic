@@ -11,6 +11,8 @@ import { openImageCropper } from '../assets/js/image-cropper.js';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // State Global
+let currentUserProfile = null;
+let userRole = 'teacher'; // 'super_admin' | 'teacher'
 let currentTab = "materi";
 let editingId = null;
 let editingType = null; // Menyimpan tipe spesifik seperti 'sub_levels' saat modal dibuka
@@ -22,7 +24,10 @@ let subLevelsList = [];
 // 1. INITIALIZATION
 // ==========================================
 
-export async function init(canvas) {
+export async function init(canvas, userProfile = null) {
+    currentUserProfile = userProfile;
+    userRole = userProfile?.role || 'teacher';
+
     // 1. Fetch Levels List
     await fetchLevels();
 
@@ -380,9 +385,11 @@ async function loadData() {
 
     try {
         if (currentTab === "materi") {
+            // === Query dengan kolom baru (setelah migrasi) ===
             let query = supabase
                 .from('materi_private')
                 .select('*, levels(id, kode, detail), sub_levels(name, kode)')
+                .or('is_deleted.is.null,is_deleted.eq.false')
                 .order('created_at', { ascending: false });
 
             // Filter Level jika dipilih
@@ -390,7 +397,25 @@ async function loadData() {
                 query = query.eq('level_id', selectedLevelId);
             }
 
-            const { data, error } = await query;
+            let { data, error } = await query;
+
+            // === Fallback: Jika kolom is_deleted belum ada (migrasi belum dijalankan) ===
+            if (error) {
+                console.warn('[materi-private] Query utama gagal, mencoba fallback:', error.message);
+                let fallbackQuery = supabase
+                    .from('materi_private')
+                    .select('*, levels(id, kode, detail), sub_levels(name, kode)')
+                    .order('created_at', { ascending: false });
+
+                if (selectedLevelId !== "all") {
+                    fallbackQuery = fallbackQuery.eq('level_id', selectedLevelId);
+                }
+
+                const fallback = await fallbackQuery;
+                data = fallback.data;
+                error = fallback.error;
+            }
+
             loading.style.display = 'none';
             if (error) throw error;
 
@@ -465,9 +490,11 @@ async function loadData() {
             }).join("");
         
         } else if (currentTab === "achievement") {
+            // === Query dengan kolom baru (setelah migrasi) ===
             let query = supabase
                 .from('achievement_private')
                 .select('*, levels(id, kode, detail), sub_levels(name, kode)')
+                .or('is_deleted.is.null,is_deleted.eq.false')
                 .order('created_at', { ascending: false });
 
             // Filter Level jika dipilih
@@ -475,7 +502,25 @@ async function loadData() {
                 query = query.eq('level_id', selectedLevelId);
             }
 
-            const { data, error } = await query;
+            let { data, error } = await query;
+
+            // === Fallback: Jika kolom is_deleted belum ada (migrasi belum dijalankan) ===
+            if (error) {
+                console.warn('[materi-private] achievement query gagal, mencoba fallback:', error.message);
+                let fallbackQuery = supabase
+                    .from('achievement_private')
+                    .select('*, levels(id, kode, detail), sub_levels(name, kode)')
+                    .order('created_at', { ascending: false });
+
+                if (selectedLevelId !== "all") {
+                    fallbackQuery = fallbackQuery.eq('level_id', selectedLevelId);
+                }
+
+                const fallback = await fallbackQuery;
+                data = fallback.data;
+                error = fallback.error;
+            }
+
             loading.style.display = 'none';
             if (error) throw error;
 
@@ -1039,14 +1084,63 @@ async function openEdit(type, id) {
 }
 
 async function deleteData(tableType, id) {
-    if (!confirm("Hapus data ini?")) return;
-    const { error } = await supabase.from(tableType).delete().eq('id', id);
-    if (!error) {
-        await fetchLevels();
-        loadData();
-    } else {
-        alert("Gagal hapus: " + error.message);
+    // Tabel master struktur (levels, sub_levels, teachers) — hanya super_admin yang boleh hapus
+    const masterTables = ['levels', 'sub_levels', 'teachers'];
+    const isMasterTable = masterTables.includes(tableType);
+
+    if (isMasterTable && userRole !== 'super_admin') {
+        alert("Akses Ditolak: Hanya Super Admin yang dapat menghapus data master Level, Sub-Level, atau Guru.");
+        return;
     }
+
+    if (userRole === 'super_admin') {
+        const action = confirm(
+            "Mode Super Admin:\n\nKlik 'OK' untuk Soft Delete (Disembunyikan)\nKlik 'Cancel' untuk Hard Delete Permanen dari Database."
+        );
+        if (action) {
+            // Soft Delete — hanya untuk tabel yang punya kolom is_deleted
+            if (!isMasterTable) {
+                const { error } = await supabase.from(tableType).update({
+                    is_deleted: true,
+                    deleted_at: new Date().toISOString(),
+                    deleted_by: currentUserProfile?.id || null
+                }).eq('id', id);
+                if (error) {
+                    alert("Gagal soft delete: " + error.message);
+                    return;
+                }
+                alert("Data berhasil disembunyikan (Soft Delete).");
+            } else {
+                // Master table tidak punya is_deleted, langsung hard delete
+                const { error } = await supabase.from(tableType).delete().eq('id', id);
+                if (error) { alert("Gagal hapus: " + error.message); return; }
+                alert("Data master berhasil dihapus.");
+            }
+        } else {
+            // Hard Delete Permanen
+            if (confirm("PERINGATAN: Yakin ingin melakukan HARD DELETE PERMANEN dari database?")) {
+                const { error } = await supabase.from(tableType).delete().eq('id', id);
+                if (error) { alert("Gagal hapus permanen: " + error.message); return; }
+                alert("Data berhasil dihapus permanen.");
+            }
+        }
+    } else {
+        // Teacher Role → Soft Delete saja (tidak boleh hard delete)
+        if (!confirm("Yakin ingin menyembunyikan data ini? (Soft Delete)")) return;
+        const { error } = await supabase.from(tableType).update({
+            is_deleted: true,
+            deleted_at: new Date().toISOString(),
+            deleted_by: currentUserProfile?.id || null
+        }).eq('id', id);
+        if (error) {
+            alert("Gagal menyembunyikan data: " + error.message);
+            return;
+        }
+        alert("Data berhasil disembunyikan (Soft Delete).");
+    }
+
+    await fetchLevels();
+    loadData();
 }
 
 // Sanitasi teks dari DB sebelum disuntik ke HTML (cegah XSS)
