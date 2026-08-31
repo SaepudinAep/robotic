@@ -35,6 +35,9 @@ export async function init(canvas) {
                     <button class="bp-mode-btn" data-mode="sekolah">
                         <i class="fas fa-school"></i> Sekolah
                     </button>
+                    <button class="bp-mode-btn" data-mode="guru">
+                        <i class="fas fa-chalkboard-teacher"></i> Rekap Guru
+                    </button>
                 </div>
             </div>
             <div id="bp-view"></div>
@@ -54,6 +57,9 @@ export async function init(canvas) {
             // dynamic import + cache-buster agar selalu versi terbaru
             const mod = await import('./billing-sekolah.js?v=' + Date.now());
             await mod.initSekolah(view);
+        } else if (mode === 'guru') {
+            const mod = await import('./billing-guru.js?v=' + Date.now());
+            await mod.initGuru(view);
         } else {
             await renderPrivate(view);
         }
