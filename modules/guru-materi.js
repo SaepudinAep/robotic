@@ -95,7 +95,7 @@ export async function init(canvas, userProfile = null) {
             <div class="modal-drawer">
                 <div class="modal-header">
                     <h2 id="modal-title">Input Data</h2>
-                    <button id="modal-close" class="close-btn">&times;</button>
+                    <button id="modal-close" class="close-btn" aria-label="Tutup">&times;</button>
                 </div>
                 <div class="modal-body">
                     <form id="dynamic-form">
@@ -124,7 +124,7 @@ export async function init(canvas, userProfile = null) {
                         <button id="btn-print-rpp" type="button" class="btn-action-icon" title="Cetak RPP" style="background:#eff6ff; color:#2563eb; border-color:#bfdbfe;">
                             <i class="fas fa-print"></i>
                         </button>
-                        <button id="modal-rpp-close" class="close-btn">&times;</button>
+                        <button id="modal-rpp-close" class="close-btn" aria-label="Tutup">&times;</button>
                     </div>
                 </div>
                 <div class="modal-body" id="rpp-preview-container">
@@ -141,7 +141,7 @@ export async function init(canvas, userProfile = null) {
                         <h2 id="viewer-robot-title" style="font-size:1.15rem; margin:0; color:#0f172a;">Nama Robot</h2>
                         <span id="viewer-step-badge" class="badge-sublevel-tag" style="margin-top:4px;">Step 1 dari 1</span>
                     </div>
-                    <button id="modal-ag-viewer-close" class="close-btn">&times;</button>
+                    <button id="modal-ag-viewer-close" class="close-btn" aria-label="Tutup">&times;</button>
                 </div>
                 <div class="modal-body" id="viewer-slider-body">
                     <!-- Dynamic Step Slide Content -->
@@ -193,24 +193,46 @@ function parseMateriDetail(m) {
         history: []
     };
 
-    // Prioritas: dari join assembly_guides (nama tabel aktual di DB)
-    const guideRows = m.assembly_guides || m.assembly_guide_steps;
-    if (guideRows && Array.isArray(guideRows) && guideRows.length > 0) {
-        result.assembly_steps = guideRows
-            .filter(st => !st.is_deleted)
-            .sort((a, b) => (a.step_number || a.order_index || 0) - (b.step_number || b.order_index || 0));
-    }
+    // Normalisasi field step agar viewer robust terhadap sumber data (baru vs legacy)
+    const normalizeStep = (s) => ({
+        step_number: s.step_number || s.order_index || 0,
+        title: s.title || s.step_title || '',
+        instruction_text: s.instruction_text || s.description || '',
+        image_url: s.image_url || null
+    });
+    const sortSteps = (a, b) => (a.step_number || 0) - (b.step_number || 0);
 
-    if (m.detail && m.detail.startsWith('{') && m.detail.endsWith('}')) {
+    // Kumpulkan step dari join assembly_guides (tabel aktual) & detail JSON (legacy/backup)
+    const guideRows = Array.isArray(m.assembly_guides) ? m.assembly_guides : (Array.isArray(m.assembly_guide_steps) ? m.assembly_guide_steps : []);
+    const joinSteps = guideRows
+        .filter(st => !st.is_deleted)
+        .map(normalizeStep)
+        .sort(sortSteps);
+
+    let jsonSteps = [];
+    if (m.detail && typeof m.detail === 'string' && m.detail.startsWith('{') && m.detail.endsWith('}')) {
         try {
             const jsonDetail = JSON.parse(m.detail);
             if (jsonDetail && jsonDetail.is_rpp) {
                 result = { ...result, ...jsonDetail };
-                if ((!result.assembly_steps || result.assembly_steps.length === 0) && jsonDetail.assembly_steps) {
-                    result.assembly_steps = jsonDetail.assembly_steps;
-                }
+            }
+            if (Array.isArray(jsonDetail.assembly_steps)) {
+                jsonSteps = jsonDetail.assembly_steps
+                    .filter(st => !st.is_deleted)
+                    .map(normalizeStep)
+                    .sort(sortSteps);
             }
         } catch (e) {}
+    }
+
+    // Pilih sumber PALING LENGKAP (memiliki foto), agar foto lama di detail JSON tetap tampil
+    const hasImages = arr => arr.some(s => Boolean(s.image_url));
+    if (jsonSteps.length > 0 && hasImages(jsonSteps)) {
+        result.assembly_steps = jsonSteps;
+    } else if (joinSteps.length > 0) {
+        result.assembly_steps = joinSteps;
+    } else if (jsonSteps.length > 0) {
+        result.assembly_steps = jsonSteps;
     }
     return result;
 }
@@ -283,11 +305,11 @@ function injectStyles() {
 
         .materi-actions { display: flex; align-items: center; gap: 8px; margin-left: 15px; }
         .btn-action-icon {
-            background: #f8fafc; border: 1px solid #e2e8f0; width: 38px; height: 38px;
+            background: #f8fafc; border: 1px solid #e2e8f0; width: 40px; height: 40px;
             border-radius: 10px; cursor: pointer; color: #64748b; display: flex;
             align-items: center; justify-content: center; font-size: 0.95rem; transition: 0.2s;
         }
-        .btn-action-icon:hover { background: #fee2e2; color: #ef4444; border-color: #fecaca; }
+        .btn-action-icon.btn-delete:hover { background: #fee2e2; color: #ef4444; border-color: #fecaca; }
         
         .btn-rpp-view {
             background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; padding: 8px 12px;
@@ -361,11 +383,20 @@ function injectStyles() {
 
         .rpp-block { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 14px; }
         .rpp-block h4 { margin: 0 0 10px 0; font-size: 0.95rem; font-weight: 800; color: #2563eb; display: flex; align-items: center; gap: 8px; border-bottom: 1px dashed #e2e8f0; padding-bottom: 6px; }
-        .rpp-block-content { font-size: 0.9rem; color: #334155; line-height: 1.6; whitespace: pre-line; }
+        .rpp-block-content { font-size: 0.9rem; color: #334155; line-height: 1.6; white-space: pre-line; }
 
         .fade-in { animation: fadeIn 0.3s ease-out; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+        @media print {
+            body * { visibility: hidden; }
+            #rpp-printable-area, #rpp-printable-area * { visibility: visible; }
+            #rpp-printable-area {
+                position: absolute; left: 0; top: 0; width: 100%; max-width: 100%;
+                box-shadow: none; border: none; margin: 0;
+            }
+        }
 
         @media (max-width: 600px) {
             .materi-card { flex-direction: column; align-items: flex-start; gap: 12px; }
@@ -396,7 +427,7 @@ async function loadData() {
             // === Query dengan kolom baru (setelah migrasi) ===
             let query = supabase
                 .from('materi')
-                .select('*, levels(id, kode, detail), sub_levels(name, kode), assembly_guides(id, created_at)')
+                .select('*, levels(id, kode, detail), sub_levels(name, kode), assembly_guides(id, title, description, image_url, step_number, instruction_text, created_at)')
                 .or('is_deleted.is.null,is_deleted.eq.false')
                 .order('created_at', { ascending: false });
 
@@ -454,7 +485,7 @@ async function loadData() {
                 const hasDesc = Boolean((m.description && m.description.trim()) || (m.detail && m.detail.trim()));
                 const hasRpp = Boolean(rpp.tujuan_pembelajaran || rpp.kegiatan_inti);
                 const hasAssembly = Boolean(rpp.assembly_steps && rpp.assembly_steps.length > 0);
-                const isComplete = hasTitle && hasImg && hasDesc;
+                const isComplete = hasTitle && hasImg && hasDesc && hasRpp && hasAssembly;
                 const levelName = m.levels?.kode || m.level || 'Umum';
                 const subLevelName = m.sub_level_id ? (m.sub_levels?.name || m.sub_levels?.kode || '') : '';
 
@@ -501,13 +532,13 @@ async function loadData() {
                         </div>
 
                         <div class="materi-actions">
-                            <button class="btn-rpp-view" data-action="view-rpp" data-id="${m.id}" title="Lihat RPP">
+                            <button class="btn-rpp-view" data-action="view-rpp" data-id="${m.id}" title="Lihat RPP" aria-label="Lihat RPP">
                                 <i class="fas fa-file-signature"></i> RPP
                             </button>
-                            <button class="btn-assembly-view" data-action="view-assembly" data-id="${m.id}" title="Buka Petunjuk Perakitan Slider">
+                            <button class="btn-assembly-view" data-action="view-assembly" data-id="${m.id}" title="Buka Petunjuk Perakitan Slider" aria-label="Buka petunjuk perakitan slider">
                                 <i class="fas fa-puzzle-piece"></i> Perakitan
                             </button>
-                            <button class="btn-action-icon btn-delete" data-id="${m.id}" data-type="materi" title="Hapus Materi">
+                            <button class="btn-action-icon btn-delete" data-id="${m.id}" data-type="materi" title="Hapus Materi" aria-label="Hapus Materi">
                                 <i class="fas fa-trash-can"></i>
                             </button>
                         </div>
@@ -564,7 +595,7 @@ async function loadData() {
                                     <span>${a.main_achievement}</span>
                                 </div>
                             </div>
-                            <button class="btn-action-icon btn-delete" data-id="${a.id}" data-type="achievement_sekolah" title="Hapus Achievement">
+                            <button class="btn-action-icon btn-delete" data-id="${a.id}" data-type="achievement_sekolah" title="Hapus Achievement" aria-label="Hapus Achievement">
                                 <i class="fas fa-trash-can"></i>
                             </button>
                         </div>
@@ -1024,7 +1055,11 @@ function renderSliderStep() {
 function setupEventListeners() {
     document.getElementById("btnMateri").onclick = () => switchTab('materi');
     document.getElementById("btnAchievement").onclick = () => switchTab('achievement');
-    document.getElementById("globalSearch").oninput = loadData;
+    let searchDebounce;
+    document.getElementById("globalSearch").oninput = () => {
+        clearTimeout(searchDebounce);
+        searchDebounce = setTimeout(loadData, 300);
+    };
 
     const chipContainer = document.getElementById("level-filter-bar");
     chipContainer.onclick = (e) => {
@@ -1116,6 +1151,16 @@ function setupEventListeners() {
             openEdit(card.dataset.type, card.dataset.id);
         }
     };
+
+    // Tutup modal saat klik backdrop atau tekan Escape
+    document.querySelectorAll('.modal-overlay').forEach(ov => {
+        ov.onmousedown = (ev) => { if (ev.target === ov) ov.classList.remove('active'); };
+    });
+    document.onkeydown = (ev) => {
+        if (ev.key === 'Escape') {
+            document.querySelectorAll('.modal-overlay.active').forEach(ov => ov.classList.remove('active'));
+        }
+    };
 }
 
 function switchTab(tab) {
@@ -1192,9 +1237,10 @@ async function handleFormSubmit(e) {
 
             document.getElementById("modal-overlay").classList.remove("active");
             loadData();
+            showToast(editingId ? "Materi & RPP berhasil diperbarui." : "Materi & RPP berhasil disimpan.", 'success');
             return;
         } catch (err) {
-            alert("Error: " + err.message);
+            showToast("Error: " + err.message, 'error');
             return;
         }
     }
@@ -1205,17 +1251,24 @@ async function handleFormSubmit(e) {
         const { error } = editingId 
             ? await supabase.from('achievement_sekolah').update(payload).eq('id', editingId)
             : await supabase.from('achievement_sekolah').insert([payload]);
-        if (error) alert("Error: " + error.message);
+        if (error) showToast("Error: " + error.message, 'error');
         else {
             document.getElementById("modal-overlay").classList.remove("active");
             loadData();
+            showToast(editingId ? "Achievement berhasil diperbarui." : "Achievement berhasil disimpan.", 'success');
         }
     }
 }
 
 async function openEdit(type, id) {
     const table = type === 'materi' ? 'materi' : 'achievement_sekolah';
-    const { data } = await supabase.from(table).select('*, assembly_guides(id, title, description, created_at)').eq('id', id).single();
+    let { data, error } = await supabase.from(table).select('*, assembly_guides(id, title, description, image_url, step_number, instruction_text, created_at)').eq('id', id).single();
+    if (error) {
+        // Fallback: jika kolom embed belum ada (migrasi 02 belum diterapkan), muat tanpa embed
+        console.warn('[guru-materi] Embed assembly_guides gagal, fallback select dasar:', error.message);
+        const fb = await supabase.from(table).select('*').eq('id', id).single();
+        data = fb.data;
+    }
     if (data) {
         editingId = id;
         await injectFormFields("edit", data);
@@ -1223,40 +1276,135 @@ async function openEdit(type, id) {
     }
 }
 
+function showToast(message, type = 'success') {
+    const toast = document.createElement('div');
+    toast.className = 'gm-toast';
+    toast.style.cssText = `
+        position:fixed;bottom:26px;left:50%;transform:translateX(-50%) translateY(20px);
+        background:#1e293b;color:#fff;padding:12px 20px;border-radius:12px;font-size:.88rem;
+        font-weight:700;z-index:2500;opacity:0;transition:.25s;box-shadow:0 10px 30px rgba(0,0,0,.25);
+        display:flex;align-items:center;gap:8px;max-width:90vw;font-family:'Roboto',sans-serif;
+    `;
+    if (type === 'success') toast.style.background = '#059669';
+    if (type === 'error') toast.style.background = '#dc2626';
+    if (type === 'info') toast.style.background = '#2563eb';
+    toast.innerHTML = `<i class="fas ${type === 'success' ? 'fa-circle-check' : type === 'error' ? 'fa-circle-exclamation' : 'fa-info-circle'}"></i> ${message}`;
+    document.body.appendChild(toast);
+    requestAnimationFrame(() => {
+        toast.style.opacity = '1';
+        toast.style.transform = 'translateX(-50%) translateY(0)';
+    });
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(-50%) translateY(20px)';
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
+function openDeleteDialog({ title, message, softLabel = 'Sembunyikan (Soft Delete)', onSoft, onHard }) {
+    const overlay = document.createElement('div');
+    overlay.className = 'gm-del-overlay';
+    overlay.innerHTML = `
+        <div class="gm-del-box">
+            <div class="gm-del-head">
+                <h3 style="margin:0;font-size:1.05rem;color:#1e293b;display:flex;align-items:center;gap:8px;">
+                    <i class="fas fa-trash-can" style="color:#ef4444;"></i>${title}
+                </h3>
+                <button type="button" class="gm-del-x" aria-label="Tutup">&times;</button>
+            </div>
+            <p class="gm-del-msg">${message}</p>
+            <div class="gm-del-actions">
+                <button type="button" class="gm-del-btn gm-del-cancel">Batal</button>
+                <button type="button" class="gm-del-btn gm-del-soft">${softLabel}</button>
+                <button type="button" class="gm-del-btn gm-del-hard" style="${onHard ? '' : 'display:none;'}">Hapus Permanen</button>
+            </div>
+            <div class="gm-del-hardzone" style="display:none;margin-top:14px;border-top:1px dashed #fecaca;padding-top:12px;">
+                <label style="font-size:.82rem;font-weight:700;color:#dc2626;display:block;margin-bottom:6px;">
+                    <i class="fas fa-key"></i> Ketik <strong>HAPUS</strong> untuk konfirmasi permanen:
+                </label>
+                <input type="text" class="gm-del-input" placeholder="HAPUS" autocomplete="off"
+                    style="width:100%;padding:10px 12px;border:1px solid #fecaca;border-radius:10px;font-family:inherit;outline:none;">
+                <button type="button" class="gm-del-btn gm-del-hard-confirm" disabled
+                    style="margin-top:10px;width:100%;background:#dc2626;color:#fff;border:none;padding:11px 14px;border-radius:10px;font-weight:800;cursor:pointer;">
+                    <i class="fas fa-radiation"></i> Ya, Hapus Permanen Sekarang
+                </button>
+            </div>
+        </div>
+    `;
+
+    const styleEl = document.createElement('style');
+    styleEl.textContent = `
+        .gm-del-overlay{position:fixed;inset:0;background:rgba(15,23,42,.55);backdrop-filter:blur(3px);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px;animation:fadeIn .2s ease-out;}
+        .gm-del-box{background:#fff;border-radius:18px;max-width:430px;width:100%;padding:22px;box-shadow:0 20px 50px rgba(0,0,0,.25);}
+        .gm-del-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+        .gm-del-x{background:none;border:none;font-size:1.6rem;color:#94a3b8;cursor:pointer;line-height:1;}
+        .gm-del-msg{color:#475569;font-size:.92rem;line-height:1.65;margin:0 0 18px;}
+        .gm-del-actions{display:flex;gap:8px;flex-wrap:wrap;}
+        .gm-del-btn{padding:11px 12px;border-radius:11px;font-weight:800;font-size:.85rem;cursor:pointer;border:1px solid;flex:1;min-width:0;transition:.2s;font-family:inherit;}
+        .gm-del-cancel{background:#f1f5f9;color:#475569;border-color:#e2e8f0;}
+        .gm-del-cancel:hover{background:#e2e8f0;}
+        .gm-del-soft{background:#fffbeb;color:#b45309;border-color:#fde68a;}
+        .gm-del-soft:hover{background:#fef3c7;}
+        .gm-del-hard{background:#fff1f2;color:#dc2626;border-color:#fecaca;}
+        .gm-del-hard:hover{background:#fee2e2;}
+        .gm-del-hard:disabled,.gm-del-hard-confirm:disabled{opacity:.45;cursor:not-allowed;}
+    `;
+    document.head.appendChild(styleEl);
+    document.body.appendChild(overlay);
+
+    const box = overlay.querySelector('.gm-del-box');
+    const hardZone = overlay.querySelector('.gm-del-hardzone');
+    const input = overlay.querySelector('.gm-del-input');
+    const hardBtn = overlay.querySelector('.gm-del-hard-confirm');
+    let busy = false;
+
+    const destroy = () => { overlay.remove(); styleEl.remove(); };
+
+    overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) destroy(); });
+    box.querySelector('.gm-del-x').onclick = destroy;
+    box.querySelector('.gm-del-cancel').onclick = destroy;
+    box.querySelector('.gm-del-soft').onclick = async () => {
+        if (busy) return;
+        busy = true;
+        try { await onSoft(); } finally { destroy(); }
+    };
+    box.querySelector('.gm-del-hard').onclick = () => { hardZone.style.display = 'block'; input.focus(); };
+    input.oninput = () => { hardBtn.disabled = input.value.trim().toUpperCase() !== 'HAPUS'; };
+    hardBtn.onclick = async () => {
+        if (busy) return;
+        busy = true;
+        try { await onHard(); } finally { destroy(); }
+    };
+}
+
 // RBAC DELETION LOGIC: Soft Delete for Teacher, Hard/Soft Delete for Super Admin
 async function deleteData(tableType, id) {
-    if (userRole === 'super_admin') {
-        const action = confirm(
-            "Mode Super Admin:\n\nKlik 'OK' untuk Soft Delete (Disembunyikan)\nKlik 'Cancel' untuk Hard Delete Permanen dari Database."
-        );
-        if (action) {
-            await supabase.from(tableType).update({
-                is_deleted: true,
-                deleted_at: new Date().toISOString(),
-                deleted_by: currentUserProfile?.id || null
-            }).eq('id', id);
-            alert("Data berhasil disembunyikan (Soft Delete).");
-        } else {
-            if (confirm("PERINGATAN: Yakin ingin melakukan HARD DELETE PERMANEN dari database?")) {
-                const { error } = await supabase.from(tableType).delete().eq('id', id);
-                if (error) alert("Gagal menghapus permanen: " + error.message);
-                else alert("Data berhasil dihapus permanen.");
-            }
-        }
-    } else {
-        // Teacher Role -> Always Soft Delete
-        if (!confirm("Yakin ingin menyembunyikan data ini? (Soft Delete)")) return;
-        try {
-            await supabase.from(tableType).update({
-                is_deleted: true,
-                deleted_at: new Date().toISOString(),
-                deleted_by: currentUserProfile?.id || null
-            }).eq('id', id);
-            alert("Data berhasil disembunyikan (Soft Delete).");
-        } catch (err) {
-            alert("Gagal menyembunyikan data: " + err.message);
-        }
-    }
+    const softPayload = {
+        is_deleted: true,
+        deleted_at: new Date().toISOString(),
+        deleted_by: currentUserProfile?.id || null
+    };
 
-    loadData();
+    openDeleteDialog({
+        title: userRole === 'super_admin' ? 'Hapus Data' : 'Sembunyikan Data',
+        message: userRole === 'super_admin'
+            ? '"Sembunyikan" menyembunyikan data dari aplikasi, sedangkan "Hapus Permanen" menghapus data dari database (tidak bisa dikembalikan).'
+            : 'Sebagai Guru, Anda hanya dapat menyembunyikan data (Soft Delete). Data tidak akan tampil lagi di aplikasi.',
+        softLabel: 'Sembunyikan',
+        onSoft: async () => {
+            try {
+                await supabase.from(tableType).update(softPayload).eq('id', id);
+                showToast('Data berhasil disembunyikan (Soft Delete).', 'success');
+            } catch (err) {
+                showToast('Gagal menyembunyikan data: ' + err.message, 'error');
+            }
+            loadData();
+        },
+        onHard: userRole === 'super_admin' ? async () => {
+            const { error } = await supabase.from(tableType).delete().eq('id', id);
+            if (error) showToast('Gagal menghapus permanen: ' + error.message, 'error');
+            else showToast('Data berhasil dihapus permanen.', 'success');
+            loadData();
+        } : null
+    });
 }

@@ -95,7 +95,7 @@ export async function init(canvas, userProfile = null) {
             <div class="modal-drawer ag-builder-drawer">
                 <div class="modal-header">
                     <h2 id="ag-modal-title">Input Petunjuk Perakitan Robot</h2>
-                    <button id="modal-ag-close" class="close-btn">&times;</button>
+                    <button id="modal-ag-close" class="close-btn" aria-label="Tutup">&times;</button>
                 </div>
                 <div class="modal-body">
                     <form id="ag-form">
@@ -163,7 +163,7 @@ export async function init(canvas, userProfile = null) {
                         <h2 id="viewer-robot-title" style="font-size:1.15rem; margin:0; color:#0f172a;">Nama Robot</h2>
                         <span id="viewer-step-badge" class="badge-sublevel-tag" style="margin-top:4px;">Step 1 dari 1</span>
                     </div>
-                    <button id="modal-ag-viewer-close" class="close-btn">&times;</button>
+                    <button id="modal-ag-viewer-close" class="close-btn" aria-label="Tutup">&times;</button>
                 </div>
                 <div class="modal-body" id="viewer-slider-body">
                     <!-- Dynamic Step Slide Content -->
@@ -190,16 +190,46 @@ export async function init(canvas, userProfile = null) {
 // ==========================================
 async function fetchData() {
     try {
-        const [lv, sub, mSek, mPrv] = await Promise.all([
+        const [lv, sub] = await Promise.all([
             supabase.from('levels').select('id, kode, detail').order('kode'),
-            supabase.from('sub_levels').select('id, level_id, name, kode').order('name'),
-            supabase.from('materi').select('id, title, level_id, sub_level_id, image_url, description, detail, is_deleted, assembly_guides(id, title, description, created_at)').or('is_deleted.is.null,is_deleted.eq.false'),
-            supabase.from('materi_private').select('id, judul, level_id, sub_level_id, image_url, deskripsi, detail, is_deleted, assembly_guides(id, title, description, created_at)').or('is_deleted.is.null,is_deleted.eq.false')
+            supabase.from('sub_levels').select('id, level_id, name, kode').order('name')
         ]);
-
         if (lv.data) levelsList = lv.data;
         if (sub.data) subLevelsList = sub.data;
+
+        // Embed assembly_guides memakai kolom hasil migrasi 02.
+        // Jika migrasi belum diterapkan di database, query akan error — fallback ke kolom dasar
+        // agar katalog Materi Sekolah/Private TETAP tampil (langkah dibaca dari `detail` JSON).
+        const AG_ADV = 'assembly_guides(id, title, description, image_url, step_number, instruction_text, created_at)';
+
+        let mSek = await supabase
+            .from('materi')
+            .select(`id, title, level_id, sub_level_id, image_url, description, detail, is_deleted, ${AG_ADV}`)
+            .or('is_deleted.is.null,is_deleted.eq.false')
+            .order('created_at', { ascending: false });
+        if (mSek.error) {
+            console.warn('[assembly-guide] Embed assembly_guides (sekolah) gagal, fallback ke kolom dasar:', mSek.error.message);
+            mSek = await supabase
+                .from('materi')
+                .select('id, title, level_id, sub_level_id, image_url, description, detail, is_deleted')
+                .or('is_deleted.is.null,is_deleted.eq.false')
+                .order('created_at', { ascending: false });
+        }
         if (mSek.data) materiListSekolah = mSek.data;
+
+        let mPrv = await supabase
+            .from('materi_private')
+            .select(`id, judul, level_id, sub_level_id, image_url, deskripsi, detail, is_deleted, ${AG_ADV}`)
+            .or('is_deleted.is.null,is_deleted.eq.false')
+            .order('created_at', { ascending: false });
+        if (mPrv.error) {
+            console.warn('[assembly-guide] Embed assembly_guides (private) gagal, fallback ke kolom dasar:', mPrv.error.message);
+            mPrv = await supabase
+                .from('materi_private')
+                .select('id, judul, level_id, sub_level_id, image_url, deskripsi, detail, is_deleted')
+                .or('is_deleted.is.null,is_deleted.eq.false')
+                .order('created_at', { ascending: false });
+        }
         if (mPrv.data) materiListPrivate = mPrv.data;
     } catch (e) {
         console.error("Gagal memuat data Assembly Guide:", e);
@@ -227,23 +257,48 @@ function renderMateriOptions(category, lvlId, subLvlId, currentMateriId) {
 }
 
 function parseMateriSteps(m) {
+    // Normalisasi field agar viewer robust terhadap sumber data (baru vs legacy)
+    const normalizeStep = (s) => ({
+        step_number: s.step_number || s.order_index || 0,
+        title: s.title || s.step_title || '',
+        instruction_text: s.instruction_text || s.description || '',
+        image_url: s.image_url || null
+    });
+    const sortSteps = (a, b) => (a.step_number || 0) - (b.step_number || 0);
+
     let steps = [];
-    // Prioritas 1: dari join assembly_guides (tabel DB aktual)
-    const guideRows = m.assembly_guides;
-    if (guideRows && Array.isArray(guideRows) && guideRows.length > 0) {
-        steps = guideRows
-            .filter(st => !st.is_deleted)
-            .sort((a, b) => (a.step_number || a.order_index || 0) - (b.step_number || b.order_index || 0));
-    } else if (m.assembly_guide_steps && Array.isArray(m.assembly_guide_steps) && m.assembly_guide_steps.length > 0) {
-        // Fallback ke nama lama jika ada
-        steps = m.assembly_guide_steps
-            .filter(st => !st.is_deleted)
-            .sort((a, b) => (a.step_number || 0) - (b.step_number || 0));
-    } else if (m.detail && m.detail.startsWith('{') && m.detail.endsWith('}')) {
+
+    // Sumber 1: join assembly_guides (tabel DB aktual, setelah migrasi berisi image_url & step_number)
+    const guideRows = (m.assembly_guides && Array.isArray(m.assembly_guides))
+        ? m.assembly_guides
+        : (Array.isArray(m.assembly_guide_steps) ? m.assembly_guide_steps : []);
+    const joinSteps = guideRows
+        .filter(st => !st.is_deleted)
+        .map(normalizeStep)
+        .sort(sortSteps);
+
+    // Sumber 2: detail JSON (legacy / backup) — sering kali lebih lengkap (berisi image_url)
+    let jsonSteps = [];
+    if (m.detail && typeof m.detail === 'string' && m.detail.startsWith('{') && m.detail.endsWith('}')) {
         try {
             const parsed = JSON.parse(m.detail);
-            if (parsed.assembly_steps) steps = parsed.assembly_steps;
+            if (Array.isArray(parsed.assembly_steps)) {
+                jsonSteps = parsed.assembly_steps
+                    .filter(st => !st.is_deleted)
+                    .map(normalizeStep)
+                    .sort(sortSteps);
+            }
         } catch (e) {}
+    }
+
+    // Pilih sumber PALING LENGKAP (memiliki foto/instruksi), agar foto lama di detail JSON tetap tampil.
+    const hasImages = arr => arr.some(s => Boolean(s.image_url));
+    if (jsonSteps.length > 0 && hasImages(jsonSteps)) {
+        steps = jsonSteps;
+    } else if (joinSteps.length > 0) {
+        steps = joinSteps;
+    } else if (jsonSteps.length > 0) {
+        steps = jsonSteps;
     }
     return steps;
 }
@@ -375,11 +430,12 @@ function injectStyles() {
         .btn-start-build:hover { background: #059669; }
 
         .btn-action-icon {
-            background: #f8fafc; border: 1px solid #e2e8f0; width: 36px; height: 36px;
+            background: #f8fafc; border: 1px solid #e2e8f0; width: 40px; height: 40px;
             border-radius: 10px; cursor: pointer; color: #64748b; display: flex;
             align-items: center; justify-content: center; font-size: 0.9rem; transition: 0.2s;
         }
-        .btn-action-icon:hover { background: #fee2e2; color: #ef4444; border-color: #fecaca; }
+        .btn-action-icon.btn-delete-assembly:hover { background: #fee2e2; color: #ef4444; border-color: #fecaca; }
+        .btn-action-icon.btn-edit-trigger:hover { background: #eff6ff; color: #2563eb; border-color: #bfdbfe; }
 
         /* FAB Button */
         .fab-btn {
@@ -463,6 +519,9 @@ async function loadCatalogData() {
         return title.includes(search) || desc.includes(search);
     });
 
+    // Urutkan dari terbaru (created_at menurun; row dengan created_at null ditaruh paling bawah)
+    filtered.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+
     loading.style.display = 'none';
 
     if (!filtered.length) {
@@ -503,13 +562,13 @@ async function loadCatalogData() {
                     <div class="ag-card-footer">
                         <span class="badge-rpp-pill"><i class="fas fa-list-ol"></i> ${steps.length} Step Perakitan</span>
                         <div style="display:flex; gap:6px;">
-                            <button class="btn-start-build" data-action="view-slider" data-id="${m.id}">
+                            <button class="btn-start-build" data-action="view-slider" data-id="${m.id}" aria-label="Buka slider perakitan">
                                 <i class="fas fa-play"></i> Rakit
                             </button>
-                            <button class="btn-action-icon btn-edit-trigger" data-action="edit" data-id="${m.id}" title="Edit Petunjuk Perakitan">
+                            <button class="btn-action-icon btn-edit-trigger" data-action="edit" data-id="${m.id}" title="Edit Petunjuk Perakitan" aria-label="Edit Petunjuk Perakitan">
                                 <i class="fas fa-pen"></i>
                             </button>
-                            <button class="btn-action-icon btn-delete-assembly" data-action="delete" data-id="${m.id}" title="Hapus Petunjuk Perakitan">
+                            <button class="btn-action-icon btn-delete-assembly" data-action="delete" data-id="${m.id}" title="Hapus Petunjuk Perakitan" aria-label="Hapus Petunjuk Perakitan">
                                 <i class="fas fa-trash-can"></i>
                             </button>
                         </div>
@@ -586,9 +645,9 @@ function addStepRow(st = {}) {
         <div class="ag-step-row-header">
             <span><i class="fas fa-list-ol"></i> Step ${stepIdx}</span>
             <div style="display:flex; gap:4px;">
-                <button type="button" class="btn-action-icon btn-move-step" data-dir="-1" title="Naikkan"><i class="fas fa-arrow-up"></i></button>
-                <button type="button" class="btn-action-icon btn-move-step" data-dir="1" title="Turunkan"><i class="fas fa-arrow-down"></i></button>
-                <button type="button" class="btn-action-icon btn-remove-step" title="Hapus Step" style="color:#ef4444;"><i class="fas fa-trash-can"></i></button>
+                <button type="button" class="btn-action-icon btn-move-step" data-dir="-1" title="Naikkan" aria-label="Naikkan langkah"><i class="fas fa-arrow-up"></i></button>
+                <button type="button" class="btn-action-icon btn-move-step" data-dir="1" title="Turunkan" aria-label="Turunkan langkah"><i class="fas fa-arrow-down"></i></button>
+                <button type="button" class="btn-action-icon btn-remove-step" title="Hapus Step" style="color:#ef4444;" aria-label="Hapus langkah"><i class="fas fa-trash-can"></i></button>
             </div>
         </div>
         <div style="display:flex; gap:12px; flex-wrap:wrap;">
@@ -616,7 +675,7 @@ function addStepRow(st = {}) {
                 row.querySelector('.img-preview-step').src = secureUrl;
                 row.querySelector('.btn-upload-step-img').innerHTML = `<i class="fas fa-check"></i> Tersimpan`;
             } catch (err) {
-                alert("Gagal mengompres/upload foto: " + err.message);
+                showToast("Gagal mengompres/upload foto: " + err.message, 'error');
                 row.querySelector('.btn-upload-step-img').innerHTML = `<i class="fas fa-camera"></i> Coba Lagi`;
             }
         });
@@ -676,10 +735,19 @@ function renderSliderStep() {
 
     if (!steps || !steps.length) {
         container.innerHTML = `
-            <div style="text-align:center; padding:40px; color:#94a3b8;">
+            <div style="text-align:center; padding:50px; color:#94a3b8;">
                 <i class="fas fa-puzzle-piece fa-3x" style="margin-bottom:12px; color:#cbd5e1;"></i>
-                <p>Belum ada langkah perakitan untuk robot ini.</p>
+                <h3 style="margin:0 0 6px 0; color:#1e293b;">Belum ada Langkah Perakitan</h3>
+                <p style="margin:0; font-size:0.9rem;">Klik tombol <strong>+</strong> atau Edit pada kartu untuk menambahkan langkah &amp; foto perakitan robot ini.</p>
             </div>`;
+        const badgeEl = document.getElementById("viewer-step-badge");
+        if (badgeEl) badgeEl.innerText = "0 Step";
+        const dotsEl = document.getElementById("viewer-dots-container");
+        if (dotsEl) dotsEl.innerHTML = "";
+        const bPrev = document.getElementById("btn-prev-step");
+        const bNext = document.getElementById("btn-next-step");
+        if (bPrev) { bPrev.disabled = true; bPrev.innerHTML = `<i class="fas fa-arrow-left"></i> Sebelumnya`; }
+        if (bNext) { bNext.disabled = true; bNext.innerHTML = `Selesai <i class="fas fa-check-circle"></i>`; }
         return;
     }
 
@@ -730,7 +798,11 @@ function setupEventListeners() {
     document.getElementById("btnCatSekolah").onclick = () => switchCategory('sekolah');
     document.getElementById("btnCatPrivate").onclick = () => switchCategory('private');
 
-    document.getElementById("globalSearchAssembly").oninput = loadCatalogData;
+    let searchDebounce;
+    document.getElementById("globalSearchAssembly").oninput = () => {
+        clearTimeout(searchDebounce);
+        searchDebounce = setTimeout(loadCatalogData, 300);
+    };
 
     const chipContainer = document.getElementById("level-filter-bar-ag");
     chipContainer.onclick = (e) => {
@@ -802,6 +874,16 @@ function setupEventListeners() {
             deleteAssemblyGuide(btnDelete.dataset.id);
         }
     };
+
+    // Tutup modal saat klik backdrop atau tekan Escape
+    document.querySelectorAll('.modal-overlay').forEach(ov => {
+        ov.onmousedown = (ev) => { if (ev.target === ov) ov.classList.remove('active'); };
+    });
+    document.onkeydown = (ev) => {
+        if (ev.key === 'Escape') {
+            document.querySelectorAll('.modal-overlay.active').forEach(ov => ov.classList.remove('active'));
+        }
+    };
 }
 
 function switchCategory(cat) {
@@ -818,7 +900,7 @@ async function handleFormSubmit(e) {
     const targetMateriId = document.getElementById("ag_form_materi_id").value;
 
     if (!targetMateriId) {
-        alert("Pilih Materi / Topik Robot terlebih dahulu.");
+        showToast("Pilih Materi / Topik Robot terlebih dahulu.", 'info');
         return;
     }
 
@@ -841,7 +923,9 @@ async function handleFormSubmit(e) {
             const fullSteps = stepsPayload.map(s => ({
                 [fkCol]: targetMateriId,
                 title: s.title,
-                description: s.instruction_text  // kolom 'description' di DB = instruction_text di UI
+                description: s.instruction_text, // kolom 'description' di DB = instruction_text di UI
+                image_url: s.image_url,          // kolom hasil migrasi 02 (foto langkah)
+                step_number: s.step_number       // urutan langkah
             }));
             if (fullSteps.length > 0) {
                 await supabase.from('assembly_guides').insert(fullSteps);
@@ -865,9 +949,111 @@ async function handleFormSubmit(e) {
 
         document.getElementById("modal-ag-builder").classList.remove("active");
         await loadCatalogData();
+        showToast(editingMateriId ? "Petunjuk perakitan berhasil diperbarui." : "Petunjuk perakitan berhasil disimpan.", 'success');
     } catch (err) {
-        alert("Gagal menyimpan Petunjuk Perakitan: " + err.message);
+        showToast("Gagal menyimpan Petunjuk Perakitan: " + err.message, 'error');
     }
+}
+
+function showToast(message, type = 'success') {
+    const toast = document.createElement('div');
+    toast.className = 'ag-toast';
+    toast.style.cssText = `
+        position:fixed;bottom:26px;left:50%;transform:translateX(-50%) translateY(20px);
+        background:#1e293b;color:#fff;padding:12px 20px;border-radius:12px;font-size:.88rem;
+        font-weight:700;z-index:2500;opacity:0;transition:.25s;box-shadow:0 10px 30px rgba(0,0,0,.25);
+        display:flex;align-items:center;gap:8px;max-width:90vw;font-family:'Roboto',sans-serif;
+    `;
+    if (type === 'success') toast.style.background = '#059669';
+    if (type === 'error') toast.style.background = '#dc2626';
+    if (type === 'info') toast.style.background = '#2563eb';
+    toast.innerHTML = `<i class="fas ${type === 'success' ? 'fa-circle-check' : type === 'error' ? 'fa-circle-exclamation' : 'fa-info-circle'}"></i> ${message}`;
+    document.body.appendChild(toast);
+    requestAnimationFrame(() => {
+        toast.style.opacity = '1';
+        toast.style.transform = 'translateX(-50%) translateY(0)';
+    });
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(-50%) translateY(20px)';
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
+function openDeleteDialog({ title, message, softLabel = 'Sembunyikan (Soft Delete)', onSoft, onHard }) {
+    const overlay = document.createElement('div');
+    overlay.className = 'ag-del-overlay';
+    overlay.innerHTML = `
+        <div class="ag-del-box">
+            <div class="ag-del-head">
+                <h3 style="margin:0;font-size:1.05rem;color:#1e293b;display:flex;align-items:center;gap:8px;">
+                    <i class="fas fa-trash-can" style="color:#ef4444;"></i>${title}
+                </h3>
+                <button type="button" class="ag-del-x" aria-label="Tutup">&times;</button>
+            </div>
+            <p class="ag-del-msg">${message}</p>
+            <div class="ag-del-actions">
+                <button type="button" class="ag-del-btn ag-del-cancel">Batal</button>
+                <button type="button" class="ag-del-btn ag-del-soft">${softLabel}</button>
+                <button type="button" class="ag-del-btn ag-del-hard" style="${onHard ? '' : 'display:none;'}">Hapus Permanen</button>
+            </div>
+            <div class="ag-del-hardzone" style="display:none;margin-top:14px;border-top:1px dashed #fecaca;padding-top:12px;">
+                <label style="font-size:.82rem;font-weight:700;color:#dc2626;display:block;margin-bottom:6px;">
+                    <i class="fas fa-key"></i> Ketik <strong>HAPUS</strong> untuk konfirmasi permanen:
+                </label>
+                <input type="text" class="ag-del-input" placeholder="HAPUS" autocomplete="off"
+                    style="width:100%;padding:10px 12px;border:1px solid #fecaca;border-radius:10px;font-family:inherit;outline:none;">
+                <button type="button" class="ag-del-btn ag-del-hard-confirm" disabled
+                    style="margin-top:10px;width:100%;background:#dc2626;color:#fff;border:none;padding:11px 14px;border-radius:10px;font-weight:800;cursor:pointer;">
+                    <i class="fas fa-radiation"></i> Ya, Hapus Permanen Sekarang
+                </button>
+            </div>
+        </div>
+    `;
+
+    const styleEl = document.createElement('style');
+    styleEl.textContent = `
+        .ag-del-overlay{position:fixed;inset:0;background:rgba(15,23,42,.55);backdrop-filter:blur(3px);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px;animation:fadeIn .2s ease-out;}
+        .ag-del-box{background:#fff;border-radius:18px;max-width:430px;width:100%;padding:22px;box-shadow:0 20px 50px rgba(0,0,0,.25);}
+        .ag-del-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+        .ag-del-x{background:none;border:none;font-size:1.6rem;color:#94a3b8;cursor:pointer;line-height:1;}
+        .ag-del-msg{color:#475569;font-size:.92rem;line-height:1.65;margin:0 0 18px;}
+        .ag-del-actions{display:flex;gap:8px;flex-wrap:wrap;}
+        .ag-del-btn{padding:11px 12px;border-radius:11px;font-weight:800;font-size:.85rem;cursor:pointer;border:1px solid;flex:1;min-width:0;transition:.2s;font-family:inherit;}
+        .ag-del-cancel{background:#f1f5f9;color:#475569;border-color:#e2e8f0;}
+        .ag-del-cancel:hover{background:#e2e8f0;}
+        .ag-del-soft{background:#fffbeb;color:#b45309;border-color:#fde68a;}
+        .ag-del-soft:hover{background:#fef3c7;}
+        .ag-del-hard{background:#fff1f2;color:#dc2626;border-color:#fecaca;}
+        .ag-del-hard:hover{background:#fee2e2;}
+        .ag-del-hard:disabled,.ag-del-hard-confirm:disabled{opacity:.45;cursor:not-allowed;}
+    `;
+    document.head.appendChild(styleEl);
+    document.body.appendChild(overlay);
+
+    const box = overlay.querySelector('.ag-del-box');
+    const hardZone = overlay.querySelector('.ag-del-hardzone');
+    const input = overlay.querySelector('.ag-del-input');
+    const hardBtn = overlay.querySelector('.ag-del-hard-confirm');
+    let busy = false;
+
+    const destroy = () => { overlay.remove(); styleEl.remove(); };
+
+    overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) destroy(); });
+    box.querySelector('.ag-del-x').onclick = destroy;
+    box.querySelector('.ag-del-cancel').onclick = destroy;
+    box.querySelector('.ag-del-soft').onclick = async () => {
+        if (busy) return;
+        busy = true;
+        try { await onSoft(); } finally { destroy(); }
+    };
+    box.querySelector('.ag-del-hard').onclick = () => { hardZone.style.display = 'block'; input.focus(); };
+    input.oninput = () => { hardBtn.disabled = input.value.trim().toUpperCase() !== 'HAPUS'; };
+    hardBtn.onclick = async () => {
+        if (busy) return;
+        busy = true;
+        try { await onHard(); } finally { destroy(); }
+    };
 }
 
 // RBAC DELETION LOGIC: Soft Delete for Teacher, Hard/Soft Delete for Super Admin
@@ -875,43 +1061,34 @@ async function deleteAssemblyGuide(materiId) {
     const tableName = currentCategory === 'private' ? 'materi_private' : 'materi';
     const fkCol = currentCategory === 'private' ? 'materi_private_id' : 'materi_id';
 
-    if (userRole === 'super_admin') {
-        const action = confirm(
-            "Mode Super Admin:\n\nKlik 'OK' untuk Soft Delete (Disembunyikan)\nKlik 'Cancel' jika ingin Hard Delete Permanen dari Database."
-        );
-        if (action) {
-            // Soft Delete
-            await supabase.from(tableName).update({
-                is_deleted: true,
-                deleted_at: new Date().toISOString(),
-                deleted_by: currentUserProfile?.id || null
-            }).eq('id', materiId);
-            alert("Petunjuk perakitan telah disembunyikan (Soft Delete).");
-        } else {
-            // Hard Delete
-            if (confirm("PERINGATAN: Apakah Anda yakin ingin melakukan HARD DELETE PERMANEN dari database?")) {
-                try {
-                    await supabase.from('assembly_guides').delete().eq(fkCol, materiId);
-                } catch (e) {}
-                await supabase.from(tableName).delete().eq('id', materiId);
-                alert("Petunjuk perakitan & materi berhasil dihapus permanen.");
+    const softPayload = {
+        is_deleted: true,
+        deleted_at: new Date().toISOString(),
+        deleted_by: currentUserProfile?.id || null
+    };
+
+    openDeleteDialog({
+        title: userRole === 'super_admin' ? 'Hapus Petunjuk Perakitan' : 'Sembunyikan Petunjuk Perakitan',
+        message: userRole === 'super_admin'
+            ? '"Sembunyikan" menyembunyikan materi dari aplikasi, sedangkan "Hapus Permanen" menghapus materi beserta petunjuk perakitannya dari database (tidak bisa dikembalikan).'
+            : 'Sebagai Guru, Anda hanya dapat menyembunyikan data (Soft Delete). Materi tidak akan tampil lagi di aplikasi.',
+        softLabel: 'Sembunyikan',
+        onSoft: async () => {
+            try {
+                await supabase.from(tableName).update(softPayload).eq('id', materiId);
+                showToast('Petunjuk perakitan & materi berhasil disembunyikan.', 'success');
+            } catch (err) {
+                showToast('Gagal menyembunyikan: ' + err.message, 'error');
             }
-        }
-    } else {
-        // Teacher Role -> Always Soft Delete
-        if (!confirm("Apakah Anda yakin ingin menyembunyikan petunjuk perakitan ini? (Soft Delete)")) return;
-
-        try {
-            await supabase.from(tableName).update({
-                is_deleted: true,
-                deleted_at: new Date().toISOString(),
-                deleted_by: currentUserProfile?.id || null
-            }).eq('id', materiId);
-            alert("Petunjuk perakitan berhasil disembunyikan (Soft Delete).");
-        } catch (err) {
-            alert("Gagal menyembunyikan: " + err.message);
-        }
-    }
-
-    await loadCatalogData();
+            await loadCatalogData();
+        },
+        onHard: userRole === 'super_admin' ? async () => {
+            try {
+                await supabase.from('assembly_guides').delete().eq(fkCol, materiId);
+            } catch (e) {}
+            await supabase.from(tableName).delete().eq('id', materiId);
+            showToast('Petunjuk perakitan & materi dihapus permanen.', 'success');
+            await loadCatalogData();
+        } : null
+    });
 }
