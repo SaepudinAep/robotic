@@ -61,6 +61,15 @@ export async function init(canvas) {
                             </div>
                         </div>
                         
+                        <div class="batch-input-card">
+                            <label class="batch-label"><i class="fas fa-clipboard-list"></i> Input Batch Siswa</label>
+                            <textarea id="batch-student-input" class="form-input" rows="4" placeholder="Tempel daftar siswa di sini. Satu siswa per baris, format: Nama # Grade. Contoh: ata # KG B2"></textarea>
+                            <p class="text-muted batch-hint">Satu siswa per baris. Pisahkan <strong>Nama</strong> dan <strong>Grade</strong> dengan tanda <code>#</code>. Baris kosong diabaikan otomatis.</p>
+                            <div class="batch-actions">
+                                <button type="button" id="apply-batch-btn" class="btn-outline-small"><i class="fas fa-arrow-right"></i> Terapkan ke Tabel</button>
+                                <span id="batch-feedback" class="text-muted"></span>
+                            </div>
+                        </div>
                         <div class="table-responsive margin-top">
                             <table id="student-input-table" class="modern-table">
                                 <thead><tr><th>Nama Lengkap Siswa</th><th>Grade / Kelas Asal (CSV)</th><th width="50"></th></tr></thead>
@@ -218,10 +227,48 @@ export async function init(canvas) {
         </div>
     `;
 
+    initAccordions(canvas);
     setupEvents();
     await fetchGlobalSession();
     await loadSchools();
     await loadLevelOptions();
+}
+
+// ==========================================
+// 2b. ACCORDION (Collapsible Card)
+// ==========================================
+function initAccordions(canvas) {
+    canvas.querySelectorAll('.card').forEach(card => {
+        const header = card.querySelector(':scope > .card-header');
+        if (!header) return;
+
+        header.classList.add('acc-header');
+        header.setAttribute('role', 'button');
+        header.setAttribute('tabindex', '0');
+        header.setAttribute('aria-expanded', 'true');
+
+        if (!header.querySelector('.acc-chevron')) {
+            const chev = document.createElement('i');
+            chev.className = 'fas fa-chevron-down acc-chevron';
+            chev.setAttribute('aria-hidden', 'true');
+            header.appendChild(chev);
+        }
+
+        const toggle = () => {
+            const nowCollapsed = header.classList.toggle('collapsed');
+            const body = card.querySelector(':scope > .card-body');
+            if (body) body.classList.toggle('collapsed', nowCollapsed);
+            header.setAttribute('aria-expanded', String(!nowCollapsed));
+        };
+
+        header.addEventListener('click', (e) => {
+            if (e.target.closest('input, select, button, textarea, a, label')) return;
+            toggle();
+        });
+        header.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+        });
+    });
 }
 
 // ==========================================
@@ -254,6 +301,8 @@ function setupEvents() {
         `;
         tbody.appendChild(tr);
     };
+
+    document.getElementById('apply-batch-btn').onclick = applyBatchToTable;
 
     document.getElementById('save-students-btn').onclick = handleSaveStudents;
     document.getElementById('cancel-student-btn').onclick = resetStudentForm;
@@ -807,6 +856,8 @@ async function loadStudentsList(classId) {
         document.getElementById('save-students-btn').textContent = "Update Siswa";
         document.getElementById('cancel-student-btn').style.display = 'inline-block';
         document.getElementById('add-row-btn').style.display = 'none';
+        const batchBtn = document.getElementById('apply-batch-btn');
+        if (batchBtn) { batchBtn.disabled = true; batchBtn.style.opacity = '0.5'; }
     };
 
     container.innerHTML = `
@@ -882,6 +933,12 @@ function resetStudentForm() {
     document.getElementById('save-students-btn').textContent = "Simpan Data Siswa";
     document.getElementById('cancel-student-btn').style.display = 'none';
     document.getElementById('add-row-btn').style.display = 'inline-block';
+    const batchInput = document.getElementById('batch-student-input');
+    if (batchInput) batchInput.value = '';
+    const batchFeedback = document.getElementById('batch-feedback');
+    if (batchFeedback) { batchFeedback.textContent = ''; batchFeedback.style.color = ''; }
+    const batchBtn = document.getElementById('apply-batch-btn');
+    if (batchBtn) { batchBtn.disabled = false; batchBtn.style.opacity = ''; }
     document.querySelector('#student-input-table tbody').innerHTML = `
         <tr>
             <td><input type="text" name="student_name" class="form-input" placeholder="Nama Lengkap Siswa" required></td>
@@ -889,6 +946,97 @@ function resetStudentForm() {
             <td></td>
         </tr>
     `;
+}
+
+// ==========================================
+// 7b. INPUT BATCH SISWA (Separator #)
+// ==========================================
+// Format: 1 baris = 1 siswa, pola "Nama # Grade".
+// Baris kosong / baris tanpa nama akan dihitung sebagai skipped.
+// ==========================================
+function parseBatchStudents(raw) {
+    const students = [];
+    let skippedLines = 0;
+
+    raw.split('\n').forEach(line => {
+        const trimmed = line.trim();
+        if (!trimmed) { skippedLines++; return; }
+
+        const sep = trimmed.indexOf('#');
+        let name, grade = '';
+        if (sep === -1) {
+            name = trimmed;
+        } else {
+            name = trimmed.slice(0, sep).trim();
+            grade = trimmed.slice(sep + 1).trim();
+        }
+        if (!name) { skippedLines++; return; }
+        students.push({ name, grade });
+    });
+
+    return { students, skippedLines };
+}
+
+function applyBatchToTable() {
+    if (currentEditStudentId) return alert("Peringatan: Mode ubah aktif. Selesaikan atau batalkan editing sebelum menambah baris!");
+
+    const raw = document.getElementById('batch-student-input').value || '';
+    const { students, skippedLines } = parseBatchStudents(raw);
+    const feedback = document.getElementById('batch-feedback');
+
+    if (students.length === 0) {
+        feedback.textContent = skippedLines > 0
+            ? 'Tidak ada baris valid — periksa format (Nama # Grade).'
+            : 'Kosong: tidak ada data untuk diterapkan.';
+        feedback.style.color = '#b91c1c';
+        return;
+    }
+
+    // Isi ulang tabel input (masih bisa diedit per baris sebelum disimpan)
+    const tbody = document.querySelector('#student-input-table tbody');
+    tbody.innerHTML = '';
+
+    students.forEach(s => {
+        const tr = document.createElement('tr');
+
+        const tdName = document.createElement('td');
+        const inputName = document.createElement('input');
+        inputName.type = 'text';
+        inputName.name = 'student_name';
+        inputName.className = 'form-input';
+        inputName.placeholder = 'Nama Lengkap Siswa';
+        inputName.required = true;
+        inputName.value = s.name;
+        tdName.appendChild(inputName);
+
+        const tdGrade = document.createElement('td');
+        const inputGrade = document.createElement('input');
+        inputGrade.type = 'text';
+        inputGrade.name = 'student_grade';
+        inputGrade.className = 'form-input';
+        inputGrade.placeholder = 'Grade Asal';
+        inputGrade.value = s.grade;
+        tdGrade.appendChild(inputGrade);
+
+        const tdAction = document.createElement('td');
+        if (students.length > 1) {
+            const btnRemove = document.createElement('button');
+            btnRemove.type = 'button';
+            btnRemove.className = 'btn-remove-row';
+            btnRemove.innerHTML = '<i class="fas fa-times"></i>';
+            btnRemove.onclick = () => tr.remove();
+            tdAction.appendChild(btnRemove);
+        }
+
+        tr.appendChild(tdName);
+        tr.appendChild(tdGrade);
+        tr.appendChild(tdAction);
+        tbody.appendChild(tr);
+    });
+
+    feedback.style.color = '';
+    feedback.textContent = `Berhasil menyiapkan ${students.length} siswa di tabel.`;
+    if (skippedLines > 0) feedback.textContent += ` ${skippedLines} baris kosong diabaikan.`;
 }
 
 // ==========================================
@@ -998,6 +1146,12 @@ function injectStyles() {
         .card-header { padding: 12px 20px; background: #f8f9f9; border-bottom: 1px solid #d5dbdb; }
         .card-header h4 { margin: 0; color: #2c3e50; font-weight: 600; }
         .card-body { padding: 20px; }
+        .acc-header { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; -webkit-user-select: none; transition: background 0.2s ease; }
+        .acc-header:hover { background: #edf1f2; }
+        .acc-header h4 { flex: 1; }
+        .acc-header .acc-chevron { margin-left: auto; color: #7f8c8d; font-size: 0.8rem; transition: transform 0.25s ease; }
+        .acc-header.collapsed .acc-chevron { transform: rotate(-90deg); }
+        .card-body.collapsed { display: none; }
         
         .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 15px; }
         .form-group { display: flex; flex-direction: column; gap: 5px; }
@@ -1025,6 +1179,13 @@ function injectStyles() {
         .badge-period-active { padding: 2px 8px; background: #dcfce7; border: 1px solid #bbf7d0; border-radius: 10px; font-size: 0.68rem; font-weight: 700; color:#15803d; margin-left:6px; white-space:nowrap; }
         .text-muted { color: #95a5a6; font-size: 0.85rem; }
         .margin-top { margin-top: 20px; }
+
+        .batch-input-card { background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 16px; }
+        .batch-input-card .batch-label { display: block; font-weight: 700; font-size: 0.85rem; color: #334155; margin-bottom: 8px; }
+        .batch-input-card .batch-hint { margin: 8px 0 0; font-size: 0.78rem; line-height: 1.5; }
+        .batch-input-card .batch-hint code { background: #e2e8f0; padding: 1px 6px; border-radius: 4px; font-weight: 600; color: #0f172a; }
+        .batch-input-card .batch-actions { display: flex; align-items: center; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+        #batch-feedback { font-size: 0.8rem; font-weight: 600; }
         
         .modal-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:9999; }
         .modal-content { background:white; padding:25px; border-radius:8px; max-width:400px; width:100%; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
