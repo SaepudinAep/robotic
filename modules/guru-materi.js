@@ -1,6 +1,6 @@
 /**
  * Project: Guru & Materi Module (School)
- * Version: 8.0 - RPP Standar Sekolah, Versi RPP (v1.0/v2.0), RPP Reader & Interactive Assembly Slider Viewer, RBAC Soft vs Hard Delete
+ * Version: 8.1 - Single-Scroll RPP Form (tanpa multi-tab berlapis) + Panel "Isi Otomatis dari AI" (paste auto-fill & prompt kontekstual dari form; kolom kosong ditanyakan AI dulu), Versi RPP (v1.0/v2.0), RPP Reader & Interactive Assembly Slider Viewer, RBAC Soft vs Hard Delete
  * Format: Touch & Tablet Optimized UI
  */
 
@@ -241,7 +241,7 @@ function parseMateriDetail(m) {
 // 3. STYLING (CSS INJECTION)
 // ==========================================
 function injectStyles() {
-    const styleId = 'guru-materi-css-v8';
+    const styleId = 'guru-materi-css-v9';
     if (document.getElementById(styleId)) return;
 
     const style = document.createElement('style');
@@ -345,11 +345,30 @@ function injectStyles() {
         .modal-header h2 { margin: 0; font-size: 1.25rem; font-weight: 800; color: #1e293b; }
         .close-btn { background: none; border: none; font-size: 1.8rem; cursor: pointer; color: #94a3b8; }
         
-        .rpp-form-tabs { display: flex; gap: 6px; margin-bottom: 18px; border-bottom: 2px solid #f1f5f9; padding-bottom: 8px; overflow-x: auto; scrollbar-width: none; }
-        .rpp-tab-btn { border: none; background: #f8fafc; color: #64748b; padding: 8px 14px; border-radius: 10px; font-size: 0.82rem; font-weight: 700; cursor: pointer; white-space: nowrap; transition: 0.2s; display: flex; align-items: center; gap: 6px; }
-        .rpp-tab-btn.active { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
-        .rpp-section-pane { display: none; }
-        .rpp-section-pane.active { display: block; animation: fadeIn 0.2s ease-out; }
+        /* === FORM SATU HALAMAN (SECTION A-D) === */
+        .gm-form-section { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 16px 16px 18px; margin-bottom: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.03); }
+        .gm-section-title { display: flex; align-items: center; gap: 10px; font-weight: 800; color: #1e293b; font-size: 0.95rem; margin-bottom: 4px; padding-bottom: 10px; border-bottom: 1px dashed #e2e8f0; }
+        .gm-section-letter { width: 28px; height: 28px; border-radius: 9px; background: #4d97ff; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 0.85rem; font-weight: 800; flex-shrink: 0; }
+
+        /* === PANEL ISI OTOMATIS DARI AI === */
+        .gm-ai-box { border: 1px solid #c7d2fe; background: linear-gradient(135deg, #eef2ff 0%, #f0f9ff 100%); border-radius: 16px; margin-bottom: 14px; overflow: hidden; }
+        .gm-ai-head { display: flex; gap: 10px; align-items: center; padding: 13px 14px; cursor: pointer; user-select: none; }
+        .gm-ai-head > i.fa-wand-magic-sparkles { color: #6366f1; font-size: 1.15rem; flex-shrink: 0; }
+        .gm-ai-title { flex: 1; min-width: 0; }
+        .gm-ai-title strong { display: block; color: #1e293b; font-size: 0.9rem; }
+        .gm-ai-title span { font-size: 0.76rem; color: #64748b; line-height: 1.4; display: block; margin-top: 2px; }
+        .gm-ai-caret { color: #6366f1; transition: transform 0.25s; flex-shrink: 0; }
+        .gm-ai-box.open .gm-ai-caret { transform: rotate(180deg); }
+        .gm-ai-body { display: none; padding: 0 14px 14px; }
+        .gm-ai-box.open .gm-ai-body { display: block; animation: fadeIn 0.2s ease-out; }
+        .gm-ai-field { min-height: 130px; resize: vertical; }
+        .gm-ai-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+        .gm-ai-btn-primary { flex: 2 1 180px; background: #6366f1; color: #fff; border: none; padding: 12px; border-radius: 11px; font-weight: 700; cursor: pointer; font-family: inherit; font-size: 0.88rem; display: flex; align-items: center; justify-content: center; gap: 8px; transition: 0.2s; }
+        .gm-ai-btn-primary:hover { background: #4f46e5; }
+        .gm-ai-btn-ghost { flex: 1 1 150px; background: #fff; color: #4f46e5; border: 1px solid #c7d2fe; padding: 12px; border-radius: 11px; font-weight: 700; cursor: pointer; font-family: inherit; font-size: 0.88rem; display: flex; align-items: center; justify-content: center; gap: 8px; transition: 0.2s; }
+        .gm-ai-btn-ghost:hover { background: #eef2ff; }
+        .gm-ai-hint { font-size: 0.75rem; color: #64748b; margin: 10px 0 0; line-height: 1.5; display: flex; gap: 6px; align-items: flex-start; }
+        .gm-ai-hint i { margin-top: 2px; flex-shrink: 0; }
 
         #form-fields label { display: block; font-weight: 700; margin-bottom: 6px; color: #334155; font-size: 0.85rem; margin-top: 14px; text-transform: uppercase; letter-spacing: 0.5px; }
         #form-fields input, #form-fields textarea, #form-fields select { width: 100%; padding: 12px 14px; border: 1px solid #cbd5e1; border-radius: 10px; font-size: 0.93rem; font-family: inherit; box-sizing: border-box; outline: none; transition: 0.2s; }
@@ -612,7 +631,7 @@ async function loadData() {
 }
 
 // ==========================================
-// 5. FORM HANDLING (4 RPP SUB-TABS)
+// 5. FORM HANDLING (Single-Scroll Form + AI Auto-Fill)
 // ==========================================
 
 async function injectFormFields(mode = "add", data = {}) {
@@ -642,24 +661,36 @@ async function injectFormFields(mode = "add", data = {}) {
         const hasImg = Boolean(data.image_url);
 
         formFields.innerHTML = `
-            <!-- 4 RPP SUB-TABS -->
-            <div class="rpp-form-tabs">
-                <button type="button" class="rpp-tab-btn active" data-pane="pane-umum">
-                    <i class="fas fa-info-circle"></i> 1. Umum &amp; Versi
-                </button>
-                <button type="button" class="rpp-tab-btn" data-pane="pane-tujuan">
-                    <i class="fas fa-bullseye"></i> 2. Tujuan &amp; Kit
-                </button>
-                <button type="button" class="rpp-tab-btn" data-pane="pane-kegiatan">
-                    <i class="fas fa-list-ol"></i> 3. Langkah RPP
-                </button>
-                <button type="button" class="rpp-tab-btn" data-pane="pane-penilaian">
-                    <i class="fas fa-clipboard-check"></i> 4. Penilaian
-                </button>
+            <!-- PANEL ISI OTOMATIS DARI AI (Single Paste) -->
+            <div class="gm-ai-box${mode === "add" ? " open" : ""}" id="gm-ai-box">
+                <div class="gm-ai-head" id="gm-ai-head" role="button" tabindex="0" aria-expanded="false">
+                    <i class="fas fa-wand-magic-sparkles"></i>
+                    <div class="gm-ai-title">
+                        <strong>Isi Otomatis dari AI</strong>
+                        <span>Tempel satu kali hasil RPP dari AI Anda &mdash; semua kolom di bawah terisi otomatis. Tidak perlu pindah-pindah tab.</span>
+                    </div>
+                    <i class="fas fa-chevron-down gm-ai-caret"></i>
+                </div>
+                <div class="gm-ai-body">
+                    <textarea class="gm-ai-field" rows="7" placeholder="Tempel di sini hasil lengkap RPP dari AI (teks biasa, markdown, atau JSON), lalu klik &quot;Isi Kolom Otomatis&quot;..."></textarea>
+                    <div class="gm-ai-actions">
+                        <button type="button" id="btn-ai-fill" class="gm-ai-btn-primary">
+                            <i class="fas fa-fill-drip"></i> Isi Kolom Otomatis
+                        </button>
+                        <button type="button" id="btn-ai-copy-prompt" class="gm-ai-btn-ghost">
+                            <i class="fas fa-copy"></i> Salin Prompt untuk AI
+                        </button>
+                    </div>
+                    <p class="gm-ai-hint">
+                        <i class="fas fa-circle-info"></i>
+                        <span>Tips alur kerja: klik <strong>Salin Prompt untuk AI</strong> &mdash; prompt menyertakan <strong>pilihan Level, Sub-Level &amp; Kit</strong> yang aktif di form, dan <strong>kolom yang masih kosong akan ditanyakan AI dulu</strong> (bukan dikarang sendiri) &rarr; jawab pertanyaannya &rarr; salin hasil RPP-nya &rarr; tempel balik ke kotak di atas &rarr; klik <strong>Isi Kolom Otomatis</strong>.</span>
+                    </p>
+                </div>
             </div>
 
-            <!-- PANE 1: INFORMASI UMUM & VERSIONING -->
-            <div id="pane-umum" class="rpp-section-pane active">
+            <!-- SECTION A: IDENTITAS, VERSI & PROJECT -->
+            <div class="gm-form-section">
+                <div class="gm-section-title"><span class="gm-section-letter">A</span> Identitas, Versi &amp; Project</div>
                 <div style="display:flex; gap:10px;">
                     <div style="flex:2;">
                         <label>Level Kurikulum *</label>
@@ -710,8 +741,9 @@ async function injectFormFields(mode = "add", data = {}) {
                 <textarea id="description" rows="2" placeholder="Ringkasan konsep robotik atau mekanisme utama...">${data.description || ""}</textarea>
             </div>
 
-            <!-- PANE 2: TUJUAN & ALAT -->
-            <div id="pane-tujuan" class="rpp-section-pane">
+            <!-- SECTION B: TUJUAN PEMBELAJARAN & ALAT/KIT -->
+            <div class="gm-form-section">
+                <div class="gm-section-title"><span class="gm-section-letter">B</span> Tujuan Pembelajaran &amp; Alat/Kit</div>
                 <label>Tujuan Pembelajaran (RPP)</label>
                 <textarea id="tujuan_pembelajaran" rows="4" placeholder="Contoh:&#10;1. Siswa memahami fungsi sensor garis.&#10;2. Siswa mampu merakit bodi robot.">${rpp.tujuan_pembelajaran || ""}</textarea>
 
@@ -719,8 +751,9 @@ async function injectFormFields(mode = "add", data = {}) {
                 <textarea id="alat_bahan" rows="4" placeholder="Contoh: LEGO WeDo 2.0 Kit, Kabel USB, Laptop/Tablet...">${rpp.alat_bahan || ""}</textarea>
             </div>
 
-            <!-- PANE 3: LANGKAH KEGIATAN -->
-            <div id="pane-kegiatan" class="rpp-section-pane">
+            <!-- SECTION C: LANGKAH KEGIATAN PEMBELAJARAN -->
+            <div class="gm-form-section">
+                <div class="gm-section-title"><span class="gm-section-letter">C</span> Langkah Kegiatan Pembelajaran</div>
                 <label>Apersepsi / Pendahuluan (15 Menit)</label>
                 <textarea id="kegiatan_apersepsi" rows="3" placeholder="Sapa siswa, apersepsi materi minggu lalu, jelaskan tantangan robot hari ini...">${rpp.kegiatan_apersepsi || ""}</textarea>
 
@@ -731,8 +764,9 @@ async function injectFormFields(mode = "add", data = {}) {
                 <textarea id="kegiatan_penutup" rows="3" placeholder="Uji coba robot di arena, pengemasan kit, apresiasi karya siswa...">${rpp.kegiatan_penutup || ""}</textarea>
             </div>
 
-            <!-- PANE 4: PENILAIAN -->
-            <div id="pane-penilaian" class="rpp-section-pane">
+            <!-- SECTION D: PENILAIAN & CATATAN GURU -->
+            <div class="gm-form-section">
+                <div class="gm-section-title"><span class="gm-section-letter">D</span> Penilaian &amp; Catatan Guru</div>
                 <label>Indikator Penilaian / Achievement Target</label>
                 <textarea id="indikator_penilaian" rows="4" placeholder="Kriteria Penilaian:&#10;- Ketepatan perakitan fisik&#10;- Logika coding berhasil berjalan&#10;- Kerjasama tim">${rpp.indikator_penilaian || ""}</textarea>
 
@@ -742,17 +776,6 @@ async function injectFormFields(mode = "add", data = {}) {
         `;
 
         setTimeout(() => {
-            const paneBtns = formFields.querySelectorAll('.rpp-tab-btn');
-            paneBtns.forEach(btn => {
-                btn.onclick = () => {
-                    paneBtns.forEach(b => b.classList.remove('active'));
-                    formFields.querySelectorAll('.rpp-section-pane').forEach(p => p.classList.remove('active'));
-                    btn.classList.add('active');
-                    const paneEl = document.getElementById(btn.dataset.pane);
-                    if (paneEl) paneEl.classList.add('active');
-                };
-            });
-
             const lvlSel = document.getElementById("level_id");
             const subSel = document.getElementById("sub_level_id");
             if (lvlSel && subSel) {
@@ -767,6 +790,52 @@ async function injectFormFields(mode = "add", data = {}) {
                     document.getElementById("image_url").value = url;
                     document.getElementById("img-preview-p").src = url;
                 });
+            }
+
+            // === Panel "Isi Otomatis dari AI" ===
+            const aiBox = document.getElementById("gm-ai-box");
+            const aiHead = document.getElementById("gm-ai-head");
+            if (aiBox && aiHead) {
+                const toggleAiBox = () => {
+                    aiBox.classList.toggle('open');
+                    aiHead.setAttribute('aria-expanded', aiBox.classList.contains('open') ? 'true' : 'false');
+                };
+                aiHead.onclick = toggleAiBox;
+                aiHead.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggleAiBox(); } };
+            }
+
+            const btnFill = document.getElementById("btn-ai-fill");
+            if (btnFill) {
+                btnFill.onclick = () => {
+                    const raw = (document.querySelector('.gm-ai-field')?.value || '').trim();
+                    if (!raw) {
+                        showToast('Kotak tempel masih kosong. Tempel dulu hasil RPP dari AI Anda.', 'error');
+                        return;
+                    }
+                    const parsed = parseAiRppText(raw);
+                    if (!parsed) {
+                        showToast('Tidak ada bagian yang dikenali. Klik "Salin Prompt untuk AI" agar format keluaran AI sesuai.', 'error');
+                        return;
+                    }
+                    applyParsedToForm(parsed);
+                    showToast(`${Object.keys(parsed).length} bagian berhasil diisi otomatis. Periksa kembali sebelum menyimpan.`, 'success');
+                };
+            }
+
+            const btnPrompt = document.getElementById("btn-ai-copy-prompt");
+            if (btnPrompt) {
+                btnPrompt.onclick = async () => {
+                    btnPrompt.disabled = true;
+                    try {
+                        const promptText = await buildAiPromptTemplate();
+                        const ok = await copyToClipboard(promptText);
+                        showToast(ok
+                            ? 'Prompt disalin. AI akan menanyakan dulu data yang masih kosong sebelum membuat RPP.'
+                            : 'Gagal menyalin prompt ke clipboard.', ok ? 'success' : 'error');
+                    } finally {
+                        btnPrompt.disabled = false;
+                    }
+                };
             }
         }, 50);
 
@@ -825,6 +894,301 @@ function addSubRow(value = "") {
     `;
     row.querySelector('.btn-remove').onclick = () => row.remove();
     container.appendChild(row);
+}
+
+// ==========================================
+// 5B. AI PASTE AUTO-FILL (Isi Otomatis dari AI)
+// ==========================================
+
+// Escape karakter HTML agar nilai aman disuntikkan ke template form
+function esc(str) {
+    return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+// Prompt siap-tempel: konteks HANYA dari pilihan aktif di form (dropdown Level &
+// Sub-Level + Kit-nya, judul, durasi). Kolom yang masih kosong TIDAK dikarang —
+// AI diwajibkan menanyakannya dulu kepada user sebelum membuat RPP.
+function buildAiPromptTemplate() {
+    const selLevelId = document.getElementById('level_id')?.value || '';
+    const selSubId = document.getElementById('sub_level_id')?.value || '';
+    const currentTitle = (document.getElementById('title')?.value || '').trim();
+    const currentDurasi = (document.getElementById('alokasi_waktu')?.value || '').trim();
+
+    const selLevel = levelsList.find(l => l.id === selLevelId) || null;
+    const selSub = subLevelsList.find(s => s.id === selSubId) || null;
+
+    // --- Data yang SUDAH terisi di form ---
+    const knownLines = [];
+    if (selLevel) knownLines.push(`- Level: ${selLevel.kode}${selLevel.detail ? ` (${selLevel.detail})` : ''}`);
+    if (selSub) knownLines.push(`- Sub-Level: ${selSub.name}`);
+    if (selSub && selSub.kit_alat) knownLines.push(`- Kit/alat yang WAJIB dipakai: ${selSub.kit_alat}`);
+    if (selSub && selSub.description) knownLines.push(`- Fokus kit/sub-level: ${selSub.description}`);
+    if (currentTitle) knownLines.push(`- Nama materi (judul) yang sedang dibuat/direvisi: ${currentTitle}`);
+    if (currentDurasi) knownLines.push(`- Durasi sesi: ${currentDurasi}`);
+    const knownSection = knownLines.length
+        ? knownLines.join('\n')
+        : '- (belum ada data yang terisi di form — tanyakan semuanya)';
+
+    // --- Data yang MASIH kosong -> wajib ditanyakan dulu, bukan dikarang ---
+    const missingLines = [];
+    if (!selLevel) missingLines.push('- Level siswa (nama level yang ada di sekolah ini)');
+    if (!selSub) missingLines.push('- Sub-Level siswa (sub-level/kit kelas yang ditarget)');
+    if (selSub && !selSub.kit_alat) missingLines.push('- Kit/alat yang dipakai untuk sub-level ini');
+    if (!currentTitle) missingLines.push('- Topik / Robot / nama materi yang ingin dibuat');
+    if (!currentDurasi) missingLines.push('- Durasi sesi pembelajaran (contoh jawaban: 2 Sesi @ 90 Menit)');
+    missingLines.push('- Permintaan tambahan khusus (opsional; boleh dijawab "tidak ada")');
+
+    // Ada data utama yang kosong? -> AI wajib bertanya dulu. Jika hanya opsional -> langsung buat.
+    const hasRequiredMissing = missingLines.length > 1;
+
+    const workRules = hasRequiredMissing ? [
+        '=== ATURAN KERJA (WAJIB SEBELUM MEMBUAT RPP) ===',
+        '1. JANGAN langsung membuat RPP sekarang.',
+        '2. Tanyakan dulu SEMUA poin di "DATA YANG MASIH KOSONG" dalam SATU pesan yang singkat dan rapi, lalu BERHENTI dan tunggu jawaban user.',
+        '3. DILARANG mengarang atau mengisi sendiri data yang masih kosong.',
+        '4. Setelah user menjawab (atau menjawab "bebas"/"terserah" untuk sebagian), langsung buatkan RPP memakai FORMAT OUTPUT di bawah tanpa basa-basi lagi.'
+    ] : [
+        '=== ATURAN KERJA ===',
+        '1. Semua data utama sudah lengkap — langsung buatkan RPP memakai FORMAT OUTPUT di bawah.',
+        '2. Tidak perlu bertanya apa pun; abaikan bagian permintaan tambahan yang kosong.'
+    ];
+
+    return [
+        'Anda adalah perancang RPP (Rencana Pelaksanaan Pembelajaran) untuk sekolah coding & robotik.',
+        '',
+        '=== DATA YANG SUDAH DIKETAHUI (dari form, gunakan istilahnya PERSIS) ===',
+        knownSection,
+        '',
+        '=== DATA YANG MASIH KOSONG ===',
+        missingLines.join('\n'),
+        '',
+        ...workRules,
+        '',
+        '=== FORMAT OUTPUT RPP ===',
+        'ATURAN OUTPUT (WAJIB saat membuat RPP):',
+        '1. Gunakan PERSIS nama bagian berikut, jangan menerjemahkan ulang atau mengubah nama bagian.',
+        '2. Tanpa kalimat pembuka/penutup percakapan, langsung keluarkan format di bawah.',
+        '3. Isi setiap bagian dalam bentuk poin dengan tanda "-" di awal baris.',
+        '4. Nama Level, Sub-Level, dan Kit di dalam RPP harus sama persis dengan DATA YANG SUDAH DIKETAHUI di atas.',
+        '',
+        'JUDUL: (judul materi yang menarik)',
+        'DESKRIPSI: (ringkasan 1-2 kalimat tentang project robot)',
+        'ALOKASI WAKTU: (contoh: 2 Sesi @ 90 Menit)',
+        'TUJUAN PEMBELAJARAN:',
+        '- (poin tujuan)',
+        'ALAT DAN BAHAN:',
+        '- (alat / kit / bahan sesuai kit sub-level di atas)',
+        'KEGIATAN APERSEPSI:',
+        '- (langkah pendahuluan)',
+        'KEGIATAN INTI:',
+        '- (langkah perakitan & coding secara urut)',
+        'KEGIATAN PENUTUP:',
+        '- (langkah penutup, refleksi, evaluasi singkat)',
+        'INDIKATOR PENILAIAN:',
+        '- (kriteria penilaian siswa)'
+    ].join('\n');
+}
+
+// Salin teks ke clipboard (dengan fallback untuk browser lama / non-secure context)
+async function copyToClipboard(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+        return true;
+    } catch (e) {
+        try {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.cssText = 'position:fixed;opacity:0;pointer-events:none;';
+            document.body.appendChild(ta);
+            ta.select();
+            const ok = document.execCommand('copy');
+            ta.remove();
+            return ok;
+        } catch (e2) {
+            return false;
+        }
+    }
+}
+
+// Pemetaan field RPP -> kata kunci label (urutan array = urutan prioritas pencocokan)
+const AI_FIELD_PATTERNS = [
+    { id: 'title', re: /judul|nama\s*(materi|robot|project|proyek)|^topik|materi\s*pembelajaran/i },
+    { id: 'description', re: /deskripsi|ringkasan|abstrak|overview|summary/i },
+    { id: 'indikator_penilaian', re: /penilaian|indikator|assessment|asessment|kriteria|rubrik|achievement/i },
+    { id: 'tujuan_pembelajaran', re: /tujuan|objektif|objective|capaian/i },
+    { id: 'alat_bahan', re: /\balat\b|\bbahan\b|\bkit\b|peralatan|perangkat|media/i },
+    { id: 'kegiatan_apersepsi', re: /apersepsi|pendahuluan|pembuka|opening|introduction/i },
+    { id: 'kegiatan_inti', re: /inti|perakitan|coding|praktik|aktivitas|langkah|prosedur|step/i },
+    { id: 'kegiatan_penutup', re: /penutup|evaluasi|closing|refleksi|kesimpulan/i },
+    { id: 'alokasi_waktu', re: /alokasi|durasi|waktu|jam\s*pelajaran|\bjp\b|menit/i }
+];
+
+function matchAiField(label) {
+    for (const fp of AI_FIELD_PATTERNS) {
+        if (fp.re.test(label)) return fp.id;
+    }
+    return null;
+}
+
+// Parser utama: menerima output AI (JSON, markdown, atau teks per-bagian) -> objek field form
+function parseAiRppText(raw) {
+    const text = String(raw || '').trim();
+    if (!text) return null;
+
+    // 1) Mode JSON
+    if (text.startsWith('{') || text.startsWith('[')) {
+        try {
+            const jsonResult = mapJsonToRppFields(JSON.parse(text));
+            if (jsonResult) return jsonResult;
+        } catch (e) { /* bukan JSON valid, lanjut ke mode teks */ }
+    }
+
+    // 2) Mode teks per-bagian (label ALL-CAPS, markdown, penomoran, atau label berakhir ':')
+    const cleanLabel = (s) => s
+        .replace(/^#{1,6}\s*/, '')                                      // markdown heading
+        .replace(/^\*\*(.+?)\*\*:?\s*$/, '$1')                          // **bold**
+        .replace(/\*\*/g, '')
+        .replace(/^\s*(?:\d{1,2}[.)]|[A-Za-z][.)]|[IVX]+[.)])\s*/, '')  // 1. / A. / I.
+        .replace(/\s*:\s*$/, '')                                        // label:
+        .replace(/\s*\(.*?\)\s*$/, '')                                  // buang anotasi "(15 Menit)"
+        .trim();
+
+    const lines = text.split(/\r?\n/);
+    const blocks = [];
+    let current = null;
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) {
+            if (current) current.content.push('');
+            continue;
+        }
+
+        // Probe: salinan tanpa penanda **bold** untuk deteksi heading
+        const probe = trimmed.replace(/\*\*/g, '').trim();
+
+        // Baris bullet selalu konten (jangan dianggap heading)
+        if (/^[-*•]\s+\S/.test(probe)) {
+            if (current) current.content.push(line);
+            continue;
+        }
+
+        // Deteksi kandidat heading
+        const colonIdx = probe.indexOf(':');
+        const headPart = colonIdx > -1 ? probe.slice(0, colonIdx).trim() : '';
+        const restPart = colonIdx > -1 ? probe.slice(colonIdx + 1).trim() : '';
+        const isMarkdownHead = /^#{1,6}\s+/.test(probe);
+        const isBoldLine = /^\*\*.+\*\*:?\s*$/.test(trimmed);
+        const isBoldInline = /^\*\*[^*]+\*\*\s*:/.test(trimmed);
+        const isNumbered = /^\s*(?:\d{1,2}[.)]|[A-Za-z][.)]|[IVX]+[.)])\s+\S/.test(probe);
+        const isAllCapsInline = colonIdx > -1 && headPart.length >= 3 && headPart.length <= 60
+            && headPart === headPart.toUpperCase() && /[A-Z]/.test(headPart);
+        const endsWithColon = /:$/.test(probe) && probe.length <= 90;
+        const isInlineLabel = colonIdx > -1 && !isNumbered && headPart.length >= 3 && headPart.length <= 40
+            && probe.length <= 100 && matchAiField(headPart) !== null;
+        const isHeadingLike = isMarkdownHead || isBoldLine || isBoldInline || isAllCapsInline || endsWithColon || isInlineLabel || isNumbered;
+
+        if (isHeadingLike && probe.length <= 120) {
+            const label = cleanLabel(probe);
+            const fieldId = label ? matchAiField(label) : null;
+            const labelWords = label ? label.split(/\s+/).length : 99;
+            // Baris bernomor hanya dianggap heading bila labelnya pendek (bukan poin list panjang)
+            const okNumbered = !isNumbered || labelWords <= 5;
+            if (fieldId && okNumbered) {
+                current = { fieldId, inline: restPart, content: [] };
+                blocks.push(current);
+                continue;
+            }
+            if (isMarkdownHead || isBoldLine || isBoldInline || isAllCapsInline || endsWithColon) {
+                // Heading tak dikenali: putus blok agar tidak mencemari field sebelumnya
+                current = null;
+                continue;
+            }
+            // Penomoran yang bukan judul bagian (mis. poin list) -> perlakukan sebagai konten
+        }
+
+        if (current) current.content.push(line);
+        // Baris sebelum heading pertama yang dikenali diabaikan
+    }
+
+    const result = {};
+    for (const b of blocks) {
+        if (result[b.fieldId]) continue; // blok pertama yang menang
+        const body = b.content.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+        const value = [b.inline, body].filter(v => v && v.trim()).join('\n').trim();
+        if (value) result[b.fieldId] = value;
+    }
+    return Object.keys(result).length ? result : null;
+}
+
+// Petakan output JSON dari AI ke field form (kunci fleksibel, sinonim Indonesia/Inggris)
+function mapJsonToRppFields(parsedJson) {
+    const root = Array.isArray(parsedJson) ? parsedJson[0] : parsedJson;
+    if (!root || typeof root !== 'object') return null;
+
+    const flat = {};
+    const walk = (obj, prefix) => {
+        for (const [key, val] of Object.entries(obj)) {
+            const normKey = (prefix ? prefix + '_' : '') + String(key).toLowerCase().replace(/[\s-]+/g, '_');
+            if (val && typeof val === 'object' && !Array.isArray(val)) walk(val, normKey);
+            else flat[normKey] = val;
+        }
+    };
+    walk(root, '');
+
+    const SYNONYMS = {
+        title: ['judul', 'title', 'materi', 'topik', 'nama_materi', 'nama_robot', 'nama_project', 'nama_proyek', 'nama'],
+        description: ['deskripsi', 'description', 'ringkasan', 'summary', 'overview', 'abstrak'],
+        version: ['versi', 'version', 'versi_rpp'],
+        version_notes: ['version_notes', 'catatan_revisi', 'catatan_versi', 'changelog'],
+        alokasi_waktu: ['alokasi_waktu', 'alokasi', 'durasi', 'waktu', 'durasi_sesi', 'jam_pelajaran'],
+        tujuan_pembelajaran: ['tujuan_pembelajaran', 'tujuan', 'objectives', 'objective', 'capaian_pembelajaran'],
+        alat_bahan: ['alat_bahan', 'alat_dan_bahan', 'alat', 'bahan', 'kit', 'robot_kit', 'peralatan', 'media'],
+        kegiatan_apersepsi: ['kegiatan_apersepsi', 'apersepsi', 'pendahuluan', 'kegiatan_pendahuluan'],
+        kegiatan_inti: ['kegiatan_inti', 'inti', 'kegiatan_utama', 'langkah_kegiatan', 'aktivitas_utama'],
+        kegiatan_penutup: ['kegiatan_penutup', 'penutup', 'evaluasi', 'closing', 'refleksi'],
+        indikator_penilaian: ['indikator_penilaian', 'penilaian', 'indikator', 'kriteria_penilaian', 'assessment', 'rubrik']
+    };
+
+    const toText = (val) => {
+        if (Array.isArray(val)) {
+            return val.map(v => `- ${String(typeof v === 'object' && v !== null ? JSON.stringify(v) : v).trim()}`).join('\n');
+        }
+        if (val === null || val === undefined || typeof val === 'object') return '';
+        return String(val).trim();
+    };
+
+    const result = {};
+    for (const [field, keys] of Object.entries(SYNONYMS)) {
+        // Coba kecocokan kunci persis dulu, lalu kecocokan berakhiran '_sinonim' (JSON nested)
+        for (const mode of ['exact', 'suffix']) {
+            for (const k of keys) {
+                const hit = mode === 'exact'
+                    ? (Object.prototype.hasOwnProperty.call(flat, k) ? k : null)
+                    : Object.keys(flat).find(fk => fk.endsWith('_' + k));
+                if (!hit) continue;
+                const val = toText(flat[hit]);
+                if (val) { result[field] = val; break; }
+            }
+            if (result[field]) break;
+        }
+    }
+    return Object.keys(result).length ? result : null;
+}
+
+// Terapkan hasil parse ke kolom form yang ada
+function applyParsedToForm(parsed) {
+    Object.entries(parsed).forEach(([field, value]) => {
+        const el = document.getElementById(field);
+        if (el) el.value = value;
+    });
+    const drawer = document.querySelector('#modal-overlay .modal-drawer');
+    if (drawer) drawer.scrollTop = 0;
 }
 
 // ==========================================
@@ -1177,7 +1541,7 @@ async function handleFormSubmit(e) {
     const tableMap = { materi: 'materi', achievement: 'achievement_sekolah' };
     const payload = {};
     
-    e.target.querySelectorAll("input:not(.sub-input), select, textarea").forEach(el => {
+    e.target.querySelectorAll("input:not(.sub-input):not(.gm-ai-field), select, textarea:not(.gm-ai-field)").forEach(el => {
         if (el.id && el.id !== 'save_history_snapshot') payload[el.id] = el.value;
     });
 
