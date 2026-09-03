@@ -5,7 +5,7 @@
  */
 
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
-import { supabaseUrl, supabaseKey, cloudinaryConfig } from '../assets/js/config.js';
+import { supabaseUrl, supabaseKey } from '../assets/js/config.js';
 import { openImageCropper } from '../assets/js/image-cropper.js';
 
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -304,68 +304,11 @@ function parseMateriSteps(m) {
 }
 
 // ==========================================
-// 3. KOMPRESI GAMBAR CLIENT-SIDE
+// 3. UPLOAD FOTO STEP
+// Kompresi (600x800 JPEG) & upload ke Cloudinary ditangani sepenuhnya oleh
+// assets/js/image-cropper.js — callback openImageCropper sudah mengembalikan
+// secure_url final, sehingga modul ini TIDAK memproses gambar ulang.
 // ==========================================
-async function compressImageBlob(blob, maxWidth = 800, quality = 0.75) {
-    return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.src = URL.createObjectURL(blob);
-        img.onload = () => {
-            let width = img.width;
-            let height = img.height;
-
-            if (width > maxWidth) {
-                height = Math.round((height * maxWidth) / width);
-                width = maxWidth;
-            }
-
-            const canvas = document.createElement('canvas');
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, width, height);
-
-            canvas.toBlob((compressedBlob) => {
-                URL.revokeObjectURL(img.src);
-                resolve(compressedBlob);
-            }, 'image/jpeg', quality);
-        };
-        img.onerror = (err) => reject(err);
-    });
-}
-
-async function uploadCompressedToCloudinary(urlOrBlob, folderName = 'robotic_assembly') {
-    try {
-        let fileBlob = urlOrBlob;
-        if (typeof urlOrBlob === 'string' && urlOrBlob.startsWith('blob:')) {
-            const fetched = await fetch(urlOrBlob);
-            fileBlob = await fetched.blob();
-        }
-
-        const compressedBlob = await compressImageBlob(fileBlob, 800, 0.75);
-
-        const formData = new FormData();
-        formData.append('file', compressedBlob, `assembly_${Date.now()}.jpg`);
-        formData.append('upload_preset', cloudinaryConfig.uploadPreset);
-        formData.append('folder', folderName);
-
-        const res = await fetch(cloudinaryConfig.uploadUrl, {
-            method: 'POST',
-            body: formData
-        });
-
-        if (!res.ok) {
-            const errJson = await res.json().catch(() => ({}));
-            throw new Error(errJson.error?.message || `Upload gagal (${res.status})`);
-        }
-
-        const data = await res.json();
-        return data.secure_url;
-    } catch (e) {
-        console.error("Cloudinary upload error:", e);
-        throw e;
-    }
-}
 
 // ==========================================
 // 4. STYLING (CSS INJECTION)
@@ -665,19 +608,19 @@ function addStepRow(st = {}) {
         </div>
     `;
 
-    // Handler Upload Foto Step dengan Kompresi Otomatis
+    // Handler Upload Foto Step.
+    // PENTING: openImageCropper SUDAH mengompres (600x800 JPEG) & meng-upload ke Cloudinary,
+    // lalu callback mengembalikan URL final (secure_url). Jangan proses ulang gambarnya.
     row.querySelector('.btn-upload-step-img').onclick = () => {
-        openImageCropper('robotic_assembly', async (urlOrBlob) => {
-            try {
-                row.querySelector('.btn-upload-step-img').innerText = "Compressing...";
-                const secureUrl = await uploadCompressedToCloudinary(urlOrBlob, 'robotic_assembly');
-                row.querySelector('.step-image-url').value = secureUrl;
-                row.querySelector('.img-preview-step').src = secureUrl;
-                row.querySelector('.btn-upload-step-img').innerHTML = `<i class="fas fa-check"></i> Tersimpan`;
-            } catch (err) {
-                showToast("Gagal mengompres/upload foto: " + err.message, 'error');
-                row.querySelector('.btn-upload-step-img').innerHTML = `<i class="fas fa-camera"></i> Coba Lagi`;
+        openImageCropper('robotic_assembly', (secureUrl) => {
+            if (!secureUrl) {
+                showToast('URL foto tidak diterima dari cropper.', 'error');
+                return;
             }
+            row.querySelector('.step-image-url').value = secureUrl;
+            row.querySelector('.img-preview-step').src = secureUrl;
+            row.querySelector('.btn-upload-step-img').innerHTML = `<i class="fas fa-check"></i> Tersimpan`;
+            showToast('Foto langkah berhasil diunggah.', 'success');
         });
     };
 
