@@ -19,6 +19,9 @@ let schoolsCache = [];
 let editingId = null;
 let editingContract = null;   // snapshot kontrak yg sedang diedit
 let styleInjected = false;
+let teachersCache = [];       // [{id, name, role}] utk dropdown penanda tangan (Hormat Kami)
+let signerId = '';            // guru terpilih utk "Hormat Kami" / "Yang menerima"
+let signerName = '';
 
 /* ==================================================
    KONFIGURASI PENERBIT (KOP INVOICE) & PEMBAYARAN
@@ -79,11 +82,23 @@ export async function initSekolah(container) {
                     <label>Label periode
                         <input id="bs-f-label" class="bp-input" placeholder="mis. Agustus / Semester 1">
                     </label>
-                    <label>Pertemuan Mulai
+                    <div style="grid-column:1/-1;">
+                        <span style="font-size:.8rem;font-weight:700;color:#475569;display:block;margin-bottom:6px;">Cara menentukan periode tagihan</span>
+                        <div class="bs-mode-seg" id="bs-mode-seg">
+                            <button type="button" class="bs-mode-btn active" data-bs-mode="range">
+                                <i class="fas fa-calendar-alt"></i> Rentang Tanggal</button>
+                            <button type="button" class="bs-mode-btn" data-bs-mode="count">
+                                <i class="fas fa-list-ol"></i> Jumlah Pertemuan</button>
+                        </div>
+                    </div>
+                    <label id="bs-f-mulai-wrap">Pertemuan Mulai
                         <select id="bs-f-mulai" class="bp-input"></select>
                     </label>
-                    <label>Pertemuan Akhir
+                    <label id="bs-f-akhir-wrap">Pertemuan Akhir
                         <select id="bs-f-akhir" class="bp-input"></select>
+                    </label>
+                    <label id="bs-f-jumlah-wrap" style="display:none;">Jumlah Pertemuan
+                        <input id="bs-f-jumlah" type="number" class="bp-input" value="4" min="1" required>
                     </label>
                     <label>Harga kontrak (Rp)
                         <input id="bs-f-price" type="number" class="bp-input" value="80000" min="0" required>
@@ -112,6 +127,25 @@ export async function initSekolah(container) {
     ['bs-f-mulai', 'bs-f-akhir'].forEach(id => {
         document.getElementById(id).addEventListener('change', refreshMeetHint);
     });
+    // Mode pemilih periode: Rentang Tanggal | Jumlah Pertemuan
+    document.querySelectorAll('#bs-mode-seg .bs-mode-btn').forEach(b => {
+        b.onclick = () => setDateMode(b.dataset.bsMode);
+    });
+    document.getElementById('bs-f-jumlah').addEventListener('input', () => {
+        syncEndFromJumlah();
+        refreshMeetHint();
+    });
+    // Ganti kelas saat deklarasi baru -> muat ulang daftar pertemuan
+    document.getElementById('bs-f-class').addEventListener('change', (e) => {
+        if (editingId || !e.target.value) return;
+        modalMeetings = [];
+        selMulaiTgl = selAkhirTgl = null;
+        (async () => {
+            modalMeetings = await fetchMeetings(e.target.value);
+            populateMeetingSelects();
+            applyDateModeUI();
+        })();
+    });
 
     classesCache = await fetchActiveClasses();
     deriveSchools();
@@ -128,6 +162,13 @@ function injectStyles() {
         .bs-total td:first-child { font-weight:700; color:#1e293b; }
         .bs-total td:last-child  { color:#15803d; font-weight:800; font-size:.95rem; }
         .bs-label-cell { width:38%; color:#475569; }
+
+        /* === MODE PEMILIH PERIODE (rentang tanggal / jumlah pertemuan) === */
+        .bs-mode-seg { display:inline-flex; flex-wrap:wrap; gap:6px; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:10px; padding:4px; }
+        .bs-mode-btn { border:none; background:transparent; color:#64748b; font-weight:700; font-size:.82rem; padding:7px 14px; border-radius:8px; cursor:pointer; display:inline-flex; align-items:center; gap:7px; transition:.12s; }
+        .bs-mode-btn:hover { color:#1e40af; }
+        .bs-mode-btn.active { background:#2563eb; color:#fff; box-shadow:0 1px 3px rgba(37,99,235,.4); }
+        .bs-mode-btn i { font-size:.85rem; }
 
         /* === INVOICE PAPER === */
         .bs-inv-paper { background:#fff; width:min(820px,94vw); max-height:88vh; overflow:auto;
@@ -165,19 +206,34 @@ function injectStyles() {
         .bs-inv-terbilang { font-size:.82rem; font-style:italic; color:#374151; margin-top:10px;
                             border:1px dashed #d1d5db; border-radius:6px; padding:8px 12px; background:#f9fafb; }
         .bs-inv-note { font-size:.78rem; color:#4b5563; margin-top:14px; }
-        .bs-inv-sign { display:flex; justify-content:space-between; margin-top:44px; font-size:.85rem; text-align:center; }
+        .bs-inv-sign { display:flex; justify-content:space-between; margin-top:34px; font-size:.85rem; text-align:center; }
+        .bs-sign-tools { display:flex; align-items:center; gap:10px; margin:26px 0 -6px; padding:8px 12px;
+                         background:#f8fafc; border:1px dashed #cbd5e1; border-radius:8px; }
+        .bs-sign-tools label { font-size:.76rem; font-weight:700; color:#475569; }
         .bs-inv-sign div { width:220px; }
         .bs-inv-sign .space { height:64px; }
         .bs-inv-sign .nm { border-top:1px solid #9ca3af; padding-top:4px; font-weight:700; }
         .bs-inv-foot { margin-top:22px; font-size:.66rem; color:#9ca3af; text-align:center;
                        border-top:1px solid #f1f5f9; padding-top:8px; }
 
+        /* === KWITANSI (bukti lunas) === */
+        .bs-kw-title { text-align:right; }
+        .bs-kw-title h1 { margin:0; font-size:30px; letter-spacing:5px; color:#15803d; font-weight:900; }
+        .bs-kw-title .no { font-size:.8rem; color:#374151; margin-top:4px; font-weight:600; }
+        .bs-kw-title .tgl { font-size:.75rem; color:#6b7280; }
+        .bs-kw-paper { width:min(720px,94vw); }
+        .bs-kw-body { margin-top:18px; font-size:.86rem; }
+        .bs-kw-body .lbl { width:176px; flex-shrink:0; color:#475569; font-weight:700; }
+        .bs-kw-body .val { flex:1; color:#111827; font-weight:600; }
+        .bs-kw-amount { font-size:1.08rem; font-weight:800; color:#15803d; }
+        .bs-kw-terbilang { font-style:italic; color:#374151; font-weight:600; }
+
         /* === PRINT === */
         @media print {
             @page { size:A4; margin:14mm; }
             body * { visibility:hidden !important; }
-            #bs-inv-paper, #bs-inv-paper * { visibility:visible !important; }
-            #bs-inv-paper { position:fixed; inset:0; width:100%; max-height:none; overflow:visible;
+            #bs-inv-paper, #bs-inv-paper *, #bs-kw-paper, #bs-kw-paper * { visibility:visible !important; }
+            #bs-inv-paper, #bs-kw-paper { position:fixed; inset:0; width:100%; max-height:none; overflow:visible;
                             box-shadow:none !important; border-radius:0 !important; padding:0; }
             .bs-no-print { display:none !important; }
         }
@@ -357,8 +413,14 @@ async function loadClassData() {
         const idxS = (allMeetings || []).findIndex(m => m.tanggal === bp.start_date);
         const idxE = (allMeetings || []).findIndex(m => m.tanggal === bp.end_date);
         const rangeTxt = (idxS > -1 && idxE > -1) ? `P${idxS + 1}–P${idxE + 1} · ` : '';
-        const total = Math.round(pps * meetings.length * (anak || 0) * 100) / 100;
+        // Jumlah pertemuan yang DIKONTAK (bisa > realisasi utk kasus bayar di muka)
+        const kontrakJumlah = (bp.jumlah_pertemuan != null && Number(bp.jumlah_pertemuan) > 0)
+            ? Number(bp.jumlah_pertemuan) : meetings.length;
+        const liveTotal = Math.round(pps * kontrakJumlah * (anak || 0) * 100) / 100;
         const iv = invByPeriod[bp.id];
+        // Bila invoice sudah terbit, total resmi = snapshot invoice (agar rekap
+        // selalu konsisten dengan dokumen yang dicetak)
+        const total = (iv && Number(iv.total) != null) ? Number(iv.total) : liveTotal;
 
         blocks += `
         <div class="bp-period-block card">
@@ -366,7 +428,7 @@ async function loadClassData() {
                 <div class="bp-toolbar-info">
                     <strong>${esc(bp.periode_label) || 'Periode tanpa label'}</strong>
                     <span class="bp-meta">${rangeTxt}${fmtDate(bp.start_date)} s/d <b>${fmtDate(bp.end_date)}</b></span>
-                    <span class="bp-meta">Kontrak: <b>${rupiah(bp.contract_price)}</b> / ${bp.contract_sessions} sesi</span>
+                    <span class="bp-meta">Kontrak: <b>${rupiah(bp.contract_price)}</b> / ${bp.contract_sessions} sesi · <b>${kontrakJumlah}</b> pertemuan</span>
                     <span class="bp-meta">Harga/sesi: <b>${rupiah(pps)}</b></span>
                     <span class="bp-badge ${iv ? 'ok' : 'over'}">${iv ? 'Invoice terbit ✓' : 'Belum ada invoice'}</span>
                 </div>
@@ -384,7 +446,8 @@ async function loadClassData() {
             <table class="bp-date-table">
                 <tbody>
                     <tr><td class="bs-label-cell">👨‍🎓 Jumlah Anak (aktif)</td><td><b>${anak || 0}</b></td></tr>
-                    <tr><td class="bs-label-cell">📅 Pertemuan dalam periode</td><td><b>${meetings.length}</b></td></tr>
+                    <tr><td class="bs-label-cell">📅 Pertemuan dikontrak</td><td><b>${kontrakJumlah}</b></td></tr>
+                    <tr><td class="bs-label-cell">📅 Realisasi tercatat</td><td>${meetings.length}</td></tr>
                     <tr><td class="bs-label-cell">💰 Harga per sesi</td><td>${rupiah(pps)}</td></tr>
                     <tr class="bs-total"><td class="bs-label-cell">🧾 TOTAL INVOICE</td>
                         <td>${rupiah(total)}${iv ? ` <span class="bp-badge ok">terbit ${fmtDateTime(iv.created_at)}</span>` : ''}</td></tr>
@@ -430,6 +493,7 @@ async function loadClassData() {
 // ==========================================
 // --- Pertemuan utk modal (sumber pilihan Mulai/Akhir) ---
 let modalMeetings = [];      // [{id, tanggal}] urut tanggal
+let contractDateMode = 'range'; // cara memilih periode di modal: 'range' | 'count'
 let selMulaiTgl = null;      // snapshot tanggal (fallback bila pertemuan dihapus)
 let selAkhirTgl = null;
 
@@ -439,6 +503,20 @@ async function fetchMeetings(classId) {
         .eq('class_id', classId)
         .order('tanggal');
     return data || [];
+}
+
+// Deteksi apakah tabel kontrak sudah punya kolom jumlah_pertemuan (hasil migrasi).
+let schemaHasJumlah = null;   // null = belum diperiksa
+async function ensureJumlahKolom() {
+    if (schemaHasJumlah !== null) return schemaHasJumlah;
+    try {
+        const { error } = await supabase.from('billing_periods_sekolah')
+            .select('jumlah_pertemuan').limit(1);
+        schemaHasJumlah = !error;
+    } catch (e) {
+        schemaHasJumlah = false;
+    }
+    return schemaHasJumlah;
 }
 
 function fillClassSelect() {
@@ -472,7 +550,91 @@ function syncTanggalFromSelects() {
     selAkhirTgl = modalMeetings.find(m => m.id === e)?.tanggal || null;
 }
 
+// --- Proyeksi tanggal akhir saat jumlah pertemuan > yg tercatat (bayar di muka) ---
+function meetingGapDays() {
+    const gaps = [];
+    for (let i = 1; i < modalMeetings.length; i++) {
+        gaps.push((new Date(modalMeetings[i].tanggal + 'T00:00:00') - new Date(modalMeetings[i - 1].tanggal + 'T00:00:00')) / 86400000);
+    }
+    if (!gaps.length) return 7;                       // default mingguuan
+    gaps.sort((a, b) => a - b);
+    const mid = Math.floor(gaps.length / 2);
+    const median = gaps.length % 2 ? gaps[mid] : (gaps[mid - 1] + gaps[mid]) / 2;
+    return Math.max(1, Math.round(median));
+}
+
+function projectedEndDate(jumlah, mulaiIdx) {
+    const avail = Math.min(jumlah, modalMeetings.length - mulaiIdx); // pertemuan yg sudah tercatat
+    const last = modalMeetings[mulaiIdx + avail - 1].tanggal;
+    const extra = jumlah - avail;                     // sisa yg belum tercatat
+    if (extra <= 0) return last;
+    const d = new Date(last + 'T00:00:00');
+    d.setDate(d.getDate() + meetingGapDays() * extra);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// --- Helper mode "Jumlah Pertemuan" ---
+function applyDateModeUI() {
+    const akhirWrap = document.getElementById('bs-f-akhir-wrap');
+    const jumlahWrap = document.getElementById('bs-f-jumlah-wrap');
+    if (akhirWrap) akhirWrap.style.display = contractDateMode === 'range' ? '' : 'none';
+    if (jumlahWrap) jumlahWrap.style.display = contractDateMode === 'count' ? '' : 'none';
+    document.querySelectorAll('#bs-mode-seg .bs-mode-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.bsMode === contractDateMode));
+}
+
+function syncJumlahFromRange() {
+    const i1 = modalMeetings.findIndex(m => m.id === document.getElementById('bs-f-mulai').value);
+    const i2 = modalMeetings.findIndex(m => m.id === document.getElementById('bs-f-akhir').value);
+    const el = document.getElementById('bs-f-jumlah');
+    if (i1 > -1 && i2 > -1 && el) el.value = Math.abs(i2 - i1) + 1;
+}
+
+function syncEndFromJumlah() {
+    const mulaiId = document.getElementById('bs-f-mulai').value;
+    const jumlahEl = document.getElementById('bs-f-jumlah');
+    const endSel = document.getElementById('bs-f-akhir');
+    if (!jumlahEl || !endSel || !endSel.options.length) return;
+    const i1 = modalMeetings.findIndex(m => m.id === mulaiId);
+    if (i1 === -1) return;
+    const jumlah = Math.max(1, Number(jumlahEl.value) || 1);
+    const sisa = modalMeetings.length - i1;
+    if (jumlah <= sisa) {
+        endSel.value = modalMeetings[i1 + jumlah - 1].id; // auto-set Pertemuan Akhir
+    } else {
+        // Pertemuan ke-N belum tercatat (kasus bayar di muka):
+        // pertahankan pilihan pertemuan terakhir; tanggal akhir diproyeksikan saat simpan.
+        endSel.value = modalMeetings[modalMeetings.length - 1].id;
+    }
+}
+
+function setDateMode(mode) {
+    contractDateMode = mode;
+    applyDateModeUI();
+    if (mode === 'count') syncEndFromJumlah();
+    else syncJumlahFromRange();
+    refreshMeetHint();
+}
+
 function refreshMeetHint() {
+    // Mode Jumlah Pertemuan: tampilkan rentang tanggal hasil hitung otomatis
+    if (contractDateMode === 'count') {
+        const hintEl = document.getElementById('bs-meet-hint');
+        if (!hintEl) return;
+        const mulaiId = document.getElementById('bs-f-mulai').value;
+        const jumlah = Math.max(1, Number(document.getElementById('bs-f-jumlah')?.value) || 1);
+        const i1 = modalMeetings.findIndex(m => m.id === mulaiId);
+        if (i1 === -1) { hintEl.textContent = ''; return; }
+        const iEnd = i1 + jumlah - 1;
+        if (iEnd < modalMeetings.length) {
+            hintEl.textContent = `✓ ${jumlah} pertemuan akan ditagihkan — ${fmtDate(modalMeetings[i1].tanggal)} s/d ${fmtDate(modalMeetings[iEnd].tanggal)}.`;
+        } else {
+            const sisa = modalMeetings.length - i1;
+            const projEnd = projectedEndDate(jumlah, i1);
+            hintEl.textContent = `✓ ${jumlah} pertemuan direncanakan (baru ${sisa} tercatat) — periode s/d perkiraan ${fmtDate(projEnd)}.`;
+        }
+        return;
+    }
     const i1 = modalMeetings.findIndex(m => m.id === document.getElementById('bs-f-mulai').value);
     const i2 = modalMeetings.findIndex(m => m.id === document.getElementById('bs-f-akhir').value);
     const hint = document.getElementById('bs-meet-hint');
@@ -493,7 +655,9 @@ function openDeclare() {
     document.getElementById('bs-f-label').value = '';
     document.getElementById('bs-f-price').value = 80000;
     document.getElementById('bs-f-sessions').value = 4;
+    document.getElementById('bs-f-jumlah').value = 4;
     updatePriceHint();
+    contractDateMode = 'range';   // deklarasi baru default: mode rentang tanggal
 
     // Ambil daftar pertemuan aktual kelas aktif → jadi pilihan Mulai/Akhir
     modalMeetings = [];
@@ -503,6 +667,7 @@ function openDeclare() {
     (async () => {
         modalMeetings = await fetchMeetings(sel.value);
         populateMeetingSelects();
+        applyDateModeUI();
     })();
 }
 
@@ -536,6 +701,13 @@ async function openEditContract(id) {
     const startId = modalMeetings.find(m => m.tanggal === bp.start_date)?.id || '';
     const endId   = modalMeetings.find(m => m.tanggal === bp.end_date)?.id || '';
     populateMeetingSelects(startId, endId);
+    contractDateMode = 'range';   // edit: tampil mode rentang (data tersimpan utuh)
+    applyDateModeUI();
+    syncJumlahFromRange();        // prefill Jumlah Pertemuan bila user pindah mode
+    // Jika kontrak menyimpan jumlah_pertemuan yang DIKONTAK, tampilkan nilai itu
+    if (bp.jumlah_pertemuan != null && Number(bp.jumlah_pertemuan) > 0) {
+        document.getElementById('bs-f-jumlah').value = Number(bp.jumlah_pertemuan);
+    }
 }
 
 function closeModal() {
@@ -555,13 +727,48 @@ function updatePriceHint() {
 
 async function saveContract() {
     const mulaiId = document.getElementById('bs-f-mulai').value;
-    const akhirId = document.getElementById('bs-f-akhir').value;
+    let akhirId = document.getElementById('bs-f-akhir').value;
+
+    // Mode "Jumlah Pertemuan": akhir dihitung otomatis = mulai + (jumlah-1) pertemuan.
+    // Bila jumlah melebihi pertemuan yang sudah tercatat (kasus bayar di muka),
+    // tanggal akhir periode diproyeksikan mengikuti jeda jadwal agar pertemuan
+    // yang belum tercatat tetap masuk dalam rentang periode.
+    let endDateOverride = null;
+    if (contractDateMode === 'count') {
+        const jumlah = Math.max(1, Number(document.getElementById('bs-f-jumlah').value) || 1);
+        const mulaiIdx = modalMeetings.findIndex(m => m.id === mulaiId);
+        if (mulaiIdx === -1) return alert('Pilih pertemuan Mulai terlebih dahulu!');
+        const endIdx = mulaiIdx + jumlah - 1;
+        if (endIdx < modalMeetings.length) {
+            akhirId = modalMeetings[endIdx].id;
+            document.getElementById('bs-f-akhir').value = akhirId; // sinkronkan UI
+        } else {
+            const sisa = modalMeetings.length - mulaiIdx;
+            endDateOverride = projectedEndDate(jumlah, mulaiIdx);
+            document.getElementById('bs-f-akhir').value = modalMeetings[modalMeetings.length - 1].id;
+            if (!confirm(`Anda mendeklarasikan ${jumlah} pertemuan, tapi baru ${sisa} yang tercatat.\nTanggal akhir periode diproyeksikan ke ${fmtDate(endDateOverride)} mengikuti jadwal kelas.\n\nLanjutkan?`)) return;
+        }
+    }
 
     // school_id WAJIB (NOT NULL di DB) — ambil dari kelas terpilih,
     // fallback ke kontrak yang sedang diedit (kasus kelas non-aktif)
     const classId = document.getElementById('bs-f-class').value;
     const cls = classesCache.find(c => c.id === classId);
     const schoolId = cls?.school_id || editingContract?.school_id || null;
+
+    // Jumlah pertemuan yang DIKONTAK — bisa melebihi realisasi utk kasus
+    // sekolah bayar di muka (mis. kontrak 4, baru 3 pertemuan tercatat).
+    let jumlahKontrak = null;
+    if (contractDateMode === 'count') {
+        jumlahKontrak = Math.max(1, Number(document.getElementById('bs-f-jumlah').value) || 1);
+    } else {
+        const m1 = modalMeetings.findIndex(m => m.id === mulaiId);
+        const m2 = modalMeetings.findIndex(m => m.id === akhirId);
+        if (m1 > -1 && m2 > -1) jumlahKontrak = Math.abs(m2 - m1) + 1;
+        else if (editingContract && Number(editingContract.jumlah_pertemuan) > 0) {
+            jumlahKontrak = Number(editingContract.jumlah_pertemuan);
+        }
+    }
 
     const payload = {
         class_id: classId,
@@ -570,10 +777,14 @@ async function saveContract() {
         // Tanggal diturunkan dari PERTEMUAN yang dipilih (bukan date picker).
         // Fallback ke snapshot tersimpan bila pertemuan batas sudah dihapus.
         start_date: modalMeetings.find(m => m.id === mulaiId)?.tanggal || selMulaiTgl,
-        end_date: modalMeetings.find(m => m.id === akhirId)?.tanggal || selAkhirTgl,
+        end_date: endDateOverride || modalMeetings.find(m => m.id === akhirId)?.tanggal || selAkhirTgl,
         contract_price: Number(document.getElementById('bs-f-price').value) || 0,
         contract_sessions: Math.max(1, Number(document.getElementById('bs-f-sessions').value) || 4),
     };
+    // Hanya kirim kolom jumlah_pertemuan bila schema sudah punya (hasil migrasi)
+    if (await ensureJumlahKolom() && jumlahKontrak != null) {
+        payload.jumlah_pertemuan = jumlahKontrak;
+    }
 
     if (!payload.class_id) return alert('Pilih kelas!');
     if (!payload.school_id) return alert('Sekolah untuk kelas ini tidak ditemukan.');
@@ -605,6 +816,28 @@ async function saveContract() {
     }
 
     if (error) return alert('Gagal simpan: ' + error.message);
+
+    // EDIT BERPENGARUH KE DOKUMEN TERKAIT:
+    // jika kontrak sudah punya invoice, snapshot invoice ikut diperbarui
+    // (jumlah pertemuan, anak, harga/sesi, total, periode) dari kontrak terbaru,
+    // sehingga invoice & kwitansi yang dicetak selalu memakai nilai baru.
+    if (editingId) {
+        const { data: existingInv } = await supabase.from('invoices_sekolah')
+            .select('id').eq('period_id', editingId).maybeSingle();
+        if (existingInv) {
+            const upd = await computeInvoiceValues(editingId);
+            if (upd) {
+                const { error: errUpd } = await supabase.from('invoices_sekolah')
+                    .update(upd).eq('period_id', editingId);
+                if (!errUpd) {
+                    alert('Kontrak diperbarui.\nInvoice yang sudah terbit ikut diperbarui:\n' +
+                        rupiah(upd.total) + ' (' + upd.jumlah_pertemuan + ' pertemuan x ' + upd.jumlah_anak + ' anak).\n' +
+                        'Buka kembali invoice/kwitansi untuk melihat nilai terbaru.');
+                }
+            }
+        }
+    }
+
     closeModal();
     if (payload.class_id) await activateClass(payload.class_id);
 }
@@ -612,16 +845,14 @@ async function saveContract() {
 // ==========================================
 // 6. GENERATE INVOICE (snapshot) & HAPUS
 // ==========================================
-async function generateInvoice(periodId) {
+// Hitung nilai invoice dari KONTRAK (dipakai saat terbit & saat edit kontrak).
+// Jumlah pertemuan = jumlah yang DIKONTAK (bila kolom tersedia), fallback ke
+// realisasi pertemuan tercatat dalam rentang tanggal.
+async function computeInvoiceValues(periodId) {
     const { data: bp } = await supabase.from('billing_periods_sekolah')
         .select('*').eq('id', periodId).single();
-    if (!bp) return alert('Kontrak tidak ditemukan.');
+    if (!bp) return null;
 
-    const { data: exist } = await supabase.from('invoices_sekolah')
-        .select('id').eq('period_id', periodId).maybeSingle();
-    if (exist) return alert('Invoice untuk siklus ini sudah pernah diterbitkan.');
-
-    // Hitung ulang saat generate (angka di-snapshot ke tabel invoices)
     const [{ count: anak }, { data: meetings }] = await Promise.all([
         supabase.from('students').select('id', { count: 'exact', head: true })
             .eq('class_id', bp.class_id).eq('is_active', true),
@@ -631,20 +862,38 @@ async function generateInvoice(periodId) {
     ]);
 
     const pps = Math.round((Number(bp.contract_price) / Math.max(1, bp.contract_sessions)) * 100) / 100;
-    const total = Math.round(pps * (meetings || []).length * (anak || 0) * 100) / 100;
+    const jumlahPertemuan = (bp.jumlah_pertemuan != null && Number(bp.jumlah_pertemuan) > 0)
+        ? Number(bp.jumlah_pertemuan)
+        : (meetings || []).length;
+    const total = Math.round(pps * jumlahPertemuan * (anak || 0) * 100) / 100;
 
-    if (!confirm(`Terbitkan invoice?\n\nAnak        : ${anak || 0}\nPertemuan   : ${(meetings || []).length}\nHarga/sesi  : ${rupiah(pps)}\nTOTAL       : ${rupiah(total)}\n\nLanjutkan?`)) return;
-
-    const { error } = await supabase.from('invoices_sekolah').insert({
+    return {
         period_id: periodId,
         school_id: bp.school_id,
         class_id: bp.class_id,
         periode_label: bp.periode_label,
         jumlah_anak: anak || 0,
-        jumlah_pertemuan: (meetings || []).length,
+        jumlah_pertemuan: jumlahPertemuan,
         price_per_session: pps,
         total
-    });
+    };
+}
+
+async function generateInvoice(periodId) {
+    const { data: bp } = await supabase.from('billing_periods_sekolah')
+        .select('*').eq('id', periodId).single();
+    if (!bp) return alert('Kontrak tidak ditemukan.');
+
+    const { data: exist } = await supabase.from('invoices_sekolah')
+        .select('id').eq('period_id', periodId).maybeSingle();
+    if (exist) return alert('Invoice untuk siklus ini sudah pernah diterbitkan.');
+
+    const inv = await computeInvoiceValues(periodId);
+    if (!inv) return alert('Gagal menghitung nilai invoice.');
+
+    if (!confirm(`Terbitkan invoice?\n\nAnak        : ${inv.jumlah_anak}\nPertemuan   : ${inv.jumlah_pertemuan}\nHarga/sesi  : ${rupiah(inv.price_per_session)}\nTOTAL       : ${rupiah(inv.total)}\n\nLanjutkan?`)) return;
+
+    const { error } = await supabase.from('invoices_sekolah').insert(inv);
 
     if (error) return alert('Gagal terbitkan invoice: ' + error.message);
     await loadClassData();
@@ -696,6 +945,191 @@ function invoiceNo(iv) {
 
 window.bsPrintInvoice = () => window.print();
 window.bsCloseInvoice = () => document.getElementById('bs-inv-modal')?.remove();
+
+// ==========================================
+// 7b. KWITANSI / BUKTI LUNAS
+// Dicetak langsung dari data invoice (tanpa simpan status pembayaran).
+// ==========================================
+function kwitansiNo(iv) {
+    const d = iv.created_at ? new Date(iv.created_at) : new Date();
+    const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    return `KWT/${ymd}/${(iv.id || '').slice(0, 6).toUpperCase()}`;
+}
+
+// --- Penandatar tangan (nama guru) utk "Hormat Kami"/"Yang menerima" ---
+async function fetchTeachers() {
+    if (teachersCache.length) return teachersCache;
+    const { data } = await supabase.from('teachers').select('id, name, role').order('name');
+    teachersCache = data || [];
+    return teachersCache;
+}
+
+function setSigner(id) {
+    signerId = id;
+    const t = teachersCache.find(x => x.id === id);
+    signerName = t ? t.name : '';
+    if (id) sessionStorage.setItem('bs_signer_id', id);
+    document.querySelectorAll('.bs-signer-name').forEach(el => {
+        el.textContent = signerName || ' ';
+    });
+}
+
+async function populateSignerSelect(sel) {
+    let list;
+    try { list = await fetchTeachers(); } catch (e) { list = []; }
+    if (!list.length) {
+        sel.innerHTML = '<option value="">— daftar guru kosong —</option>';
+        return;
+    }
+    sel.innerHTML = '<option value="">— pilih penanda tangan —</option>' +
+        list.map(t => `<option value="${t.id}">${esc(t.name)}${t.role ? ' (' + esc(t.role) + ')' : ''}</option>`).join('');
+    const saved = sessionStorage.getItem('bs_signer_id') || signerId || '';
+    if (saved && list.some(t => t.id === saved)) {
+        sel.value = saved;
+        setSigner(saved);
+    }
+}
+
+async function openKwitansiView(periodId) {
+    const STEP = (s) => { window.__bsStep = s; };
+    try {
+        STEP('ambil invoice (kwitansi)');
+        const { data: iv, error: errIv } = await supabase.from('invoices_sekolah')
+            .select('*').eq('period_id', periodId).single();
+        if (errIv || !iv) return alert('Data invoice tidak ditemukan.\n' + (errIv?.message || ''));
+
+        STEP('ambil kontrak');
+        const { data: bp, error: errBp } = await supabase.from('billing_periods_sekolah')
+            .select('*').eq('id', periodId).single();
+        if (errBp || !bp) return alert('Kontrak tidak ditemukan.\n' + (errBp?.message || ''));
+
+        STEP('ambil kelas & sekolah');
+        const [{ data: cls }, { data: sch }] = await Promise.all([
+            supabase.from('classes').select('name, level').eq('id', iv.class_id).single(),
+            supabase.from('schools').select('name, address, phone, email, headmaster')
+                .eq('id', iv.school_id).single()
+        ]);
+
+        STEP('render dokumen kwitansi');
+        // Tutup modal invoice agar cetak hanya menampilkan kwitansi
+        document.getElementById('bs-inv-modal')?.remove();
+        document.getElementById('bs-kw-modal')?.remove();
+
+        const total = Number(iv.total) || 0;
+        const issuerLogoHtml = `<img src="${esc(ISSUER.logo)}" alt="${esc(ISSUER.name)}" class="bs-inv-issuer-logo">`;
+        const issuerName = esc(ISSUER.name);
+        const issuerContact = [ISSUER.address,
+                               ISSUER.tel ? 'Telp. ' + ISSUER.tel : '',
+                               ISSUER.email,
+                               ISSUER.website].filter(Boolean).join(' · ');
+
+        const todayStr = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
+        const schoolLine = sch?.address
+            ? `${esc(sch.name)}<br><span style="color:#4b5563; font-weight:500;">${esc(sch.address)}</span>`
+            : esc(sch?.name || '-');
+        const payerLabel = sch?.headmaster ? esc(sch.headmaster) : esc(sch?.name || '-');
+
+        const wrap = document.createElement('div');
+        wrap.id = 'bs-kw-modal';
+        wrap.className = 'bp-modal';
+        wrap.innerHTML = `
+        <div style="display:flex; justify-content:flex-end; align-items:center; flex-wrap:wrap; gap:8px; width:min(720px,94vw); margin-bottom:8px;" class="bs-no-print">
+            <button class="bp-btn-primary" onclick="window.bsPrintKwitansi()">
+                <i class="fas fa-print"></i> Cetak / Simpan PDF</button>
+            <button class="bp-btn-secondary" onclick="window.bsBackToInvoice('${periodId}')">
+                <i class="fas fa-file-invoice-dollar"></i> Lihat Invoice</button>
+            <button class="bp-btn-secondary" onclick="window.bsCloseKwitansi()">Tutup</button>
+        </div>
+        <div id="bs-kw-paper" class="bs-inv-paper bs-kw-paper" onclick="event.stopPropagation()">
+            <div class="bs-inv-top">
+                <div class="bs-inv-issuer">
+                    ${issuerLogoHtml}
+                    <div>
+                        <div class="bs-inv-sch-name">${issuerName}</div>
+                        <div class="bs-inv-sch-sub">${esc(issuerContact) || '&nbsp;'}</div>
+                    </div>
+                </div>
+                <div class="bs-kw-title">
+                    <h1>KWITANSI</h1>
+                    <div class="no">No. ${kwitansiNo(iv)}</div>
+                    <div class="tgl">Tanggal: ${todayStr}</div>
+                </div>
+            </div>
+
+            <div class="bs-kw-body">
+                <div style="display:flex; gap:12px; margin-bottom:10px;">
+                    <span class="lbl">Sudah terima dari</span>
+                    <span class="val">${schoolLine}</span>
+                </div>
+                <div style="display:flex; gap:12px; margin-bottom:10px;">
+                    <span class="lbl">Uang sejumlah</span>
+                    <span class="val bs-kw-amount">${rupiah(total)}</span>
+                </div>
+                <div style="display:flex; gap:12px; margin-bottom:10px;">
+                    <span class="lbl">Terbilang</span>
+                    <span class="val bs-kw-terbilang"># ${terbilangIDR(Math.round(total))} #</span>
+                </div>
+                <div style="display:flex; gap:12px; margin-bottom:10px;">
+                    <span class="lbl">Untuk pembayaran</span>
+                    <span class="val">Jasa Les Robotik — ${esc(cls?.name) || '-'}${iv.periode_label ? ' (' + esc(iv.periode_label) + ')' : ''}
+                        <span style="display:block; color:#4b5563; font-weight:500; margin-top:3px;">
+                            No. Invoice: ${invoiceNo(iv)}${cls?.level ? ' · ' + esc(cls.level) : ''}<br>
+                            Periode: ${fmtDate(bp.start_date)} s/d ${fmtDate(bp.end_date)} · ${iv.jumlah_pertemuan} pertemuan · ${iv.jumlah_anak} anak
+                        </span>
+                    </span>
+                </div>
+                <div style="display:flex; gap:12px; margin-bottom:10px;">
+                    <span class="lbl">Metode</span>
+                    <span class="val">${esc(PAYMENT.method)}${PAYMENT.account_no ? ' (' + esc(PAYMENT.account_no) + ')' : ''}</span>
+                </div>
+            </div>
+
+            <div class="bs-sign-tools bs-no-print">
+                <label>Yang menerima — penanda tangan:</label>
+                <select id="bs-kw-signer" class="bp-input" style="width:230px;"></select>
+            </div>
+
+            <div class="bs-inv-sign">
+                <div>
+                    Yang membayar,<br>
+                    ${payerLabel}
+                    <div class="space"></div>
+                    <div class="nm">(........................................)</div>
+                </div>
+                <div>
+                    Yang menerima,<br>
+                    <span class="bs-signer-name">${signerName ? esc(signerName) : '&nbsp;'}</span>
+                    <div class="space"></div>
+                    <div class="nm">(........................................)</div>
+                </div>
+            </div>
+
+            <div class="bs-inv-foot">
+                Bukti lunas ini dicetak dari data invoice No. ${invoiceNo(iv)} · No. ${kwitansiNo(iv)}
+            </div>
+        </div>
+    `;
+
+        wrap.addEventListener('click', (e) => { if (e.target === wrap) window.bsCloseKwitansi(); });
+        document.body.appendChild(wrap);
+
+        // Dropdown penanda tangan (Yang menerima) — nama guru dari tabel teachers
+        const kwSignerSel = document.getElementById('bs-kw-signer');
+        if (kwSignerSel) populateSignerSelect(kwSignerSel);
+        if (kwSignerSel) kwSignerSel.onchange = () => setSigner(kwSignerSel.value);
+    } catch (e) {
+        console.error('[Billing Sekolah] Gagal membuka kwitansi:', e);
+        const detail = (e && e.message) ? e.message : String(e);
+        alert('Gagal membuka kwitansi: ' + detail + '\n\nDetail teknis ada di Console (F12).');
+    }
+}
+window.bsOpenKwitansi = openKwitansiView;
+window.bsPrintKwitansi = () => window.print();
+window.bsCloseKwitansi = () => document.getElementById('bs-kw-modal')?.remove();
+window.bsBackToInvoice = (periodId) => {
+    document.getElementById('bs-kw-modal')?.remove();
+    openInvoiceView(periodId);
+};
 
 async function openInvoiceView(periodId) {
     const STEP = (s) => { window.__bsStep = s; };
@@ -760,9 +1194,11 @@ async function openInvoiceView(periodId) {
     wrap.id = 'bs-inv-modal';
     wrap.className = 'bp-modal';
     wrap.innerHTML = `
-        <div style="display:flex; justify-content:flex-end; gap:8px; width:min(820px,94vw); margin-bottom:8px;" class="bs-no-print">
+        <div style="display:flex; justify-content:flex-end; align-items:center; flex-wrap:wrap; gap:8px; width:min(820px,94vw); margin-bottom:8px;" class="bs-no-print">
             <button class="bp-btn-primary" onclick="window.bsPrintInvoice()">
                 <i class="fas fa-print"></i> Cetak / Simpan PDF</button>
+            <button class="bp-btn-primary" onclick="window.bsOpenKwitansi && window.bsOpenKwitansi('${periodId}')">
+                <i class="fas fa-receipt"></i> Cetak Kwitansi</button>
             <button class="bp-btn-secondary" onclick="window.bsCloseInvoice()">Tutup</button>
         </div>
         <div id="bs-inv-paper" class="bs-inv-paper" onclick="event.stopPropagation()">
@@ -860,6 +1296,11 @@ async function openInvoiceView(periodId) {
 
             ${bp.note ? `<div class="bs-inv-note"><b>Catatan:</b> ${esc(bp.note)}</div>` : ''}
 
+            <div class="bs-sign-tools bs-no-print">
+                <label>Hormat Kami — penanda tangan:</label>
+                <select id="bs-inv-signer" class="bp-input" style="width:230px;"></select>
+            </div>
+
             <div class="bs-inv-sign">
                 <div>
                     Penerima,<br>
@@ -868,7 +1309,8 @@ async function openInvoiceView(periodId) {
                     <div class="nm">(........................................)</div>
                 </div>
                 <div>
-                    Hormat Kami,
+                    Hormat Kami,<br>
+                    <span class="bs-signer-name">${signerName ? esc(signerName) : '&nbsp;'}</span>
                     <div class="space"></div>
                     <div class="nm">(........................................)</div>
                 </div>
@@ -882,6 +1324,11 @@ async function openInvoiceView(periodId) {
 
     wrap.addEventListener('click', (e) => { if (e.target === wrap) window.bsCloseInvoice(); });
     document.body.appendChild(wrap);
+
+    // Dropdown penanda tangan (Hormat Kami) — nama guru dari tabel teachers
+    const invSignerSel = document.getElementById('bs-inv-signer');
+    if (invSignerSel) populateSignerSelect(invSignerSel);
+    if (invSignerSel) invSignerSel.onchange = () => setSigner(invSignerSel.value);
     } catch (e) {
         console.error('[Billing Sekolah] Gagal di tahap:', window.__bsStep || '?', e);
         const detail = (e && e.message) ? e.message : String(e);
