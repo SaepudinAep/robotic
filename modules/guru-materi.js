@@ -25,6 +25,7 @@ let currentMateriCache = [];
 let currentViewingMateri = null;
 let currentViewingSteps = [];
 let currentStepIndex = 0;
+let printColorMode = true; // true = cetak berwarna, false = hitam-putih
 
 // ==========================================
 // 1. INITIALIZATION
@@ -129,6 +130,10 @@ export async function init(canvas, userProfile = null) {
                         <button id="btn-open-assembly-from-rpp" type="button" class="btn-action-icon" title="Buka Petunjuk Perakitan Robot" style="background:#f0fdf4; color:#16a34a; border-color:#bbf7d0; width:auto; padding:0 12px; font-weight:700; font-size:0.82rem; gap:6px;">
                             <i class="fas fa-puzzle-piece"></i> Petunjuk Perakitan
                         </button>
+                        <select id="rpp-print-mode" title="Mode Cetak RPP" style="background:#fff; color:#334155; border:1px solid #cbd5e1; border-radius:9px; padding:7px 8px; font-size:0.78rem; font-weight:700; font-family:'Poppins',sans-serif; cursor:pointer; outline:none;">
+                            <option value="color">Berwarna</option>
+                            <option value="bw">Hitam Putih</option>
+                        </select>
                         <button id="btn-print-rpp" type="button" class="btn-action-icon" title="Cetak RPP" style="background:#eff6ff; color:#2563eb; border-color:#bfdbfe;">
                             <i class="fas fa-print"></i>
                         </button>
@@ -485,7 +490,7 @@ function injectStyles() {
         @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 
         @media print {
-            @page { size: A4; margin: 14mm; }
+            @page { size: A4; margin: 13mm; }
 
             /* Sembunyikan SEMUA konten aplikasi kecuali area cetak khusus (#gm-print-root).
                Elemen ini selalu dibuat & diisi oleh printRpp() tepat sebelum window.print(). */
@@ -498,9 +503,9 @@ function injectStyles() {
                 padding: 0 !important;
                 background: #ffffff !important;
                 color: #000000 !important;
-                font-family: 'Times New Roman', Georgia, 'Segoe UI', serif;
-                font-size: 12pt;
-                line-height: 1.5;
+                font-family: 'Poppins', 'Segoe UI', Roboto, system-ui, sans-serif;
+                font-size: 11pt;
+                line-height: 1.55;
                 visibility: visible !important;
                 -webkit-print-color-adjust: exact;
                 print-color-adjust: exact;
@@ -508,39 +513,14 @@ function injectStyles() {
 
             #gm-print-root, #gm-print-root * { visibility: visible !important; }
 
-            /* Atur area dokumen menjadi halaman sekolah: frame + padding A4 */
+            /* Area dokumen: frame tipis + padding */
             #gm-print-root .rpp-preview-card {
-                border: 2px solid #111111 !important;
+                border: 2px solid currentColor;
                 border-radius: 0 !important;
                 box-shadow: none !important;
                 background: #ffffff !important;
-                padding: 26px 30px !important;
+                padding: 22px 26px !important;
                 color: #000000 !important;
-            }
-
-            /* ===== KOP / HEADER DOKUMEN (sederhana) ===== */
-            #gm-print-root .rpp-print-identitas {
-                display: block !important;
-                text-align: center;
-                border-bottom: 2px solid #111111;
-                padding-bottom: 12px;
-                margin-bottom: 16px;
-            }
-            #gm-print-root .rpp-print-title {
-                font-size: 15pt;
-                font-weight: 800;
-                text-transform: uppercase;
-                letter-spacing: 1px;
-            }
-            #gm-print-root .rpp-print-sub {
-                font-size: 10.5pt;
-                margin-top: 2px;
-                font-style: italic;
-            }
-            #gm-print-root .rpp-print-meta {
-                font-size: 11pt;
-                font-weight: 400;
-                margin-top: 8px;
             }
 
             /* Sembunyikan header versi/meta grid & kontrol interaktif yang hanya untuk layar */
@@ -551,14 +531,140 @@ function injectStyles() {
             #gm-print-root .modal-header,
             #gm-print-root .close-btn { display: none !important; }
 
-            /* Foto project tetap tampil jika ada (hanya di cetak tampak rapi) */
+            /* Foto project tetap tampil jika ada */
             #gm-print-root img {
-                max-height: 120mm;
+                max-height: 100mm;
                 object-fit: contain;
                 page-break-inside: avoid;
             }
 
-            /* ===== JUDUL SECTION ===== */
+            /* ====== MODE BERWARNA (fun & formal, default) ====== */
+            #gm-print-root.gm-print-color .rpp-preview-card {
+                border-color: #2563eb !important;
+            }
+            #gm-print-root.gm-print-color .rpp-print-identitas {
+                display: block !important;
+                text-align: center;
+                border-radius: 14px;
+                background: linear-gradient(135deg, #eff6ff 0%, #f0f9ff 70%, #e0f2fe 100%);
+                border: 1px solid #bfdbfe;
+                padding: 16px 14px;
+                margin-bottom: 16px;
+            }
+            #gm-print-root.gm-print-color .rpp-print-title {
+                font-size: 15.5pt;
+                font-weight: 800;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+                color: #1d4ed8 !important;
+            }
+            #gm-print-root.gm-print-color .rpp-print-sub {
+                font-size: 10.5pt;
+                margin-top: 2px;
+                font-style: italic;
+                color: #1e40af;
+            }
+            #gm-print-root.gm-print-color .rpp-print-meta {
+                display: inline-flex;
+                flex-wrap: wrap;
+                gap: 6px;
+                justify-content: center;
+                margin-top: 10px;
+                font-size: 9.5pt;
+            }
+            #gm-print-root.gm-print-color .rpp-print-meta meta-chip {
+                background: #ffffff;
+                border: 1px solid #93c5fd;
+                color: #1e40af;
+                border-radius: 20px;
+                padding: 3px 10px;
+                font-weight: 600;
+            }
+
+            /* Section: heading berwarna biru + garis lembut */
+            #gm-print-root.gm-print-color .rpp-block h4 {
+                font-size: 11.5pt;
+                font-weight: 800;
+                color: #2563eb !important;
+                border-bottom: 2px solid #93c5fd;
+                padding-bottom: 4px;
+            }
+            #gm-print-root.gm-print-color .rpp-block h4 i { display: none !important; }
+            #gm-print-root.gm-print-color .rpp-block-content { color: #1e293b !important; }
+
+            /* Rubrik: header biru muda */
+            #gm-print-root.gm-print-color .rpp-rubric-table th {
+                background: #eff6ff !important;
+                color: #1d4ed8 !important;
+                border-color: #93c5fd;
+            }
+            #gm-print-root.gm-print-color .rpp-rubric-table td {
+                border-color: #bfdbfe;
+                color: #1e293b !important;
+            }
+
+            /* Footer: label biru */
+            #gm-print-root.gm-print-color .rpp-print-footer { color: #1e293b; }
+            /* ====== MODE HITAM-PUTIH (resmi / hemat tinta) ====== */
+            #gm-print-root.gm-print-bw .rpp-print-identitas {
+                display: block !important;
+                text-align: center;
+                border-bottom: 2px solid #000000;
+                padding-bottom: 12px;
+                margin-bottom: 16px;
+            }
+            #gm-print-root.gm-print-bw .rpp-print-title {
+                font-size: 15pt;
+                font-weight: 800;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+                color: #000000 !important;
+            }
+            #gm-print-root.gm-print-bw .rpp-print-sub {
+                font-size: 10.5pt;
+                margin-top: 2px;
+                font-style: italic;
+                color: #000000;
+            }
+            #gm-print-root.gm-print-bw .rpp-print-meta {
+                display: block;
+                margin-top: 8px;
+                font-size: 10.5pt;
+            }
+            #gm-print-root.gm-print-bw .rpp-print-meta .meta-chip {
+                background: #f0f0f0;
+                border: 1px solid #888888;
+                color: #000000;
+                border-radius: 3px;
+                padding: 2px 8px;
+                display: inline-block;
+                margin: 2px;
+                font-weight: 400;
+            }
+            #gm-print-root.gm-print-bw .rpp-block h4 {
+                font-size: 11.5pt;
+                font-weight: 800;
+                color: #000000 !important;
+                border-bottom: 1.5px solid #000000;
+                padding-bottom: 4px;
+            }
+            #gm-print-root.gm-print-bw .rpp-block h4 i { display: none !important; }
+            #gm-print-root.gm-print-bw .rpp-block-content { color: #000000 !important; }
+            #gm-print-root.gm-print-bw .rpp-rubric-table th,
+            #gm-print-root.gm-print-bw .rpp-rubric-table td {
+                border: 1px solid #000000;
+                color: #000000 !important;
+                background: #ffffff !important;
+            }
+            #gm-print-root.gm-print-bw .rpp-rubric-table th {
+                background: #f0f0f0 !important;
+                color: #000000 !important;
+                text-transform: uppercase;
+                font-size: 9.5pt;
+            }
+            #gm-print-root.gm-print-bw .rpp-print-footer { color: #000000; }
+
+            /* ====== SEKSI UMUM (berlaku kedua mode) ====== */
             #gm-print-root .rpp-block {
                 border: none !important;
                 border-radius: 0 !important;
@@ -568,55 +674,31 @@ function injectStyles() {
                 page-break-inside: avoid;
                 break-inside: avoid;
             }
-            #gm-print-root .rpp-block h4 {
-                font-size: 12pt;
-                font-weight: 800;
-                color: #111111 !important;
-                text-transform: uppercase;
-                border-bottom: 1.5px solid #111111;
-                padding-bottom: 4px;
-                margin-bottom: 8px;
-            }
-            #gm-print-root .rpp-block h4 i { display: none !important; }
-            #gm-print-root .rpp-block-content {
-                font-size: 11.5pt;
-                color: #000000 !important;
-                line-height: 1.5;
-            }
-            /* ===== TROUBLESHOOTING: samakan gaya agar netral hitam-putih ===== */
-            #gm-print-root .rpp-block .trouble-card,
-            #gm-print-root .rpp-block [style*="border:1px solid #fecaca"] { border: 1px solid #333 !important; }
 
-            /* ===== TABEL RUBRIK ===== */
             #gm-print-root .rpp-rubric-wrap { overflow: visible !important; }
             #gm-print-root .rpp-rubric-table {
                 width: 100% !important;
                 min-width: 0 !important;
                 border-collapse: collapse;
-                font-size: 10.5pt !important;
+                font-size: 10pt !important;
             }
             #gm-print-root .rpp-rubric-table th,
             #gm-print-root .rpp-rubric-table td {
-                border: 1px solid #111111;
                 padding: 6px 8px;
                 vertical-align: top;
                 text-align: left;
-                color: #000000 !important;
-                background: #ffffff !important;
             }
             #gm-print-root .rpp-rubric-table th {
-                background: #f1f5f9 !important;
                 text-transform: uppercase;
                 font-size: 9.5pt;
             }
 
-            /* ===== FOOTER "Dibuat oleh / Tanggal" ===== */
             #gm-print-root .rpp-print-footer {
                 display: flex !important;
                 justify-content: space-between;
                 gap: 24px;
                 margin-top: 28px;
-                font-size: 10.5pt;
+                font-size: 10pt;
                 page-break-inside: avoid;
             }
         }
@@ -1972,7 +2054,12 @@ async function openRppReader(id) {
                 <div class="rpp-print-identitas">
                     <div class="rpp-print-title">RENCANA PELAKSANAAN PEMBELAJARAN (RPP)</div>
                     <div class="rpp-print-sub">Robotik &amp; Coding &bull; Ekstrakurikuler</div>
-                    <div class="rpp-print-meta">Level: ${esc(levelName)} &nbsp;|&nbsp; Sub-Level: ${esc(subLevelName)} &nbsp;|&nbsp; Judul: ${esc(m.title || '-')} &nbsp;|&nbsp; Durasi: ${esc(rppData.alokasi_waktu || '1 Sesi (60-90 Menit)')}</div>
+                    <div class="rpp-print-meta">
+                        <span class="meta-chip">Level: ${esc(levelName)}</span>
+                        <span class="meta-chip">Sub-Level: ${esc(subLevelName)}</span>
+                        <span class="meta-chip">Judul: ${esc(m.title || '-')}</span>
+                        <span class="meta-chip">Durasi: ${esc(rppData.alokasi_waktu || '1 Sesi (60-90 Menit)')}</span>
+                    </div>
                 </div>
 
                 <div class="rpp-version-bar">
@@ -2206,6 +2293,10 @@ function printRpp() {
         document.body.appendChild(root);
     }
 
+    // Terapkan mode cetak: 'gm-print-color' atau 'gm-print-bw'
+    root.classList.remove('gm-print-color', 'gm-print-bw');
+    root.classList.add(printColorMode ? 'gm-print-color' : 'gm-print-bw');
+
     // Kloning konten RPP (kontrol interaktif dihapus agar tidak ikut tercetak)
     const clone = source.cloneNode(true);
     clone.querySelectorAll('.rpp-version-bar, .btn-action-icon, button, select, input, .modal-header, .close-btn').forEach(el => el.remove());
@@ -2272,6 +2363,13 @@ function setupEventListeners() {
         document.getElementById("modal-ag-viewer").classList.remove("active");
     };
 
+    const printModeSel = document.getElementById("rpp-print-mode");
+    if (printModeSel) {
+        printModeSel.value = printColorMode ? 'color' : 'bw';
+        printModeSel.onchange = (e) => {
+            printColorMode = e.target.value === 'color';
+        };
+    }
     document.getElementById("btn-print-rpp").onclick = printRpp;
 
     document.getElementById("btn-open-assembly-from-rpp").onclick = () => {
