@@ -792,7 +792,7 @@ async function injectFormFields(mode = "add", data = {}) {
                     </div>
                     <p class="gm-ai-hint">
                         <i class="fas fa-circle-info"></i>
-                        <span>Tips alur kerja: klik <strong>Salin Prompt untuk AI</strong> &mdash; prompt menyertakan pilihan <strong>Level, Sub-Level &amp; Kit</strong> yang aktif, kolom yang masih kosong <strong>ditanyakan AI dulu</strong>, dan output mengikuti <strong>format 8 section terstandar (A&ndash;H)</strong>. Ingin contoh format ideal? Buka <strong>Contoh Lesson Plan</strong>. Selanjutnya: jawab pertanyaan AI &rarr; salin hasil RPP-nya &rarr; tempel balik di kotak atas &rarr; klik <strong>Isi Kolom Otomatis</strong>.</span>
+                        <span>Tips alur kerja: klik <strong>Salin Prompt untuk AI</strong> &mdash; prompt menyertakan pilihan <strong>Level, Sub-Level &amp; Kit</strong> yang aktif, kolom yang masih kosong <strong>ditanyakan AI dulu SATU PER SATU</strong> (1 pertanyaan per pesan), dan output mengikuti <strong>format 8 section terstandar (A&ndash;H)</strong>. Ingin contoh format ideal? Buka <strong>Contoh Lesson Plan</strong>. Selanjutnya: jawab pertanyaan AI &rarr; salin hasil RPP-nya &rarr; tempel balik di kotak atas &rarr; klik <strong>Isi Kolom Otomatis</strong>.</span>
                     </p>
                 </div>
             </div>
@@ -960,7 +960,7 @@ async function injectFormFields(mode = "add", data = {}) {
                         const promptText = await buildAiPromptTemplate();
                         const ok = await copyToClipboard(promptText);
                         showToast(ok
-                            ? 'Prompt disalin. AI akan menanyakan dulu data yang masih kosong sebelum membuat RPP.'
+                            ? 'Prompt disalin. AI akan menanyakan data yang masih kosong SATU PER SATU sebelum membuat RPP.'
                             : 'Gagal menyalin prompt ke clipboard.', ok ? 'success' : 'error');
                     } finally {
                         btnPrompt.disabled = false;
@@ -1091,24 +1091,29 @@ function buildAiPromptTemplate() {
 
     const clarification = hasWajibMissing
         ? [
-            '=== FASE 2: CLARIFICATION QUESTIONS (PRIORITAS BERTAHAP) ===',
+            '=== FASE 2: CLARIFICATION QUESTIONS (WAJIB SATU PER SATU) ===',
             'JIKA ada data yang kosong ATAU tidak jelas, TANYA dulu. JANGAN langsung buat RPP.',
-            'STEP 1: Tanyakan SEMUA poin WAJIB di bawah dalam SATU pesan yang singkat & rapi, lalu BERHENTI dan tunggu jawaban user.',
-            'STEP 2: Baru setelah WAJIB terjawab, tanyakan poin OPTIONAL yang belum terjawab.',
-            'STEP 3: Setelah semua terjawab, langsung generate RPP memakai FORMAT OUTPUT di bawah (tanpa bertanya lagi).',
+            'WAJIB: HANYA 1 (satu) pertanyaan dalam 1 pesan, lalu BERHENTI dan tunggu jawaban user. Setelah dijawab, baru ajukan pertanyaan berikutnya.',
+            'DILARANG menggabungkan beberapa pertanyaan dalam satu pesan, DILARANG menampilkan daftar pertanyaan sekaligus.',
+            'URUTAN: selesaikan SEMUA WAJIB (daftar bawah) satu per satu dulu, baru OPTIONAL yang belum terjawab.',
+            'Setelah SEMUA terjawab, langsung generate RPP memakai FORMAT OUTPUT di bawah (tanpa bertanya lagi).',
             'DILARANG mengarang atau mengisi sendiri data yang masih kosong.',
             '',
-            '---STEP 1: WAJIB QUESTIONS (CRITICAL DATA)---',
+            '---DAFTAR PRIORITAS PERTANYAAN (JANGAN kirim sekaligus; tanya 1 per 1)---',
+            'WAJIB QUESTIONS (CRITICAL DATA):',
             ...wajibQuestions,
             '',
-            '---STEP 2: OPTIONAL QUESTIONS (DETAIL & REFINEMENT)---',
+            'OPTIONAL QUESTIONS (DETAIL & REFINEMENT):',
             ...optionalQuestions.map(q => `- ${q}`)
         ]
         : [
-            '=== FASE 2: CLARIFICATION QUESTIONS ===',
+            '=== FASE 2: CLARIFICATION QUESTIONS (WAJIB SATU PER SATU) ===',
             'Semua data utama (Level, Sub-Level, Kit, Judul, Durasi) sudah lengkap.',
-            'Tanyakan OPTIONAL questions berikut yang belum terjawab dalam SATU pesan, lalu BERHENTI.',
-            'Setelah user menjawab, langsung generate RPP memakai FORMAT OUTPUT di bawah.',
+            'HANYA ajukan OPTIONAL yang belum terjawab, TAPI 1 (satu) pertanyaan per pesan, lalu BERHENTI dan tunggu jawaban.',
+            'DILARANG menggabungkan beberapa pertanyaan dalam satu pesan, DILARANG menampilkan daftar pertanyaan sekaligus.',
+            'Setelah semua terjawab, langsung generate RPP memakai FORMAT OUTPUT di bawah.',
+            '',
+            '---DAFTAR PRIORITAS OPTIONAL QUESTIONS (JANGAN kirim sekaligus; tanya 1 per 1)---',
             ...optionalQuestions.map(q => `- ${q}`)
         ];
 
@@ -1236,9 +1241,11 @@ function buildAiPromptTemplate() {
         '',
         '=== ATURAN KERJA (NON-NEGOTIABLE) ===',
         'BEFORE GENERATE RPP:',
-        '1. STEP 1: Pastikan WAJIB data (Judul, Level, Sub-Level, Kit, Durasi) lengkap; jika belum, TANYA WAJIB dulu.',
-        '2. STEP 2: Jika WAJIB lengkap, tanya OPTIONAL yang belum terjawab (hanya yang missing).',
-        '3. STEP 3: Tunggu user menjawab SEMUA, lalu generate. JANGAN asumsi/mengarang data yang belum terjawab.',
+        '1. STEP 1: Pastikan WAJIB data (Judul, Level, Sub-Level, Kit, Durasi) lengkap; jika belum, tanya SATU PER SATU.',
+        '2. ATURAN SATU PER SATU: 1 pesan = TEPAT 1 pertanyaan saja. Tunggu jawaban user, baru lanjut ke pertanyaan berikutnya.',
+        '3. DILARANG menanyakan banyak hal sekaligus ATAU memunculkan daftar pertanyaan dalam satu pesan.',
+        '4. STEP 2: Setelah WAJIB lengkap, ajukan OPTIONAL yang belum terjawab SATU PER SATU (hanya yang missing).',
+        '5. STEP 3: Setelah semua terjawab, generate. JANGAN asumsi/mengarang data yang belum terjawab.',
         '',
         'SAAT GENERATE RPP:',
         '4. Gunakan nama Level/Sub-Level/Kit PERSIS dari DATA FIXED (jangan translate/rephrase).',
