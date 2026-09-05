@@ -1266,8 +1266,7 @@ function buildAiPromptTemplate() {
     if (!currentDurasi) wajibQuestions.push('□ Berapa durasi sesi pembelajaran? (60 menit atau 90 menit?)');
 
     const optionalQuestions = [
-        `□ Apakah siswa sudah pernah pakai ${(selSub && selSub.kit_alat) || 'kit ini'} sebelumnya? (Opsi: Belum sama sekali / Sudah basic / Sudah advanced)`,
-        `□ Durasi ${currentDurasi || 'total'} menit, tolong estimasi breakdown per fase: Apersepsi __, Assembly __, Coding/Testing __, Penutup __ (total harus = ${currentDurasi || 'total durasi'} menit)`,
+        `□ Durasi ${currentDurasi || 'total durasi'}, tolong estimasi breakdown per fase: Apersepsi __, Assembly __, Coding/Testing __, Penutup __ (total harus = ${currentDurasi || 'total durasi'})`,
         '□ Fokus sesi ini pada apa? (Opsi: Assembly only / Coding only / Keduanya)',
         '□ Fungsi final robot apa yang spesifik? (Contoh: gerak lurus / hindari obstacle / angkat barang / follow line / detect warna / lainnya?)',
         '□ Di akhir sesi robot harus: (Opsi: Berfungsi 100% sempurna / Cukup prototipe dasar yang stabil / Siswa explore bebas, hasil lebih sekunder)',
