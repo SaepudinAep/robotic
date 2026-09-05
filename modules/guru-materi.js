@@ -483,75 +483,48 @@ function injectStyles() {
         @media print {
             @page { size: A4; margin: 14mm; }
 
-            /* Sembunyikan semua konten lain, hanya area cetak RPP yang terlihat */
-            body * { visibility: hidden !important; }
-            #rpp-printable-area, #rpp-printable-area * { visibility: visible !important; }
+            /* Sembunyikan SEMUA konten aplikasi kecuali area cetak khusus (#gm-print-root).
+               Elemen ini selalu dibuat & diisi oleh printRpp() tepat sebelum window.print(). */
+            body > *:not(#gm-print-root) { display: none !important; }
 
-            /* Lepaskan konteks moda (fixed/overflow) agar tidak terpotong
-               dan posisi area cetak dapat dihitung dari awal halaman */
-            #modal-rpp-overlay,
-            #modal-rpp-overlay .modal-drawer,
-            #modal-rpp-overlay .modal-header,
-            #modal-rpp-overlay .modal-body,
-            #rpp-preview-container {
-                position: static !important;
+            #gm-print-root {
                 display: block !important;
-                max-height: none !important;
-                height: auto !important;
-                overflow: visible !important;
-                background: #ffffff !important;
-                border: none !important;
-                border-radius: 0 !important;
-                margin: 0 !important;
-                padding: 0 !important;
-                box-shadow: none !important;
-                animation: none !important;
-            }
-
-            #rpp-printable-area {
-                position: absolute !important;
-                left: 0 !important;
-                top: 0 !important;
-                width: 100% !important;
                 max-width: 100% !important;
                 margin: 0 !important;
                 padding: 0 !important;
+                background: #ffffff !important;
+                color: #000000 !important;
+                font-family: 'Poppins', 'Segoe UI', Roboto, sans-serif;
+                visibility: visible !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+
+            #gm-print-root, #gm-print-root * { visibility: visible !important; }
+
+            #gm-print-root .rpp-preview-card {
                 border: none !important;
                 border-radius: 0 !important;
                 box-shadow: none !important;
                 background: #ffffff !important;
-                color: #000 !important;
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
+                padding: 0 !important;
+                color: #000000 !important;
             }
 
-            /* Sembunyikan kontrol interaktif / elemen modal yang tak perlu di cetak */
-            #modal-rpp-overlay .rpp-version-bar { display: none !important; }
-            #modal-rpp-overlay .modal-header { display: none !important; }
-            #modal-rpp-overlay .close-btn { display: none !important; }
-
-            /* Warna latar / gaya tetap tercetak (badges, header tabel, dll) */
-            #rpp-printable-area,
-            #rpp-printable-area .rpp-block,
-            #rpp-printable-area .rpp-meta-grid,
-            #rpp-printable-area .rpp-rubric-table th,
-            #rpp-printable-area .rpp-rubric-table td {
+            #gm-print-root .rpp-header-box h3 { color: #000000; }
+            #gm-print-root .rpp-meta-grid,
+            #gm-print-root .rpp-block,
+            #gm-print-root .rpp-rubric-wrap,
+            #gm-print-root .rpp-header-box {
                 -webkit-print-color-adjust: exact;
                 print-color-adjust: exact;
-            }
-
-            /* Cegah blok terpotong di tengah antar halaman */
-            .rpp-block,
-            .rpp-meta-grid,
-            .rpp-header-box,
-            .rpp-rubric-wrap {
                 break-inside: avoid;
                 page-break-inside: avoid;
             }
 
             /* Tabel rubric tidak terpotong oleh overflow-x */
-            .rpp-rubric-wrap { overflow: visible !important; }
-            .rpp-rubric-table { min-width: 0 !important; font-size: 0.78rem !important; }
+            #gm-print-root .rpp-rubric-wrap { overflow: visible !important; }
+            #gm-print-root .rpp-rubric-table { min-width: 0 !important; width: 100% !important; }
         }
 
         @media (max-width: 600px) {
@@ -2104,6 +2077,43 @@ function renderSliderStep() {
 }
 
 // ==========================================
+// 6B. CETAK RPP (Print via #gm-print-root di body)
+// ==========================================
+
+// Cetak area RPP secara andal: clone #rpp-printable-area ke elemen #gm-print-root
+// (anak langsung body) lalu panggil window.print(). Dengan pendekatan ini area cetak
+// bebas dari clamp modal (fixed/overflow/transform), sehingga tidak pernah kosong.
+function printRpp() {
+    const source = document.getElementById('rpp-printable-area');
+    if (!source || !source.textContent.trim()) {
+        showToast('Tidak ada konten RPP untuk dicetak.', 'error');
+        return;
+    }
+
+    // Siapkan wadah cetak khusus sebagai anak langsung <body>
+    let root = document.getElementById('gm-print-root');
+    if (!root) {
+        root = document.createElement('div');
+        root.id = 'gm-print-root';
+        document.body.appendChild(root);
+    }
+
+    // Kloning konten RPP (kontrol interaktif dihapus agar tidak ikut tercetak)
+    const clone = source.cloneNode(true);
+    clone.querySelectorAll('.rpp-version-bar, .btn-action-icon, button, select, input, .modal-header, .close-btn').forEach(el => el.remove());
+    root.innerHTML = '';
+    root.appendChild(clone);
+
+    // Paksa reflow sesaat agar browser menyadari elemen baru sebelum print
+    void root.offsetHeight;
+
+    window.print();
+
+    // Bersihkan setelah dialog print ditutup
+    root.innerHTML = '';
+}
+
+// ==========================================
 // 7. EVENT HANDLERS & RBAC DELETION
 // ==========================================
 
@@ -2154,7 +2164,7 @@ function setupEventListeners() {
         document.getElementById("modal-ag-viewer").classList.remove("active");
     };
 
-    document.getElementById("btn-print-rpp").onclick = () => window.print();
+    document.getElementById("btn-print-rpp").onclick = printRpp;
 
     document.getElementById("btn-open-assembly-from-rpp").onclick = () => {
         if (currentViewingMateri) {
