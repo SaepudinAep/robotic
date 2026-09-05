@@ -75,6 +75,7 @@ export async function initSekolah(container) {
         <div id="bs-modal" class="bp-modal" style="display:none;">
             <div class="bp-modal-box card">
                 <h3 id="bs-modal-title">Deklarasi Kontrak</h3>
+                <p id="bs-migrate-warn" class="bs-migrate-warn"></p>
                 <div class="bp-form-grid">
                     <label>Kelas
                         <select id="bs-f-class" class="bp-input"></select>
@@ -129,7 +130,19 @@ export async function initSekolah(container) {
     });
     // Mode pemilih periode: Rentang Tanggal | Jumlah Pertemuan
     document.querySelectorAll('#bs-mode-seg .bs-mode-btn').forEach(b => {
-        b.onclick = () => setDateMode(b.dataset.bsMode);
+        b.onclick = async () => {
+            if (b.dataset.bsMode === 'count') {
+                const has = await ensureJumlahKolom();
+                if (!has) {
+                    alert('Database belum punya kolom "jumlah_pertemuan".\n\n' +
+                        'Jalankan file berikut di Supabase SQL Editor:\n' +
+                        'migrations/2026-09-05-billing-sekolah-jumlah-pertemuan.sql\n\n' +
+                        'Lalu muat ulang halaman (Ctrl+F5) untuk menggunakan mode "Jumlah Pertemuan".');
+                    return;
+                }
+            }
+            setDateMode(b.dataset.bsMode);
+        };
     });
     document.getElementById('bs-f-jumlah').addEventListener('input', () => {
         syncEndFromJumlah();
@@ -169,6 +182,9 @@ function injectStyles() {
         .bs-mode-btn:hover { color:#1e40af; }
         .bs-mode-btn.active { background:#2563eb; color:#fff; box-shadow:0 1px 3px rgba(37,99,235,.4); }
         .bs-mode-btn i { font-size:.85rem; }
+        .bs-migrate-warn { display:none; background:#fffbeb; border:1px solid #fcd34d; color:#92400e; font-size:.78rem;
+                           padding:8px 12px; border-radius:8px; margin:0 0 12px; line-height:1.5; }
+        .bs-migrate-warn code { background:#fef3c7; padding:1px 4px; border-radius:4px; font-size:.72rem; }
 
         /* === INVOICE PAPER === */
         .bs-inv-paper { background:#fff; width:min(820px,94vw); max-height:88vh; overflow:auto;
@@ -467,7 +483,7 @@ async function loadClassData() {
             <h3 style="margin:0 0 10px;">🧾 Daftar Invoice Kelas Ini</h3>
             <table class="bp-date-table">
                 <thead><tr><th style="width:40px;">No</th><th>Periode</th><th>Anak</th><th>Pertemuan</th>
-                    <th>Harga/Sesi</th><th>Total</th><th>Diterbitkan</th></tr></thead>
+                    <th>Harga/Sesi</th><th>Total</th><th>Diterbitkan</th><th>Status</th><th>Dibayar</th></tr></thead>
                 <tbody>${invoices.map((iv, i) => `<tr>
                     <td>${i + 1}</td>
                     <td>${esc(iv.periode_label) || '—'}</td>
@@ -476,6 +492,10 @@ async function loadClassData() {
                     <td>${rupiah(iv.price_per_session)}</td>
                     <td><b>${rupiah(iv.total)}</b></td>
                     <td>${fmtDateTime(iv.created_at)}</td>
+                    <td>${iv.status_lunas === 'lunas'
+                        ? '<span class="bp-badge ok">Lunas</span>'
+                        : '<span class="bp-badge over">Belum Lunas</span>'}</td>
+                    <td>${iv.paid_at ? fmtDateTime(iv.paid_at) : '—'}</td>
                 </tr>`).join('')}</tbody>
             </table>
         </div>`;
@@ -517,6 +537,20 @@ async function ensureJumlahKolom() {
         schemaHasJumlah = false;
     }
     return schemaHasJumlah;
+}
+
+// Deteksi apakah tabel invoice sudah punya kolom status pembayaran (hasil migrasi).
+let schemaHasPayment = null;   // null = belum diperiksa
+async function ensurePaymentKolom() {
+    if (schemaHasPayment !== null) return schemaHasPayment;
+    try {
+        const { error } = await supabase.from('invoices_sekolah')
+            .select('status_lunas').limit(1);
+        schemaHasPayment = !error;
+    } catch (e) {
+        schemaHasPayment = false;
+    }
+    return schemaHasPayment;
 }
 
 function fillClassSelect() {
@@ -616,6 +650,19 @@ function setDateMode(mode) {
     refreshMeetHint();
 }
 
+// Tampilkan peringatan bila DB belum punya kolom jumlah_pertemuan (hasil migrasi)
+async function refreshMigrateWarn() {
+    const el = document.getElementById('bs-migrate-warn');
+    if (!el) return;
+    const has = await ensureJumlahKolom();
+    if (has) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    el.style.display = 'block';
+    el.innerHTML = '⚠️ Database belum punya kolom <b>jumlah_pertemuan</b>. ' +
+        'Jalankan <code>migrations/2026-09-05-billing-sekolah-jumlah-pertemuan.sql</code> ' +
+        'di Supabase SQL Editor, lalu muat ulang (Ctrl+F5). ' +
+        'Tanpa ini, jumlah pertemuan yang dikontrak (mis. 4 padahal baru 3 tercatat) <b>tidak bisa disimpan</b>.';
+}
+
 function refreshMeetHint() {
     // Mode Jumlah Pertemuan: tampilkan rentang tanggal hasil hitung otomatis
     if (contractDateMode === 'count') {
@@ -668,6 +715,7 @@ function openDeclare() {
         modalMeetings = await fetchMeetings(sel.value);
         populateMeetingSelects();
         applyDateModeUI();
+        await refreshMigrateWarn();
     })();
 }
 
@@ -701,13 +749,19 @@ async function openEditContract(id) {
     const startId = modalMeetings.find(m => m.tanggal === bp.start_date)?.id || '';
     const endId   = modalMeetings.find(m => m.tanggal === bp.end_date)?.id || '';
     populateMeetingSelects(startId, endId);
-    contractDateMode = 'range';   // edit: tampil mode rentang (data tersimpan utuh)
+
+    // Jika kontrak menyimpan jumlah_pertemuan (kolom hasil migrasi), buka di mode
+    // "Jumlah Pertemuan" agar nilainya terlihat dan mudah diubah (mis. 3 -> 4).
+    const hasJumlah = bp.jumlah_pertemuan != null && Number(bp.jumlah_pertemuan) > 0;
+    contractDateMode = hasJumlah ? 'count' : 'range';
     applyDateModeUI();
-    syncJumlahFromRange();        // prefill Jumlah Pertemuan bila user pindah mode
-    // Jika kontrak menyimpan jumlah_pertemuan yang DIKONTAK, tampilkan nilai itu
-    if (bp.jumlah_pertemuan != null && Number(bp.jumlah_pertemuan) > 0) {
+    if (hasJumlah) {
         document.getElementById('bs-f-jumlah').value = Number(bp.jumlah_pertemuan);
+        syncEndFromJumlah();
+    } else {
+        syncJumlahFromRange();   // prefill jumlah bila user pindah ke mode count
     }
+    await refreshMigrateWarn();
 }
 
 function closeModal() {
@@ -764,9 +818,19 @@ async function saveContract() {
     } else {
         const m1 = modalMeetings.findIndex(m => m.id === mulaiId);
         const m2 = modalMeetings.findIndex(m => m.id === akhirId);
-        if (m1 > -1 && m2 > -1) jumlahKontrak = Math.abs(m2 - m1) + 1;
-        else if (editingContract && Number(editingContract.jumlah_pertemuan) > 0) {
-            jumlahKontrak = Number(editingContract.jumlah_pertemuan);
+        // Jangan timpa jumlah tersimpan bila user hanya mengedit hal lain
+        // (mis. harga) tanpa mengubah rentang tanggal.
+        const tglAwalSel  = m1 > -1 ? modalMeetings[m1].tanggal : null;
+        const tglAkhirSel = m2 > -1 ? modalMeetings[m2].tanggal : null;
+        const rangeChanged = (editingContract &&
+            (tglAwalSel !== (editingContract.start_date || null) ||
+             tglAkhirSel !== (editingContract.end_date || null)));
+        if (m1 > -1 && m2 > -1 && rangeChanged) {
+            jumlahKontrak = Math.abs(m2 - m1) + 1;   // rentang diubah -> hitung ulang
+        } else if (editingContract && Number(editingContract.jumlah_pertemuan) > 0) {
+            jumlahKontrak = Number(editingContract.jumlah_pertemuan); // pertahankan tersimpan
+        } else if (m1 > -1 && m2 > -1) {
+            jumlahKontrak = Math.abs(m2 - m1) + 1;   // deklarasi baru (non-edit)
         }
     }
 
@@ -781,8 +845,18 @@ async function saveContract() {
         contract_price: Number(document.getElementById('bs-f-price').value) || 0,
         contract_sessions: Math.max(1, Number(document.getElementById('bs-f-sessions').value) || 4),
     };
-    // Hanya kirim kolom jumlah_pertemuan bila schema sudah punya (hasil migrasi)
-    if (await ensureJumlahKolom() && jumlahKontrak != null) {
+    // Hanya kirim kolom jumlah_pertemuan bila schema sudah punya (hasil migrasi).
+    // Di mode "Jumlah Pertemuan", jika kolom belum ada, blokir simpan agar tidak
+    // diam-diam menyimpan sebagai 3 (fallback realisasi).
+    const hasKolom = await ensureJumlahKolom();
+    if (contractDateMode === 'count') {
+        if (!hasKolom) {
+            return alert('Database belum punya kolom "jumlah_pertemuan".\n\n' +
+                'Jalankan file migrations/2026-09-05-billing-sekolah-jumlah-pertemuan.sql ' +
+                'di Supabase SQL Editor lalu muat ulang halaman (Ctrl+F5).');
+        }
+        payload.jumlah_pertemuan = jumlahKontrak;
+    } else if (hasKolom && jumlahKontrak != null) {
         payload.jumlah_pertemuan = jumlahKontrak;
     }
 
@@ -998,6 +1072,12 @@ async function openKwitansiView(periodId) {
             .select('*').eq('period_id', periodId).single();
         if (errIv || !iv) return alert('Data invoice tidak ditemukan.\n' + (errIv?.message || ''));
 
+        // Kwitansi = bukti pembayaran: hanya boleh dicetak bebas bila sudah bertatus LUNAS
+        // (atau bila kolom pembayaran belum ada di DB — mode kompatibilitas).
+        const hasPayCol = await ensurePaymentKolom();
+        if (hasPayCol && iv.status_lunas !== 'lunas' &&
+            !confirm('Invoice ini belum ditandai LUNAS.\nKwitansi adalah bukti pembayaran.\nTetap buka/cetak kwitansi?')) return;
+
         STEP('ambil kontrak');
         const { data: bp, error: errBp } = await supabase.from('billing_periods_sekolah')
             .select('*').eq('id', periodId).single();
@@ -1024,6 +1104,10 @@ async function openKwitansiView(periodId) {
                                ISSUER.website].filter(Boolean).join(' · ');
 
         const todayStr = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' });
+        // Tanggal di kwitansi = tanggal pembayaran tersimpan (jika sudah lunas), bukan tanggal cetak.
+        const kwDateStr = iv.paid_at ? fmtDate(iv.paid_at) : todayStr;
+        const kwMethod = iv.payment_method || PAYMENT.method;
+        const kwRef = iv.payment_ref || '';
         const schoolLine = sch?.address
             ? `${esc(sch.name)}<br><span style="color:#4b5563; font-weight:500;">${esc(sch.address)}</span>`
             : esc(sch?.name || '-');
@@ -1052,7 +1136,7 @@ async function openKwitansiView(periodId) {
                 <div class="bs-kw-title">
                     <h1>KWITANSI</h1>
                     <div class="no">No. ${kwitansiNo(iv)}</div>
-                    <div class="tgl">Tanggal: ${todayStr}</div>
+                    <div class="tgl">Tanggal: ${kwDateStr}</div>
                 </div>
             </div>
 
@@ -1080,8 +1164,12 @@ async function openKwitansiView(periodId) {
                 </div>
                 <div style="display:flex; gap:12px; margin-bottom:10px;">
                     <span class="lbl">Metode</span>
-                    <span class="val">${esc(PAYMENT.method)}${PAYMENT.account_no ? ' (' + esc(PAYMENT.account_no) + ')' : ''}</span>
+                    <span class="val">${esc(kwMethod)}${PAYMENT.account_no ? ' (' + esc(PAYMENT.account_no) + ')' : ''}</span>
                 </div>
+                ${kwRef ? `<div style="display:flex; gap:12px; margin-bottom:10px;">
+                    <span class="lbl">No. Referensi</span>
+                    <span class="val">${esc(kwRef)}</span>
+                </div>` : ''}
             </div>
 
             <div class="bs-sign-tools bs-no-print">
@@ -1131,6 +1219,40 @@ window.bsBackToInvoice = (periodId) => {
     openInvoiceView(periodId);
 };
 
+// ==========================================
+// 7c. STATUS PEMBAYARAN (Tandai Lunas / Batalkan)
+// Menyimpan tanggal bayar + metode + ref di invoices_sekolah.
+// ==========================================
+async function markPaid(periodId) {
+    const has = await ensurePaymentKolom();
+    if (!has) return alert('Database belum punya kolom status pembayaran.\n\n' +
+        'Jalankan migrations/2026-09-06-billing-sekolah-pembayaran.sql di Supabase SQL Editor,\nlalu muat ulang halaman (Ctrl+F5).');
+    const method = (prompt('Metode pembayaran (kosongkan utk default):', PAYMENT.method || 'Transfer / QRIS') || '').trim() || null;
+    const ref = (prompt('No. referensi / bukti bayar (opsional, bisa dikosongkan):') || '').trim() || null;
+    if (!confirm('Tandai invoice ini LUNAS?\n' + (ref ? ('Ref: ' + ref + '\n') : '') + 'Tanggal bayar: sekarang.')) return;
+    const { error } = await supabase.from('invoices_sekolah')
+        .update({
+            status_lunas: 'lunas',
+            paid_at: new Date().toISOString(),
+            payment_method: method,
+            payment_ref: ref
+        })
+        .eq('period_id', periodId);
+    if (error) return alert('Gagal tandai lunas: ' + error.message);
+    await openInvoiceView(periodId);
+}
+
+async function unmarkPaid(periodId) {
+    if (!confirm('Batalkan status LUNAS invoice ini?\nData tanggal bayar, metode & referensi akan dihapus.')) return;
+    const { error } = await supabase.from('invoices_sekolah')
+        .update({ status_lunas: 'belum', paid_at: null, payment_method: null, payment_ref: null })
+        .eq('period_id', periodId);
+    if (error) return alert('Gagal batalkan lunas: ' + error.message);
+    await openInvoiceView(periodId);
+}
+window.bsMarkPaid = markPaid;
+window.bsUnmarkPaid = unmarkPaid;
+
 async function openInvoiceView(periodId) {
     const STEP = (s) => { window.__bsStep = s; };
     try {
@@ -1168,6 +1290,8 @@ async function openInvoiceView(periodId) {
         STEP('render dokumen invoice');
     const pps = Number(iv.price_per_session);
     const total = Number(iv.total);
+    const isLunas = iv.status_lunas === 'lunas';
+    const paidStr = isLunas && iv.paid_at ? fmtDateTime(iv.paid_at) : '';
     // Logo PENERIMA (sekolah) -> dipindah ke blok "Ditagihkan Kepada"
     const schoolLogoHtml = sch?.logo_url
         ? `<img src="${esc(sch.logo_url)}" alt="logo" class="bs-inv-logo">`
@@ -1199,6 +1323,11 @@ async function openInvoiceView(periodId) {
                 <i class="fas fa-print"></i> Cetak / Simpan PDF</button>
             <button class="bp-btn-primary" onclick="window.bsOpenKwitansi && window.bsOpenKwitansi('${periodId}')">
                 <i class="fas fa-receipt"></i> Cetak Kwitansi</button>
+            ${isLunas
+                ? `<button class="bp-btn-delete" onclick="window.bsUnmarkPaid('${periodId}')">
+                    <i class="fas fa-undo"></i> Batalkan Lunas</button>`
+                : `<button class="bp-btn-primary" onclick="window.bsMarkPaid && window.bsMarkPaid('${periodId}')">
+                    <i class="fas fa-check-circle"></i> Tandai Lunas</button>`}
             <button class="bp-btn-secondary" onclick="window.bsCloseInvoice()">Tutup</button>
         </div>
         <div id="bs-inv-paper" class="bs-inv-paper" onclick="event.stopPropagation()">
@@ -1247,21 +1376,29 @@ async function openInvoiceView(periodId) {
             <div class="bs-inv-pay">
                 <div>
                     <span class="bs-inv-cap">Status</span>
-                    <b class="pay-status">Belum Lunas</b>
+                    <b class="pay-status ${isLunas ? 'paid' : ''}">${isLunas ? 'Lunas' : 'Belum Lunas'}</b>
                 </div>
                 <div>
                     <span class="bs-inv-cap">Jatuh Tempo</span>
                     <b>${fmtDate(dueStr)}</b>
                 </div>
-                <div>
+                ${isLunas && paidStr ? `<div>
+                    <span class="bs-inv-cap">Dibayar</span>
+                    <b>${paidStr}</b>
+                </div>` : ''}
+                ${iv.payment_method ? `<div>
                     <span class="bs-inv-cap">Metode Bayar</span>
-                    <b>${esc(PAYMENT.method)}</b>
-                </div>
+                    <b>${esc(iv.payment_method)}</b>
+                </div>` : ''}
                 <div>
                     <span class="bs-inv-cap">Rekening</span>
                     <b>${esc(PAYMENT.account_no)}</b><br>
                     <span style="font-size:.72rem;color:#6b7280;">${esc(PAYMENT.account_name)} · ${esc(PAYMENT.bank)}</span>
                 </div>
+                ${iv.payment_ref ? `<div>
+                    <span class="bs-inv-cap">Ref. Bayar</span>
+                    <b>${esc(iv.payment_ref)}</b>
+                </div>` : ''}
             </div>
 
             <table class="bs-inv-table">
