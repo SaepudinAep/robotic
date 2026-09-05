@@ -1,6 +1,6 @@
 /**
  * Project: Guru & Materi Module (School)
- * Version: 8.1 - Single-Scroll RPP Form (tanpa multi-tab berlapis) + Panel "Isi Otomatis dari AI" (paste auto-fill & prompt kontekstual dari form; kolom kosong ditanyakan AI dulu), Versi RPP (v1.0/v2.0), RPP Reader & Interactive Assembly Slider Viewer, RBAC Soft vs Hard Delete
+ * Version: 9.0 - Single-Scroll RPP Form + Panel "Isi Otomatis dari AI" (Master Prompt 8 Section A-H: identitas, overview, tujuan, alat, timeline per-menit, langkah detail, troubleshooting kritis, rubric 3x4; Contoh Lesson Plan terstandar; parsing label baru + merge blok), Versi RPP (v1.0/v2.0), RPP Reader & Interactive Assembly Slider Viewer, RBAC Soft vs Hard Delete
  * Format: Touch & Tablet Optimized UI
  */
 
@@ -189,6 +189,9 @@ function parseMateriDetail(m) {
         kegiatan_inti: m.kegiatan_inti || '',
         kegiatan_penutup: m.kegiatan_penutup || '',
         indikator_penilaian: m.indikator_penilaian || '',
+        timeline_pembelajaran: m.timeline_pembelajaran || '',
+        troubleshooting: m.troubleshooting || '',
+        rubric_penilaian: m.rubric_penilaian || '',
         assembly_steps: [],
         history: []
     };
@@ -241,7 +244,7 @@ function parseMateriDetail(m) {
 // 3. STYLING (CSS INJECTION)
 // ==========================================
 function injectStyles() {
-    const styleId = 'guru-materi-css-v9';
+    const styleId = 'guru-materi-css-v10';
     if (document.getElementById(styleId)) return;
 
     const style = document.createElement('style');
@@ -403,6 +406,24 @@ function injectStyles() {
         .rpp-block { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 14px; }
         .rpp-block h4 { margin: 0 0 10px 0; font-size: 0.95rem; font-weight: 800; color: #2563eb; display: flex; align-items: center; gap: 8px; border-bottom: 1px dashed #e2e8f0; padding-bottom: 6px; }
         .rpp-block-content { font-size: 0.9rem; color: #334155; line-height: 1.6; white-space: pre-line; }
+
+        .rpp-rubric-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; margin-top: 8px; min-width: 560px; }
+        .rpp-rubric-table th, .rpp-rubric-table td { border: 1px solid #e2e8f0; padding: 8px 10px; vertical-align: top; text-align: left; }
+        .rpp-rubric-table th { background: #f1f5f9; color: #334155; text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.4px; }
+        .rpp-rubric-wrap { overflow-x: auto; }
+
+        .gm-ex-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.55); z-index: 2400; display: flex; align-items: center; justify-content: center; padding: 16px; }
+        .gm-ex-box { background: #fff; border-radius: 18px; max-width: 880px; width: 100%; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 25px 60px rgba(0,0,0,.35); font-family: 'Poppins', sans-serif; }
+        .gm-ex-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 16px 20px; border-bottom: 1px solid #e2e8f0; }
+        .gm-ex-head h3 { margin: 0; font-size: 1.02rem; color: #0f172a; display: flex; align-items: center; gap: 8px; }
+        .gm-ex-x { background: none; border: none; font-size: 1.6rem; color: #94a3b8; cursor: pointer; line-height: 1; }
+        .gm-ex-body { padding: 16px 20px; overflow-y: auto; flex: 1; }
+        .gm-ex-note { background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; border-radius: 10px; padding: 10px 12px; font-size: 0.8rem; font-weight: 600; margin-bottom: 12px; line-height: 1.55; }
+        .gm-ex-pre { background: #0f172a; color: #e2e8f0; border-radius: 12px; padding: 16px; font-family: 'Consolas', 'Menlo', monospace; font-size: 0.74rem; line-height: 1.55; white-space: pre-wrap; word-break: break-word; max-height: 55vh; overflow-y: auto; margin: 0; }
+        .gm-ex-foot { display: flex; gap: 8px; flex-wrap: wrap; padding: 14px 20px; border-top: 1px solid #e2e8f0; }
+        .gm-ex-btn { flex: 1; min-width: 150px; padding: 11px 14px; border-radius: 11px; font-weight: 800; font-size: 0.84rem; cursor: pointer; border: 1px solid; font-family: inherit; transition: .2s; }
+        .gm-ex-btn-primary { background: #4d97ff; color: #fff; border-color: #4d97ff; }
+        .gm-ex-btn-ghost { background: #fff; color: #334155; border-color: #cbd5e1; }
 
         .fade-in { animation: fadeIn 0.3s ease-out; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -680,10 +701,13 @@ async function injectFormFields(mode = "add", data = {}) {
                         <button type="button" id="btn-ai-copy-prompt" class="gm-ai-btn-ghost">
                             <i class="fas fa-copy"></i> Salin Prompt untuk AI
                         </button>
+                        <button type="button" id="btn-ai-example" class="gm-ai-btn-ghost">
+                            <i class="fas fa-book-open"></i> Contoh Lesson Plan
+                        </button>
                     </div>
                     <p class="gm-ai-hint">
                         <i class="fas fa-circle-info"></i>
-                        <span>Tips alur kerja: klik <strong>Salin Prompt untuk AI</strong> &mdash; prompt menyertakan <strong>pilihan Level, Sub-Level &amp; Kit</strong> yang aktif di form, dan <strong>kolom yang masih kosong akan ditanyakan AI dulu</strong> (bukan dikarang sendiri) &rarr; jawab pertanyaannya &rarr; salin hasil RPP-nya &rarr; tempel balik ke kotak di atas &rarr; klik <strong>Isi Kolom Otomatis</strong>.</span>
+                        <span>Tips alur kerja: klik <strong>Salin Prompt untuk AI</strong> &mdash; prompt menyertakan pilihan <strong>Level, Sub-Level &amp; Kit</strong> yang aktif, kolom yang masih kosong <strong>ditanyakan AI dulu</strong>, dan output mengikuti <strong>format 8 section terstandar (A&ndash;H)</strong>. Ingin contoh format ideal? Buka <strong>Contoh Lesson Plan</strong>. Selanjutnya: jawab pertanyaan AI &rarr; salin hasil RPP-nya &rarr; tempel balik di kotak atas &rarr; klik <strong>Isi Kolom Otomatis</strong>.</span>
                     </p>
                 </div>
             </div>
@@ -773,6 +797,27 @@ async function injectFormFields(mode = "add", data = {}) {
                 <label>Catatan Tambahan Guru (Detail Opsional)</label>
                 <textarea id="detail" rows="3" placeholder="Catatan khusus untuk pengajar...">${data.detail && !data.detail.startsWith('{') ? data.detail : ""}</textarea>
             </div>
+
+            <!-- SECTION E: TIMELINE PEMBELAJARAN (per menit) -->
+            <div class="gm-form-section">
+                <div class="gm-section-title"><span class="gm-section-letter">E</span> Timeline Pembelajaran (Per Menit)</div>
+                <label>Alur Waktu Detail Per Fase / Step</label>
+                <textarea id="timeline_pembelajaran" rows="6" placeholder="Fase 1: APERSEPSI (menit ke 0-10)&#10;  • Hook/Icebreaker: 5 menit&#10;    Aktivitas: ...&#10;Fase 2: INTI - ASSEMBLY (menit ke 10-50)&#10;  • Step 1 ...: 8 menit&#10;    Aktivitas: ...">${rpp.timeline_pembelajaran || ""}</textarea>
+            </div>
+
+            <!-- SECTION F: TROUBLESHOOTING KRITIS -->
+            <div class="gm-form-section">
+                <div class="gm-section-title"><span class="gm-section-letter">F</span> Troubleshooting (Masalah &amp; Solusi)</div>
+                <label>Masalah Umum, Opsi Penyebab &amp; Checklist Solusi (min. 3)</label>
+                <textarea id="troubleshooting" rows="5" placeholder="MASALAH 1: Roda tidak berputar&#10;Opsi Penyebab Umum:&#10;- Kabel motor tidak terpasang&#10;Checklist Solusi:&#10;□ Cek koneksi kabel motor">${rpp.troubleshooting || ""}</textarea>
+            </div>
+
+            <!-- SECTION G: RUBRIC PENILAIAN -->
+            <div class="gm-form-section">
+                <div class="gm-section-title"><span class="gm-section-letter">G</span> Rubric Penilaian (3 Kriteria &times; 4 Skor)</div>
+                <label>Kriteria &amp; Deskripsi Skor 4/3/2/1 yang Terukur</label>
+                <textarea id="rubric_penilaian" rows="6" placeholder="KRITERIA 1: Ketepatan Perakitan&#10;Skor 4 (Sempurna):&#10;- Semua komponen rapi, sensor ±1cm, kokoh&#10;Skor 3 (Baik):&#10;- ...&#10;Skor 2 (Cukup):&#10;- ...&#10;Skor 1 (Perlu Perbaikan):&#10;- ...">${rpp.rubric_penilaian || ""}</textarea>
+            </div>
         `;
 
         setTimeout(() => {
@@ -836,6 +881,11 @@ async function injectFormFields(mode = "add", data = {}) {
                         btnPrompt.disabled = false;
                     }
                 };
+            }
+
+            const btnExample = document.getElementById("btn-ai-example");
+            if (btnExample) {
+                btnExample.onclick = () => openExampleLessonPlan();
             }
         }, 50);
 
@@ -922,75 +972,215 @@ function buildAiPromptTemplate() {
     const selLevel = levelsList.find(l => l.id === selLevelId) || null;
     const selSub = subLevelsList.find(s => s.id === selSubId) || null;
 
-    // --- Data yang SUDAH terisi di form ---
-    const knownLines = [];
-    if (selLevel) knownLines.push(`- Level: ${selLevel.kode}${selLevel.detail ? ` (${selLevel.detail})` : ''}`);
-    if (selSub) knownLines.push(`- Sub-Level: ${selSub.name}`);
-    if (selSub && selSub.kit_alat) knownLines.push(`- Kit/alat yang WAJIB dipakai: ${selSub.kit_alat}`);
-    if (selSub && selSub.description) knownLines.push(`- Fokus kit/sub-level: ${selSub.description}`);
-    if (currentTitle) knownLines.push(`- Nama materi (judul) yang sedang dibuat/direvisi: ${currentTitle}`);
-    if (currentDurasi) knownLines.push(`- Durasi sesi: ${currentDurasi}`);
-    const knownSection = knownLines.length
-        ? knownLines.join('\n')
-        : '- (belum ada data yang terisi di form — tanyakan semuanya)';
+    // ============ FASE 1: DATA FIXED (dari form) ============
+    const fixedData = [
+        `- Level: ${selLevel ? selLevel.kode + (selLevel.detail ? ` (${selLevel.detail})` : '') : '[Belum dipilih - wajib ditanyakan]'}`,
+        `- Sub-Level: ${selSub ? selSub.name : '[Belum dipilih - wajib ditanyakan]'}`,
+        `- Kit/Alat yang WAJIB dipakai: ${selSub && selSub.kit_alat ? selSub.kit_alat : selSub ? '[Belum diisi di sub-level - tanyakan ke user]' : '[Belum dipilih - wajib ditanyakan]'}`,
+        `- Nama Materi (Judul): ${currentTitle || '[Belum diisi - wajib ditanyakan]'}`,
+        `- Durasi Sesi Total: ${currentDurasi || '[Belum diisi - wajib ditanyakan]'}`
+    ];
+    if (selSub && selSub.description) fixedData.push(`- Fokus kit/sub-level: ${selSub.description}`);
 
-    // --- Data yang MASIH kosong -> wajib ditanyakan dulu, bukan dikarang ---
-    const missingLines = [];
-    if (!selLevel) missingLines.push('- Level siswa (nama level yang ada di sekolah ini)');
-    if (!selSub) missingLines.push('- Sub-Level siswa (sub-level/kit kelas yang ditarget)');
-    if (selSub && !selSub.kit_alat) missingLines.push('- Kit/alat yang dipakai untuk sub-level ini');
-    if (!currentTitle) missingLines.push('- Topik / Robot / nama materi yang ingin dibuat');
-    if (!currentDurasi) missingLines.push('- Durasi sesi pembelajaran (contoh jawaban: 2 Sesi @ 90 Menit)');
-    missingLines.push('- Permintaan tambahan khusus (opsional; boleh dijawab "tidak ada")');
+    // ============ FASE 2: CLARIFICATION (prioritas WAJIB -> OPTIONAL) ============
+    const wajibQuestions = [];
+    if (!currentTitle) wajibQuestions.push('□ Topik/nama robot apa yang ingin dibuat? (Contoh: Line Follower, Obstacle Avoider, Object Gripper)');
+    if (!selLevel) wajibQuestions.push('□ Level pembelajaran apa yang ditarget? (Contoh: Robotik Level X)');
+    if (!selSub) wajibQuestions.push('□ Sub-Level apa yang ditarget? (Contoh: WeDo Basic SD Kelas 3-6)');
+    if (selSub && !selSub.kit_alat) wajibQuestions.push('□ Kit/alat robotik apa yang tersedia di sekolah? (Contoh: LEGO WeDo 2.0, LEGO Mindstorm, Arduino Kit)');
+    if (!currentDurasi) wajibQuestions.push('□ Berapa durasi sesi pembelajaran? (60 menit atau 90 menit?)');
+    if (selSub && !(selSub.description || '').toLowerCase().match(/usia|umur|\btahun\b|kelas/)) {
+        wajibQuestions.push('□ Sub-Level ini untuk siswa umur berapa? (Opsi: TK 4-6 tahun / SD kelas 1-2 (7-8 th) / SD kelas 3-6 (9-12 th) / SMP / campur)');
+    }
 
-    // Ada data utama yang kosong? -> AI wajib bertanya dulu. Jika hanya opsional -> langsung buat.
-    const hasRequiredMissing = missingLines.length > 1;
+    const optionalQuestions = [
+        `□ Apakah siswa sudah pernah pakai ${(selSub && selSub.kit_alat) || 'kit ini'} sebelumnya? (Opsi: Belum sama sekali / Sudah basic / Sudah advanced)`,
+        `□ Durasi ${currentDurasi || 'total'} menit, tolong estimasi breakdown per fase: Apersepsi __, Assembly __, Coding/Testing __, Penutup __ (total harus = ${currentDurasi || 'total durasi'} menit)`,
+        '□ Fokus sesi ini pada apa? (Opsi: Assembly only / Coding only / Keduanya)',
+        '□ Fungsi final robot apa yang spesifik? (Contoh: gerak lurus / hindari obstacle / angkat barang / follow line / detect warna / lainnya?)',
+        '□ Di akhir sesi robot harus: (Opsi: Berfungsi 100% sempurna / Cukup prototipe dasar yang stabil / Siswa explore bebas, hasil lebih sekunder)',
+        '□ Preferensi gaya mengajar? (Opsi: Guided teaching (guru demo dulu) / Discovery learning (siswa explore) / Project-based (siswa buat, guru konsultasi))'
+    ];
 
-    const workRules = hasRequiredMissing ? [
-        '=== ATURAN KERJA (WAJIB SEBELUM MEMBUAT RPP) ===',
-        '1. JANGAN langsung membuat RPP sekarang.',
-        '2. Tanyakan dulu SEMUA poin di "DATA YANG MASIH KOSONG" dalam SATU pesan yang singkat dan rapi, lalu BERHENTI dan tunggu jawaban user.',
-        '3. DILARANG mengarang atau mengisi sendiri data yang masih kosong.',
-        '4. Setelah user menjawab (atau menjawab "bebas"/"terserah" untuk sebagian), langsung buatkan RPP memakai FORMAT OUTPUT di bawah tanpa basa-basi lagi.'
-    ] : [
-        '=== ATURAN KERJA ===',
-        '1. Semua data utama sudah lengkap — langsung buatkan RPP memakai FORMAT OUTPUT di bawah.',
-        '2. Tidak perlu bertanya apa pun; abaikan bagian permintaan tambahan yang kosong.'
+    const hasWajibMissing = wajibQuestions.length > 0;
+
+    const clarification = hasWajibMissing
+        ? [
+            '=== FASE 2: CLARIFICATION QUESTIONS (PRIORITAS BERTAHAP) ===',
+            'JIKA ada data yang kosong ATAU tidak jelas, TANYA dulu. JANGAN langsung buat RPP.',
+            'STEP 1: Tanyakan SEMUA poin WAJIB di bawah dalam SATU pesan yang singkat & rapi, lalu BERHENTI dan tunggu jawaban user.',
+            'STEP 2: Baru setelah WAJIB terjawab, tanyakan poin OPTIONAL yang belum terjawab.',
+            'STEP 3: Setelah semua terjawab, langsung generate RPP memakai FORMAT OUTPUT di bawah (tanpa bertanya lagi).',
+            'DILARANG mengarang atau mengisi sendiri data yang masih kosong.',
+            '',
+            '---STEP 1: WAJIB QUESTIONS (CRITICAL DATA)---',
+            ...wajibQuestions,
+            '',
+            '---STEP 2: OPTIONAL QUESTIONS (DETAIL & REFINEMENT)---',
+            ...optionalQuestions.map(q => `- ${q}`)
+        ]
+        : [
+            '=== FASE 2: CLARIFICATION QUESTIONS ===',
+            'Semua data utama (Level, Sub-Level, Kit, Judul, Durasi) sudah lengkap.',
+            'Tanyakan OPTIONAL questions berikut yang belum terjawab dalam SATU pesan, lalu BERHENTI.',
+            'Setelah user menjawab, langsung generate RPP memakai FORMAT OUTPUT di bawah.',
+            ...optionalQuestions.map(q => `- ${q}`)
+        ];
+
+    // ============ FASE 3: FORMAT OUTPUT RPP (MANDATORY STRUCTURE) ============
+    const outputFormat = [
+        '=== FASE 3: OUTPUT FORMAT RPP (MANDATORY STRUCTURE) ===',
+        'STRUKTUR OUTPUT PERSIS seperti di bawah. Tanpa kalimat pembuka/penutup percakapan.',
+        'Baris dalam tanda kurung seperti "(WAJIB breakdown...)" adalah INSTRUKSI untuk AI, JANGAN dicetak ke output.',
+        '',
+        '---SECTION A: IDENTITAS---',
+        'JUDUL: [judul menarik sesuai level & kit]',
+        'LEVEL: [dari form, PERSIS]',
+        'SUB-LEVEL: [dari form, PERSIS]',
+        'KIT: [dari form, PERSIS]',
+        'DURASI TOTAL: [60 atau 90 menit]',
+        'TARGET USIA: [TK 4-6 / SD 1-2 / SD 3-6 / SMP / campur]',
+        'PRASYARAT: [Belum pernah / Sudah basic / Sudah advanced]',
+        '',
+        '---SECTION B: OVERVIEW---',
+        'DESKRIPSI: [ringkasan 1-2 kalimat project robotik]',
+        '',
+        '---SECTION C: TUJUAN---',
+        'TUJUAN PEMBELAJARAN:',
+        '- [poin 1: apa siswa BISA lakukan di akhir sesi]',
+        '- [poin 2: skill/pemahaman konkret]',
+        '- [poin 3: kemampuan yang terukur]',
+        '',
+        '---SECTION D: ALAT & BAHAN---',
+        'ALAT DAN BAHAN:',
+        '- [komponen wajib dari kit: Smart Hub, Motor, Sensor, Balok, dll]',
+        '- [peralatan penunjang: Kabel USB, Laptop/Tablet, Power Bank, dll]',
+        '',
+        '---SECTION E: TIMELINE PEMBELAJARAN---',
+        '(WAJIB breakdown durasi PER STEP dengan timing jelas & presisi)',
+        'Fase 1: APERSEPSI (menit ke 0-10 | Total 10 menit)',
+        '  • Hook/Icebreaker: 5 menit',
+        '    Aktivitas: [deskripsi konkret aktivitas guru]',
+        '  • Tanyakan prasyarat & jelaskan tujuan hari ini: 5 menit',
+        '    Aktivitas: [deskripsi konkret]',
+        'Fase 2: INTI - ASSEMBLY (menit ke X-Y | Total XX menit)',
+        '  • Step 1 [nama step konkret]: 8 menit',
+        '    Aktivitas: [deskripsi singkat apa yang dirakit & instruksi guru]',
+        '  • Step 2 [nama step konkret]: 10 menit',
+        '    Aktivitas: [deskripsi singkat]',
+        '  • Step 3 [nama step konkret]: 12 menit',
+        '    Aktivitas: [deskripsi singkat]',
+        'Fase 3: INTI - CODING/TESTING (menit ke X-Y | Total XX menit)',
+        '  • Setup & penjelasan logika program: 5 menit',
+        '    Aktivitas: [guru jelaskan konsep dasar, misal loop, kondisi, dll]',
+        '  • Coding bersama/guided: N menit',
+        '    Aktivitas: [siswa buat block program, guru guide step-by-step]',
+        '  • Testing & troubleshoot: N menit',
+        '    Aktivitas: [test robot, cek error, fix bugs]',
+        'Fase 4: PENUTUP (menit ke X-Y | Total XX menit)',
+        '  • Refleksi & diskusi: 6 menit',
+        '    Pertanyaan: [3-5 pertanyaan pemantik konkret]',
+        '  • Showcase & cleanup: 4 menit',
+        '    Aktivitas: [demo hasil, rapi kit, feedback guru]',
+        '',
+        '---SECTION F: LANGKAH-LANGKAH PEMBELAJARAN DETAIL---',
+        'PENDAHULUAN / APERSEPSI:',
+        '[langkah konkret, poin penting untuk guru, bisa panjang]',
+        'INTI - ASSEMBLY (Detail Step-by-Step):',
+        '[deskripsi lengkap per step, urutan jelas, instruksi guru detail]',
+        'INTI - CODING/TESTING:',
+        '[logika program konkret, blok yang digunakan, testing procedure]',
+        'PENUTUP:',
+        '[refleksi konkret, evaluasi singkat, showcase, cleanup]',
+        '',
+        '---SECTION G: TROUBLESHOOTING KRITIS---',
+        '(TEPAT 3 MASALAH; spesifik untuk kit & mekanisme robot ini, bukan generic)',
+        'MASALAH 1: [problem konkret yang umum terjadi]',
+        'Opsi Penyebab Umum:',
+        '- [opsi A - technical issue]',
+        '- [opsi B - programming issue]',
+        '- [opsi C - mechanical issue]',
+        'Checklist Solusi:',
+        '□ [langkah 1 diagnosis]',
+        '□ [langkah 2 fixing]',
+        '□ [langkah 3 verify]',
+        'MASALAH 2: [problem konkret lainnya]',
+        'Opsi Penyebab Umum:',
+        '- [opsi A]',
+        '- [opsi B]',
+        'Checklist Solusi:',
+        '□ [langkah 1]',
+        '□ [langkah 2]',
+        'MASALAH 3: [problem konkret lainnya]',
+        'Opsi Penyebab Umum:',
+        '- [opsi A]',
+        '- [opsi B]',
+        'Checklist Solusi:',
+        '□ [langkah 1]',
+        '□ [langkah 2]',
+        '',
+        '---SECTION H: RUBRIC PENILAIAN (3 KRITERIA, 4 LEVEL MASING-MASING)---',
+        '(TEPAT 3 kriteria; setiap kriteria Skor 4/3/2/1 dengan deskripsi TERUKUR)',
+        'KRITERIA 1: [nama kriteria konkret - dimensi pertama]',
+        'Skor 4 (Sempurna):',
+        '- [deskripsi spesifik & terukur]',
+        'Skor 3 (Baik):',
+        '- [deskripsi spesifik & terukur]',
+        'Skor 2 (Cukup):',
+        '- [deskripsi spesifik & terukur]',
+        'Skor 1 (Perlu Perbaikan):',
+        '- [deskripsi spesifik & terukur]',
+        'KRITERIA 2: [nama kriteria konkret - dimensi kedua]',
+        'Skor 4 (Sempurna):',
+        '- [deskripsi spesifik & terukur]',
+        'Skor 3 (Baik):',
+        '- [deskripsi spesifik & terukur]',
+        'Skor 2 (Cukup):',
+        '- [deskripsi spesifik & terukur]',
+        'Skor 1 (Perlu Perbaikan):',
+        '- [deskripsi spesifik & terukur]',
+        'KRITERIA 3: [nama kriteria konkret - dimensi ketiga]',
+        'Skor 4 (Sempurna):',
+        '- [deskripsi spesifik & terukur]',
+        'Skor 3 (Baik):',
+        '- [deskripsi spesifik & terukur]',
+        'Skor 2 (Cukup):',
+        '- [deskripsi spesifik & terukur]',
+        'Skor 1 (Perlu Perbaikan):',
+        '- [deskripsi spesifik & terukur]',
+        '',
+        '=== ATURAN KERJA (NON-NEGOTIABLE) ===',
+        'BEFORE GENERATE RPP:',
+        '1. STEP 1: Pastikan WAJIB data (Judul, Level, Sub-Level, Kit, Durasi) lengkap; jika belum, TANYA WAJIB dulu.',
+        '2. STEP 2: Jika WAJIB lengkap, tanya OPTIONAL yang belum terjawab (hanya yang missing).',
+        '3. STEP 3: Tunggu user menjawab SEMUA, lalu generate. JANGAN asumsi/mengarang data yang belum terjawab.',
+        '',
+        'SAAT GENERATE RPP:',
+        '4. Gunakan nama Level/Sub-Level/Kit PERSIS dari DATA FIXED (jangan translate/rephrase).',
+        '5. TIMELINE WAJIB: total durasi = jumlah semua fase (tanpa sisa); SETIAP step punya durasi menit + aktivitas konkret.',
+        '6. TROUBLESHOOTING: tepat 3 masalah spesifik untuk kit & robot ini; tiap masalah min 2 penyebab & min 2 langkah solusi; format checklist.',
+        '7. RUBRIC: tepat 3 kriteria; tiap kriteria Skor 4/3/2/1 dengan deskripsi operasional terukur (bukan samar).',
+        '8. Format output PERSIS (---SECTION X---, dash, penomoran). Tanpa pembuka/penutup percakapan.',
+        '',
+        'QUALITY GATES (cek sebelum submit):',
+        '9. Math check: timeline total = durasi yang diminta?',
+        '10. Completeness: semua 8 section (A-H) ada?',
+        '11. Clarity: setiap poin jelas & operasional?',
+        '12. Relevance: troubleshooting & rubric spesifik untuk kit/mekanisme robot ini?'
     ];
 
     return [
-        'Anda adalah perancang RPP (Rencana Pelaksanaan Pembelajaran) untuk sekolah coding & robotik.',
+        'Anda adalah perancang RPP (Rencana Pelaksanaan Pembelajaran) untuk sekolah/ekstrakurikuler coding & robotik.',
+        'Tugas Anda: buat lesson plan terstruktur 8 section lengkap, timeline detail per menit, troubleshooting kritis, dan rubric penilaian terukur.',
         '',
-        '=== DATA YANG SUDAH DIKETAHUI (dari form, gunakan istilahnya PERSIS) ===',
-        knownSection,
+        '════════════════════════════════════════════════════════════════',
         '',
-        '=== DATA YANG MASIH KOSONG ===',
-        missingLines.join('\n'),
+        '=== FASE 1: DATA YANG SUDAH DIKETAHUI (DATA FIXED dari form, gunakan PERSIS) ===',
+        fixedData.join('\n'),
         '',
-        ...workRules,
+        ...clarification,
         '',
-        '=== FORMAT OUTPUT RPP ===',
-        'ATURAN OUTPUT (WAJIB saat membuat RPP):',
-        '1. Gunakan PERSIS nama bagian berikut, jangan menerjemahkan ulang atau mengubah nama bagian.',
-        '2. Tanpa kalimat pembuka/penutup percakapan, langsung keluarkan format di bawah.',
-        '3. Isi setiap bagian dalam bentuk poin dengan tanda "-" di awal baris.',
-        '4. Nama Level, Sub-Level, dan Kit di dalam RPP harus sama persis dengan DATA YANG SUDAH DIKETAHUI di atas.',
-        '',
-        'JUDUL: (judul materi yang menarik)',
-        'DESKRIPSI: (ringkasan 1-2 kalimat tentang project robot)',
-        'ALOKASI WAKTU: (contoh: 2 Sesi @ 90 Menit)',
-        'TUJUAN PEMBELAJARAN:',
-        '- (poin tujuan)',
-        'ALAT DAN BAHAN:',
-        '- (alat / kit / bahan sesuai kit sub-level di atas)',
-        'KEGIATAN APERSEPSI:',
-        '- (langkah pendahuluan)',
-        'KEGIATAN INTI:',
-        '- (langkah perakitan & coding secara urut)',
-        'KEGIATAN PENUTUP:',
-        '- (langkah penutup, refleksi, evaluasi singkat)',
-        'INDIKATOR PENILAIAN:',
-        '- (kriteria penilaian siswa)'
+        ...outputFormat
     ].join('\n');
 }
 
@@ -1015,17 +1205,220 @@ async function copyToClipboard(text) {
     }
 }
 
+// ==========================================
+// CONTOH LESSON PLAN TERSTANDAR (Format 8 Section A-H)
+// ==========================================
+const EXAMPLE_LESSON_PLAN_P1 = `---SECTION A: IDENTITAS---
+JUDUL: Line Follower Robot - Robot Pengikut Garis
+LEVEL: WeDo Basic
+SUB-LEVEL: WeDo Basic SD Kelas 3-6
+KIT: LEGO Education WeDo 2.0
+DURASI TOTAL: 90 menit
+TARGET USIA: SD kelas 3-6 (9-12 tahun)
+PRASYARAT: Sudah pernah menggunakan WeDo 2.0 (basic)
+
+---SECTION B: OVERVIEW---
+DESKRIPSI: Siswa merakit robot beroda yang mengikuti garis hitam di lintasan, lalu memprogram sensor jarak sebagai "mata" untuk belok kiri-kanan. Project ini memperkenalkan konsep sensor, kondisi (condition), dan loop.
+
+---SECTION C: TUJUAN---
+TUJUAN PEMBELAJARAN:
+- Siswa mampu merakit sasis roda + smart hub dengan benar mengikuti instruksi dalam 30 menit.
+- Siswa mampu menempatkan & mengatur sensor sehingga robot dapat membedakan garis hitam dan kertas putih.
+- Siswa mampu menyusun blok program sensor->motor dengan benar sehingga robot berhasil melewati 3 tikungan lintasan.
+
+---SECTION D: ALAT & BAHAN---
+ALAT DAN BAHAN:
+- WeDo 2.0 Kit: Smart Hub, Motor, Sensor Jarak, Kabel penghubung, Balok & gear
+- Laptop/tablet dengan aplikasi WeDo 2.0 + kabel USB
+- Lintasan garis hitam (kertas manila + isolasi hitam) + penggaris
+
+---SECTION E: TIMELINE PEMBELAJARAN---
+Fase 1: APERSEPSI (menit ke 0-10 | Total 10 menit)
+  • Hook/Icebreaker: 5 menit
+    Aktivitas: Walt Disney quote menghubungkan ke robot: tampilkan video robot pengikut garis di pabrik, lalu tanya "Apa yang membuat robot ini tahu harus berbelok?"
+  • Tanyakan prasyarat & jelaskan tujuan hari ini: 5 menit
+    Aktivitas: Tanya pengalaman pakai sensor; tunjukkan lintasan & target hari ini: robot lewati 1 putaran penuh.
+Fase 2: INTI - ASSEMBLY (menit ke 10-50 | Total 40 menit)
+  • Step 1 Merakit Sasis & Roda: 8 menit
+    Aktivitas: Pasang roda, balok penggerak, dan motor pada smart hub mengikuti kartu instruksi.
+  • Step 2 Memasang Sensor (posisi ±1 cm dari lantai): 10 menit
+    Aktivitas: Pasang sensor jarak menghadap bawah; guru membantu ketepatan sudut & jarak.
+  • Step 3 Menghubungkan Kabel & Power: 12 menit
+    Aktivitas: Sambungkan motor & sensor ke port smart hub; nyalakan hub; tes putaran manual motor.
+  • Step 4 Proteksi & Stabilitas: 10 menit
+    Aktivitas: Perkuat sambungan balok, rapikan kabel agar tidak menyangkut roda, uji di tangan.
+Fase 3: INTI - CODING/TESTING (menit ke 50-80 | Total 30 menit)
+  • Setup & penjelasan logika program: 5 menit
+    Aktivitas: Jelaskan blok start, loop, dan "wait until sensor"; buat tabel keputusan sensor kanan/kiri.
+  • Coding bersama/guided: 15 menit
+    Aktivitas: Susun program: jika sensor di tepi garis -> motor belok; jika di tengah -> motor maju.
+  • Testing & troubleshoot: 10 menit
+    Aktivitas: Uji robot di lintasan, catat titik gagal, perbaiki program/posisi sensor, uji ulang.
+Fase 4: PENUTUP (menit ke 80-90 | Total 10 menit)
+  • Refleksi & diskusi: 6 menit
+    Aktivitas: Tanya 3 pertanyaan pemantik:
+    - Apa bagian tersulit saat merakit?
+    - Mengapa sensor harus dekat lantai?
+    - Perbaikan apa pertama yang kamu coba saat robot keluar garis?
+  • Showcase & cleanup: 4 menit
+    Aktivitas: Setiap tim demo 1 putaran; 1 apresiasi dari guru; bongkar & bereskan kit.
+
+---SECTION F: LANGKAH-LANGKAH PEMBELAJARAN DETAIL---
+PENDAHULUAN / APERSEPSI:
+- Sambut siswa, cek kehadiran, bagi tim 2 siswa per kit.
+- Mulai dengan pertanyaan hook: "Kalian pernah lihat robot di pabrik yang bisa jalan sendiri? Kira-kira apa yang membuat dia tahu belok kemana?" → tunjukkan lintasan garis hitam.
+- Jelaskan: "Hari ini kita bikin robot 'bermata' yang bisa lihat garis dan belok otomatis. Targetnya: robot lewati 1 putaran lintasan penuh."
+- Ingatkan K3: jangan menarik kabel USB, balok tidak boleh dilempar.
+INTI - ASSEMBLY (Detail Step-by-Step):
+- Bagikan kit per tim; kenalkan nama bagian: smart hub, motor, sensor, kabel.
+- Pandu perakitan bertahap: sasis -> motor -> roda -> sensor (sudut 90 derajat menghadap bawah) -> kabel ke port.
+- Patokan: "Sensor harus bisa melihat lantai" (jarak ±1 cm) - minta siswa memverifikasi.
+- Kelilingi kelas, bantu tim yang kesulitan; gunakan timer per step.
+INTI - CODING/TESTING:
+- Jelaskan alur program: loop -> cek sensor -> putar motor kanan/kiri.
+- Pandu membuat blok: start -> loop forever -> wait until sensor mendeteksi -> set motor power.
+- Uji logika lewat simulasi tangan: siswa menutup sensor dengan telapak, lihat respon motor.
+- Testing di lintasan; jika gagal, gunakan checklist troubleshooting.
+PENUTUP:
+- Diskusi refleksi dengan 3 pertanyaan pemantik (lihat timeline).
+- Showcase: 1 tim demo, umpan balik spesifik.
+- Evaluasi singkat: "Apa 1 hal baru yang kamu pelajari hari ini?"
+- Bersihkan kit: bongkar robot, hitung balok, isi inventory kit.
+`;
+const EXAMPLE_LESSON_PLAN_P2 = `---SECTION G: TROUBLESHOOTING KRITIS---
+MASALAH 1: Roda tidak berputar saat program dijalankan
+Opsi Penyebab Umum:
+- Kabel motor tidak terpasang / port salah pada smart hub
+- Smart hub low battery / belum terisi daya
+- Nilai "motor power" di blok program = 0
+Checklist Solusi:
+□ Cek koneksi kabel motor ke port; lepas-pasang ulang
+□ Isi daya smart hub; pastikan lampu hijau menyala
+□ Ubah nilai motor power minimal 5 di blok program
+MASALAH 2: Robot keluar dari garis / tidak mengikuti tikungan
+Opsi Penyebab Umum:
+- Sensor jarak terlalu tinggi dari lantai (>2 cm) → tidak kuat deteksi terang/gelap
+- Motor kanan/kiri tertukar di program → belok arah yang salah
+- Kecepatan terlalu tinggi untuk tikungan tajam (power > 7) → tidak sempat bereaksi
+- Lintasan kertas/isolasi kusam atau terang → sensor susah bedakan terang/gelap
+Checklist Solusi:
+□ Turunkan sensor hingga ±1 cm dari lantai, uji lagi
+□ Pertukarkan arah motor di blok program (set A vs set B)
+□ Kurangi power motor ke 3-5 khusus di area tikungan
+□ Bersihkan lintasan, ganti isolasi jika kusam
+MASALAH 3: Smart hub tidak terhubung ke laptop/tablet
+Opsi Penyebab Umum:
+- Bluetooth tidak aktif / hub belum pairing
+- Kabel USB rusak atau port salah
+- Aplikasi WeDo 2.0 perlu diperbarui
+Checklist Solusi:
+□ Aktifkan Bluetooth; tekan tombol hub sampai lampu berkedip
+□ Ganti kabel USB; colok langsung ke port laptop
+□ Tutup & buka kembali aplikasi; pastikan versi terbaru
+
+---SECTION H: RUBRIC PENILAIAN (3 KRITERIA, 4 LEVEL MASING-MASING)---
+KRITERIA 1: Ketepatan Perakitan (Sasis, Sensor & Kabel)
+Skor 4 (Sempurna):
+- Semua komponen rapi, sensor ±1 cm dari lantai, kabel tidak menghalangi roda; robot kokoh saat diangkat.
+Skor 3 (Baik):
+- Robot berfungsi penuh, tapi ada 1 komponen kurang rapi (mis. kabel tersangkut); mudah diperbaiki.
+Skor 2 (Cukup):
+- Ada komponen salah pasang (roda kendor/sensor miring) dan cepat lepas; butuh banyak bantuan guru.
+Skor 1 (Perlu Perbaikan):
+- Robot tidak bisa dijalankan; banyak balok terpasang dangkal/terbalik; sensor tidak berfungsi.
+KRITERIA 2: Logika Pemrograman
+Skor 4 (Sempurna):
+- Program memakai loop + kondisi sensor dengan benar; robot menyelesaikan 1 putaran penuh; siswa bisa menjelaskan tiap blok.
+Skor 3 (Baik):
+- Program membuat robot jalan & belok, tapi belum konsisten di semua tikungan; alur bisa dijelaskan.
+Skor 2 (Cukup):
+- Program seadanya (robot jalan lurus saja), belum ada logika sensor yang benar; butuh contoh untuk menyusun blok.
+Skor 1 (Perlu Perbaikan):
+- Tidak ada program berjalan atau blok teracak; siswa belum bisa menjelaskan fungsi blok apa pun.
+KRITERIA 3: Kerjasama Tim & Kemandirian
+Skor 4 (Sempurna):
+- Kedua anggota aktif: 1 perakit & 1 programmer, lalu bergantian.
+  Saat error, coba perbaiki sendiri dulu (min 2 kali) sebelum tanya guru.
+Skor 3 (Baik):
+- Pembagian peran ada; 1 anggota agak dominan tapi yang lain tetap aktif.
+  Langsung tanya guru saat masalah (tidak coba sendiri dulu).
+Skor 2 (Cukup):
+- Kerja tim tidak terkoordinasi, sering berebut kit; butuh pendampingan intensif.
+Skor 1 (Perlu Perbaikan):
+- Siswa tidak mau bekerja sama / meninggalkan tim; tidak ada usaha perbaikan saat robot gagal.
+`;
+
+const EXAMPLE_LESSON_PLAN = EXAMPLE_LESSON_PLAN_P1 + '\n' + EXAMPLE_LESSON_PLAN_P2;
+
+// Buka modal "Contoh Lesson Plan Terstandar" dari Panel AI
+let exampleModalActive = false;
+
+function openExampleLessonPlan() {
+    if (exampleModalActive) return;
+    exampleModalActive = true;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'gm-ex-overlay';
+    overlay.innerHTML = `
+        <div class="gm-ex-box" role="dialog" aria-modal="true" aria-label="Contoh Lesson Plan Terstandar">
+            <div class="gm-ex-head">
+                <h3><i class="fas fa-book-open" style="color:#4d97ff;"></i> Contoh Lesson Plan Terstandar (Format 8 Section A-H)</h3>
+                <button type="button" class="gm-ex-x" aria-label="Tutup">&times;</button>
+            </div>
+            <div class="gm-ex-body">
+                <p class="gm-ex-note">
+                    <i class="fas fa-circle-info"></i> Contoh ini adalah acuan format output RPP yang diminta AI (tombol <strong>Salin Prompt untuk AI</strong> meminta format PERSIS seperti ini).
+                    Anda bisa <strong>Salin Teks</strong> sebagai referensi, atau <strong>Tempel &amp; Isi Otomatis</strong> untuk melihat cara seluruh kolom form terisi otomatis.
+                </p>
+                <pre class="gm-ex-pre">${esc(EXAMPLE_LESSON_PLAN)}</pre>
+            </div>
+            <div class="gm-ex-foot">
+                <button type="button" class="gm-ex-btn gm-ex-btn-ghost" id="gm-ex-close">Tutup</button>
+                <button type="button" class="gm-ex-btn gm-ex-btn-ghost" id="gm-ex-copy">Salin Teks</button>
+                <button type="button" class="gm-ex-btn gm-ex-btn-primary" id="gm-ex-fill">Tempel &amp; Isi Otomatis</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const destroy = () => { overlay.remove(); exampleModalActive = false; };
+    overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) destroy(); });
+    overlay.querySelector('.gm-ex-x').onclick = destroy;
+    overlay.querySelector('#gm-ex-close').onclick = destroy;
+
+    overlay.querySelector('#gm-ex-copy').onclick = async () => {
+        const ok = await copyToClipboard(EXAMPLE_LESSON_PLAN);
+        showToast(ok ? 'Contoh lesson plan disalin ke clipboard.' : 'Gagal menyalin ke clipboard.', ok ? 'success' : 'error');
+        if (ok) destroy();
+    };
+
+    overlay.querySelector('#gm-ex-fill').onclick = () => {
+        const field = document.querySelector('.gm-ai-field');
+        if (!field) { showToast('Kotak tempel AI tidak ditemukan.', 'error'); destroy(); return; }
+        field.value = EXAMPLE_LESSON_PLAN;
+        destroy();
+        const btnFill = document.getElementById('btn-ai-fill');
+        if (btnFill) btnFill.click();
+    };
+}
+
+// Pemetaan section header "---SECTION X: NAMA---" -> field form (E/G/H punya field tersendiri)
+const SECTION_FIELD_MAP = { E: 'timeline_pembelajaran', G: 'troubleshooting', H: 'rubric_penilaian' };
+
 // Pemetaan field RPP -> kata kunci label (urutan array = urutan prioritas pencocokan)
 const AI_FIELD_PATTERNS = [
     { id: 'title', re: /judul|nama\s*(materi|robot|project|proyek)|^topik|materi\s*pembelajaran/i },
     { id: 'description', re: /deskripsi|ringkasan|abstrak|overview|summary/i },
-    { id: 'indikator_penilaian', re: /penilaian|indikator|assessment|asessment|kriteria|rubrik|achievement/i },
+    { id: 'rubric_penilaian', re: /rubrik|rubric|matriks\s*penilaian|scoring\s*guide/i },
+    { id: 'indikator_penilaian', re: /penilaian|indikator|assessment|asessment|kriteria|achievement/i },
     { id: 'tujuan_pembelajaran', re: /tujuan|objektif|objective|capaian/i },
+    { id: 'timeline_pembelajaran', re: /timeline|alur\s*waktu|pembagian\s*waktu|breakdown\s*waktu/i },
+    { id: 'alokasi_waktu', re: /alokasi|durasi|waktu|jam\s*pelajaran|\bjp\b|menit/i },
     { id: 'alat_bahan', re: /\balat\b|\bbahan\b|\bkit\b|peralatan|perangkat|media/i },
     { id: 'kegiatan_apersepsi', re: /apersepsi|pendahuluan|pembuka|opening|introduction/i },
     { id: 'kegiatan_inti', re: /inti|perakitan|coding|praktik|aktivitas|langkah|prosedur|step/i },
     { id: 'kegiatan_penutup', re: /penutup|evaluasi|closing|refleksi|kesimpulan/i },
-    { id: 'alokasi_waktu', re: /alokasi|durasi|waktu|jam\s*pelajaran|\bjp\b|menit/i }
+    { id: 'troubleshooting', re: /troubleshooting|kendala|debugging|solusi\s*masalah/i }
 ];
 
 function matchAiField(label) {
@@ -1072,6 +1465,38 @@ function parseAiRppText(raw) {
         // Probe: salinan tanpa penanda **bold** untuk deteksi heading
         const probe = trimmed.replace(/\*\*/g, '').trim();
 
+        // Baris meta instruksi (mis. "(WAJIB breakdown durasi PER STEP...)") -> diabaikan
+        if (/^\(.*\)$/.test(probe) && probe.length <= 200) continue;
+
+        // Header ber-format "---SECTION X: NAMA---" -> mulai/memutus blok; E/G/H punya field sendiri
+        const secMatch = /^---+\s*SECTION\s+([A-Za-z])\s*:/i.exec(probe);
+        if (secMatch) {
+            const secField = SECTION_FIELD_MAP[secMatch[1].toUpperCase()];
+            if (secField) {
+                current = { fieldId: secField, inline: '', content: [] };
+                blocks.push(current);
+            } else {
+                current = null;
+            }
+            continue;
+        }
+
+        // Baris terstruktur baru (MASALAH n / KRITERIA n / Skor n / Opsi / Checklist serta
+        // caption indent "Aktivitas:"/"Pertanyaan:") -> SELALU konten, jangan dianggap heading
+        const isIndented = /^\s{2,}/.test(line);
+        const isStructuredLine =
+            /^MASALAH(\s+\d+|:)/i.test(probe) ||
+            /^KRITERIA\s+\d/i.test(probe) ||
+            /^SKOR\s*[1-4]/i.test(probe) ||
+            /^OPSI(\s+PENYEBAB)?\b/i.test(probe) ||
+            /^CHECKLIST\b/i.test(probe) ||
+            (isIndented && /^AKTIVITAS\s*:/i.test(probe)) ||
+            (isIndented && /^PERTANYAAN\s*:/i.test(probe));
+        if (isStructuredLine) {
+            if (current) current.content.push(line);
+            continue;
+        }
+
         // Baris bullet selalu konten (jangan dianggap heading)
         if (/^[-*•]\s+\S/.test(probe)) {
             if (current) current.content.push(line);
@@ -1090,10 +1515,10 @@ function parseAiRppText(raw) {
             && headPart === headPart.toUpperCase() && /[A-Z]/.test(headPart);
         const endsWithColon = /:$/.test(probe) && probe.length <= 90;
         const isInlineLabel = colonIdx > -1 && !isNumbered && headPart.length >= 3 && headPart.length <= 40
-            && probe.length <= 100 && matchAiField(headPart) !== null;
+            && matchAiField(headPart) !== null;
         const isHeadingLike = isMarkdownHead || isBoldLine || isBoldInline || isAllCapsInline || endsWithColon || isInlineLabel || isNumbered;
 
-        if (isHeadingLike && probe.length <= 120) {
+        if (isHeadingLike && (probe.length <= 120 || isInlineLabel)) {
             const label = cleanLabel(probe);
             const fieldId = label ? matchAiField(label) : null;
             const labelWords = label ? label.split(/\s+/).length : 99;
@@ -1118,10 +1543,11 @@ function parseAiRppText(raw) {
 
     const result = {};
     for (const b of blocks) {
-        if (result[b.fieldId]) continue; // blok pertama yang menang
         const body = b.content.join('\n').replace(/\n{3,}/g, '\n\n').trim();
         const value = [b.inline, body].filter(v => v && v.trim()).join('\n').trim();
-        if (value) result[b.fieldId] = value;
+        if (!value) continue;
+        // Gabungkan blok ber-field sama (mis. "INTI - ASSEMBLY" + "INTI - CODING/TESTING" -> kegiatan_inti)
+        result[b.fieldId] = result[b.fieldId] ? result[b.fieldId] + '\n\n' + value : value;
     }
     return Object.keys(result).length ? result : null;
 }
@@ -1146,13 +1572,16 @@ function mapJsonToRppFields(parsedJson) {
         description: ['deskripsi', 'description', 'ringkasan', 'summary', 'overview', 'abstrak'],
         version: ['versi', 'version', 'versi_rpp'],
         version_notes: ['version_notes', 'catatan_revisi', 'catatan_versi', 'changelog'],
-        alokasi_waktu: ['alokasi_waktu', 'alokasi', 'durasi', 'waktu', 'durasi_sesi', 'jam_pelajaran'],
+        alokasi_waktu: ['alokasi_waktu', 'alokasi', 'durasi', 'waktu', 'durasi_sesi', 'durasi_total', 'total_durasi', 'jam_pelajaran'],
         tujuan_pembelajaran: ['tujuan_pembelajaran', 'tujuan', 'objectives', 'objective', 'capaian_pembelajaran'],
         alat_bahan: ['alat_bahan', 'alat_dan_bahan', 'alat', 'bahan', 'kit', 'robot_kit', 'peralatan', 'media'],
         kegiatan_apersepsi: ['kegiatan_apersepsi', 'apersepsi', 'pendahuluan', 'kegiatan_pendahuluan'],
         kegiatan_inti: ['kegiatan_inti', 'inti', 'kegiatan_utama', 'langkah_kegiatan', 'aktivitas_utama'],
         kegiatan_penutup: ['kegiatan_penutup', 'penutup', 'evaluasi', 'closing', 'refleksi'],
-        indikator_penilaian: ['indikator_penilaian', 'penilaian', 'indikator', 'kriteria_penilaian', 'assessment', 'rubrik']
+        indikator_penilaian: ['indikator_penilaian', 'penilaian', 'indikator', 'kriteria_penilaian', 'assessment'],
+        timeline_pembelajaran: ['timeline_pembelajaran', 'timeline', 'alur_waktu', 'pembagian_waktu', 'breakdown_waktu', 'timeline_detail'],
+        troubleshooting: ['troubleshooting', 'troubleshooting_kritis', 'masalah_dan_solusi', 'solusi_masalah', 'kendala_umum'],
+        rubric_penilaian: ['rubric_penilaian', 'rubrik_penilaian', 'rubrik', 'rubric', 'matriks_penilaian', 'rubric_detail']
     };
 
     const toText = (val) => {
@@ -1194,6 +1623,93 @@ function applyParsedToForm(parsed) {
 // ==========================================
 // 6. RPP READER & INTERACTIVE SLIDER VIEWER
 // ==========================================
+// Render blok troubleshooting: pecah "MASALAH n: ... / Opsi Penyebab Umum: / Checklist Solusi:"
+function renderTroubleshooting(text) {
+    if (!text || !String(text).trim()) return '<div class="rpp-block-content">Belum diisi.</div>';
+    const blocks = [];
+    let cur = null;
+    let mode = null;
+    for (const line of String(text).split(/\r?\n/)) {
+        const t = line.trim();
+        if (!t) continue;
+        const mHead = t.match(/^MASALAH\s*\d*\s*:\s*(.*)$/i);
+        if (mHead) {
+            cur = { title: esc((t.split(':')[0] + ': ' + mHead[1]).trim()), causes: [], checks: [] };
+            blocks.push(cur);
+            mode = null;
+            continue;
+        }
+        if (!cur) continue;
+        if (/^OPSI\s+PENYEBAB/i.test(t)) { mode = 'causes'; continue; }
+        if (/^CHECKLIST\s+SOLUSI/i.test(t)) { mode = 'checks'; continue; }
+        const clean = t.replace(/^[-*•☐□]\s*/, '').trim();
+        if (!clean) continue;
+        if (mode === 'causes') cur.causes.push(esc(clean));
+        else if (mode === 'checks') cur.checks.push(esc(clean));
+    }
+    if (!blocks.length) return `<div class="rpp-block-content">${esc(text)}</div>`;
+    return blocks.map(b => `
+        <div style="margin-bottom:12px; border:1px solid #fecaca; background:#fff8f7; border-radius:10px; padding:12px;">
+            <strong style="color:#b91c1c; font-size:0.88rem;"><i class="fas fa-triangle-exclamation" style="font-size:0.75rem;"></i> ${b.title}</strong>
+            ${b.causes.length ? `
+                <div style="margin-top:8px;">
+                    <span style="font-size:0.7rem; font-weight:700; color:#64748b; text-transform:uppercase;">Opsi Penyebab Umum</span>
+                    ${b.causes.map(c => `<div style="font-size:0.83rem; color:#334155; line-height:1.5;">- ${c}</div>`).join('')}
+                </div>` : ''}
+            ${b.checks.length ? `
+                <div style="margin-top:8px;">
+                    <span style="font-size:0.7rem; font-weight:700; color:#64748b; text-transform:uppercase;">Checklist Solusi</span>
+                    ${b.checks.map(c => `<div style="font-size:0.83rem; color:#166534; line-height:1.5;"><i class="fas fa-square-check" style="font-size:0.7rem;"></i> ${c}</div>`).join('')}
+                </div>` : ''}
+        </div>`).join('');
+}
+
+// Render rubric: pecah "KRITERIA n: ... / Skor 4..1" -> tabel 4 kolom skor
+function renderRubric(text) {
+    if (!text || !String(text).trim()) return '<div class="rpp-block-content">Belum diisi.</div>';
+    const rows = [];
+    let cur = null;
+    let curIdx = 0;
+    for (const line of String(text).split(/\r?\n/)) {
+        const t = line.trim();
+        if (!t) continue;
+        const mKrit = t.match(/^KRITERIA\s*\d*\s*:\s*(.*)$/i);
+        if (mKrit) {
+            cur = { title: esc((t.split(':')[0] + ': ' + mKrit[1]).trim()), scores: ['', '', '', ''] };
+            curIdx = 0;
+            rows.push(cur);
+            continue;
+        }
+        if (!cur) continue;
+        const mSkor = t.match(/^Skor\s*([1-4])\b[\s\S]*?:\s*(.*)$/i);
+        if (mSkor) {
+            curIdx = Number(mSkor[1]) - 1;
+            cur.scores[curIdx] = esc(mSkor[2]).trim();
+            continue;
+        }
+        if (cur.scores.some(s => s !== '')) {
+            const clean = t.replace(/^[-*•]\s*/, '').trim();
+            if (clean) cur.scores[curIdx] += (cur.scores[curIdx] ? '\n' : '') + esc(clean);
+        }
+    }
+    if (!rows.length) return `<div class="rpp-block-content">${esc(text)}</div>`;
+    return `
+        <div class="rpp-rubric-wrap">
+            <table class="rpp-rubric-table">
+                <thead>
+                    <tr><th>Kriteria</th><th>Skor 4</th><th>Skor 3</th><th>Skor 2</th><th>Skor 1</th></tr>
+                </thead>
+                <tbody>
+                    ${rows.map(r => `
+                        <tr>
+                            <td><strong style="font-size:0.8rem;">${r.title}</strong></td>
+                            ${r.scores.map(s => `<td style="white-space:pre-line; font-size:0.78rem; color:#334155;">${s || '-'}</td>`).join('')}
+                        </tr>`).join('')}
+                </tbody>
+            </table>
+        </div>`;
+}
+
 async function openRppReader(id) {
     const m = currentMateriCache.find(item => item.id === id);
     if (!m) return;
@@ -1311,6 +1827,24 @@ async function openRppReader(id) {
                 <div class="rpp-block">
                     <h4><i class="fas fa-clipboard-check"></i> D. INDIKATOR PENILAIAN / ACHIEVEMENT</h4>
                     <div class="rpp-block-content">${rppData.indikator_penilaian || 'Belum diisi.'}</div>
+                </div>
+
+                <!-- SECTION E: TIMELINE -->
+                <div class="rpp-block">
+                    <h4><i class="fas fa-clock"></i> E. TIMELINE PEMBELAJARAN</h4>
+                    <div class="rpp-block-content">${rppData.timeline_pembelajaran ? esc(rppData.timeline_pembelajaran) : 'Belum diisi.'}</div>
+                </div>
+
+                <!-- SECTION F: TROUBLESHOOTING -->
+                <div class="rpp-block">
+                    <h4><i class="fas fa-screwdriver-wrench"></i> F. TROUBLESHOOTING KRITIS</h4>
+                    ${renderTroubleshooting(rppData.troubleshooting)}
+                </div>
+
+                <!-- SECTION G: RUBRIC -->
+                <div class="rpp-block">
+                    <h4><i class="fas fa-table-list"></i> G. RUBRIC PENILAIAN</h4>
+                    ${renderRubric(rppData.rubric_penilaian)}
                 </div>
             </div>
         `;
@@ -1579,7 +2113,10 @@ async function handleFormSubmit(e) {
             kegiatan_apersepsi: payload.kegiatan_apersepsi || '',
             kegiatan_inti: payload.kegiatan_inti || '',
             kegiatan_penutup: payload.kegiatan_penutup || '',
-            indikator_penilaian: payload.indikator_penilaian || ''
+            indikator_penilaian: payload.indikator_penilaian || '',
+            timeline_pembelajaran: payload.timeline_pembelajaran || '',
+            troubleshooting: payload.troubleshooting || '',
+            rubric_penilaian: payload.rubric_penilaian || ''
         };
         payload.detail = JSON.stringify(rppBackup);
 
@@ -1592,6 +2129,7 @@ async function handleFormSubmit(e) {
                 delete payload.version; delete payload.version_notes; delete payload.alokasi_waktu;
                 delete payload.tujuan_pembelajaran; delete payload.alat_bahan; delete payload.kegiatan_apersepsi;
                 delete payload.kegiatan_inti; delete payload.kegiatan_penutup; delete payload.indikator_penilaian;
+                delete payload.timeline_pembelajaran; delete payload.troubleshooting; delete payload.rubric_penilaian;
 
                 const { error: retryErr } = editingId 
                     ? await supabase.from('materi').update(payload).eq('id', editingId)
