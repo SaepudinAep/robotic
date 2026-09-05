@@ -454,9 +454,8 @@ function injectStyles() {
 
         .rpp-preview-card { background: #fafafa; border: 1px solid #e2e8f0; border-radius: 16px; padding: 24px; font-family: 'Poppins', sans-serif; color: #1e293b; }
 
-        /* Kop & footer — khusus tampilan cetak, disembunyikan di layar */
-        .rpp-print-identitas,
-        .rpp-print-footer { display: none; }
+        /* Kop — khusus tampilan cetak, disembunyikan di layar */
+        .rpp-print-identitas { display: none; }
         .rpp-header-box { text-align: center; border-bottom: 2px solid #cbd5e1; padding-bottom: 16px; margin-bottom: 20px; }
         .rpp-header-box h3 { margin: 0 0 6px 0; font-size: 1.3rem; color: #0f172a; font-weight: 800; }
         .rpp-meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; background: white; padding: 12px 16px; border-radius: 12px; border: 1px solid #e2e8f0; margin-top: 12px; text-align: left; }
@@ -558,12 +557,6 @@ function injectStyles() {
                 letter-spacing: 1px;
                 color: #1d4ed8 !important;
             }
-            #gm-print-root.gm-print-color .rpp-print-sub {
-                font-size: 10.5pt;
-                margin-top: 2px;
-                font-style: italic;
-                color: #1e40af;
-            }
             #gm-print-root.gm-print-color .rpp-print-meta {
                 display: inline-flex;
                 flex-wrap: wrap;
@@ -603,8 +596,6 @@ function injectStyles() {
                 color: #1e293b !important;
             }
 
-            /* Footer: label biru */
-            #gm-print-root.gm-print-color .rpp-print-footer { color: #1e293b; }
             /* ====== MODE HITAM-PUTIH (resmi / hemat tinta) ====== */
             #gm-print-root.gm-print-bw .rpp-print-identitas {
                 display: block !important;
@@ -619,12 +610,6 @@ function injectStyles() {
                 text-transform: uppercase;
                 letter-spacing: 1px;
                 color: #000000 !important;
-            }
-            #gm-print-root.gm-print-bw .rpp-print-sub {
-                font-size: 10.5pt;
-                margin-top: 2px;
-                font-style: italic;
-                color: #000000;
             }
             #gm-print-root.gm-print-bw .rpp-print-meta {
                 display: block;
@@ -662,7 +647,6 @@ function injectStyles() {
                 text-transform: uppercase;
                 font-size: 9.5pt;
             }
-            #gm-print-root.gm-print-bw .rpp-print-footer { color: #000000; }
 
             /* ====== SEKSI UMUM (berlaku kedua mode) ====== */
             #gm-print-root .rpp-block {
@@ -691,15 +675,6 @@ function injectStyles() {
             #gm-print-root .rpp-rubric-table th {
                 text-transform: uppercase;
                 font-size: 9.5pt;
-            }
-
-            #gm-print-root .rpp-print-footer {
-                display: flex !important;
-                justify-content: space-between;
-                gap: 24px;
-                margin-top: 28px;
-                font-size: 10pt;
-                page-break-inside: avoid;
             }
         }
 
@@ -2053,7 +2028,6 @@ async function openRppReader(id) {
                 <!-- KOP / IDENTITAS STANDAR SEKOLAH (hanya tampil di cetak) -->
                 <div class="rpp-print-identitas">
                     <div class="rpp-print-title">RENCANA PELAKSANAAN PEMBELAJARAN (RPP)</div>
-                    <div class="rpp-print-sub">Robotik &amp; Coding &bull; Ekstrakurikuler</div>
                     <div class="rpp-print-meta">
                         <span class="meta-chip">Level: ${esc(levelName)}</span>
                         <span class="meta-chip">Sub-Level: ${esc(subLevelName)}</span>
@@ -2164,12 +2138,6 @@ async function openRppReader(id) {
                 <div class="rpp-block">
                     <h4><i class="fas fa-table-list"></i> G. RUBRIC PENILAIAN</h4>
                     ${renderRubric(rppData.rubric_penilaian)}
-                </div>
-
-                <!-- FOOTER "Dibuat oleh / Tanggal" (hanya tampil di cetak) -->
-                <div class="rpp-print-footer">
-                    <span>Dibuat oleh: ________________________________</span>
-                    <span>Tanggal: ________________</span>
                 </div>
             </div>
         `;
