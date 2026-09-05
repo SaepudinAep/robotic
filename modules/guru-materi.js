@@ -1311,11 +1311,11 @@ function buildAiPromptTemplate() {
         'Baris dalam tanda kurung seperti "(WAJIB breakdown...)" adalah INSTRUKSI untuk AI, JANGAN dicetak ke output.',
         '',
         '---SECTION A: IDENTITAS---',
-        'JUDUL: [judul menarik sesuai level & kit]',
+        'JUDUL: [PERSIS dari DATA FIXED - DILARANG mengubah/mengarang]',
         'LEVEL: [dari form, PERSIS]',
         'SUB-LEVEL: [dari form, PERSIS]',
         'KIT: [dari form, PERSIS]',
-        'DURASI TOTAL: [60 atau 90 menit]',
+        'DURASI TOTAL: [PERSIS dari DATA FIXED]',
 
         '',
         '---SECTION B: OVERVIEW---',
@@ -1435,7 +1435,7 @@ function buildAiPromptTemplate() {
         '6. STEP 3: Setelah semua terjawab, generate. JANGAN asumsi/mengarang data yang belum terjawab.',
         '',
         'SAAT GENERATE RPP:',
-        '7. Gunakan nama Level/Sub-Level/Kit PERSIS dari DATA FIXED (jangan translate/rephrase).',
+        '7. IDENTITAS TIDAK BOLEH DIUBAH: Judul, Level, Sub-Level, Kit, dan Durasi WAJIB dipakai PERSIS dari DATA FIXED. DILARANG mengubah, memperindah, menterjemahkan, meringkas, atau mengarang identitas baru.',
         '8. TIMELINE WAJIB: total durasi = jumlah semua fase (tanpa sisa); SETIAP step punya durasi menit + aktivitas konkret.',
         '9. TROUBLESHOOTING: tepat 3 masalah spesifik untuk kit & robot ini; tiap masalah min 2 penyebab & min 2 langkah solusi; format checklist.',
         '10. RUBRIC: tepat 3 kriteria; tiap kriteria Skor 4/3/2/1 dengan deskripsi operasional terukur (bukan samar).',
@@ -1443,9 +1443,10 @@ function buildAiPromptTemplate() {
         '',
         'QUALITY GATES (cek sebelum submit):',
         '12. Math check: timeline total = durasi yang diminta?',
-        '13. Completeness: semua 8 section (A-H) ada?',
-        '14. Clarity: setiap poin jelas & operasional?',
-        '15. Relevance: troubleshooting & rubric spesifik untuk kit/mekanisme robot ini?'
+        '13. Identitas: Judul, Level, Sub-Level, Kit, Durasi PERSIS sama dengan DATA FIXED (tidak berubah satu huruf pun)?',
+        '14. Completeness: semua 8 section (A-H) ada?',
+        '15. Clarity: setiap poin jelas & operasional?',
+        '16. Relevance: troubleshooting & rubric spesifik untuk kit/mekanisme robot ini?'
     ];
 
     return [
