@@ -16,6 +16,7 @@ let userRole = 'teacher'; // 'super_admin' | 'teacher'
 let currentTab = "materi"; 
 let editingId = null;
 let selectedLevelId = "all";
+let selectedSubLevelId = "all";
 let levelsList = [];
 let subLevelsList = [];
 let currentMateriCache = [];
@@ -71,6 +72,13 @@ export async function init(canvas, userProfile = null) {
                             ${l.kode}
                         </button>
                     `).join('')}
+                </div>
+
+                <!-- Filter Sub-Level khusus tab Achievement -->
+                <div id="achievement-sub-filter" class="gm-subfilter" style="display:none;">
+                    <select id="achievement-sub-level-filter" aria-label="Filter Sub-Level Achievement">
+                        <option value="all">-- Semua Sub-Level --</option>
+                    </select>
                 </div>
             </div>
 
@@ -166,6 +174,20 @@ export async function init(canvas, userProfile = null) {
 // ==========================================
 // 2. FETCH LEVELS & DATA PARSING
 // ==========================================
+// Render pilihan Sub-Level untuk filter tab Achievement (dari subLevelsList)
+function renderAchievementSubFilter() {
+    const sel = document.getElementById("achievement-sub-level-filter");
+    if (!sel) return;
+    const subs = selectedLevelId !== "all"
+        ? subLevelsList.filter(s => s.level_id === selectedLevelId)
+        : subLevelsList;
+    sel.innerHTML = '<option value="all">-- Semua Sub-Level --</option>' +
+        subs.map(s => {
+            const kode = s.kode ? ` (${esc(s.kode)})` : '';
+            return `<option value="${s.id}" ${selectedSubLevelId === s.id ? 'selected' : ''}>${esc(s.name)}${kode}</option>`;
+        }).join('');
+}
+
 async function fetchLevels() {
     try {
         const { data: lvData } = await supabase.from('levels').select('id, kode, detail').order('kode');
@@ -313,6 +335,35 @@ function injectStyles() {
             align-items: center; justify-content: center; font-size: 0.95rem; transition: 0.2s;
         }
         .btn-action-icon.btn-delete:hover { background: #fee2e2; color: #ef4444; border-color: #fecaca; }
+        .btn-action-icon.btn-dup:hover { background: #eff6ff; color: #2563eb; border-color: #bfdbfe; }
+        .btn-action-icon.btn-edit:hover { background: #f0fdf4; color: #16a34a; border-color: #bbf7d0; }
+
+        .badge-status-pill { padding: 3px 10px; border-radius: 20px; font-size: 0.72rem; font-weight: 700; display: inline-flex; align-items: center; gap: 5px; }
+        .status-complete { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+        .status-draft { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
+
+        /* Achievement Card (self-contained, tidak bergantung modul lain) */
+        .achievement-folder {
+            background: white; border-radius: 16px; margin-bottom: 12px;
+            overflow: hidden; box-shadow: 0 3px 10px rgba(0,0,0,0.03);
+            border: 1px solid #edf2f7; border-left: 5px solid #f59e0b;
+        }
+        .ach-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 14px 18px; }
+        .ach-title-block { flex: 1; min-width: 0; }
+        .ach-badges { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
+        .ach-title { display: flex; align-items: center; gap: 8px; font-weight: 700; color: #1e293b; font-size: 1rem; line-height: 1.4; }
+        .ach-title i { color: #f59e0b; flex-shrink: 0; }
+        .ach-list { margin: 0; padding: 0 44px 14px 18px; color: #64748b; font-size: 0.88rem; line-height: 1.6; }
+        .ach-list li { margin-bottom: 2px; }
+
+        /* Filter Sub-Level (tab Achievement) */
+        .gm-subfilter { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+        .gm-subfilter select {
+            background: white; border: 1px solid #e2e8f0; border-radius: 10px;
+            padding: 8px 12px; font-size: 0.82rem; font-weight: 600; color: #334155;
+            font-family: 'Poppins', sans-serif; outline: none; max-width: 100%; cursor: pointer;
+        }
+        .gm-subfilter select:focus { border-color: #4d97ff; box-shadow: 0 0 0 3px rgba(77,151,255,0.15); }
         
         .btn-rpp-view {
             background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; padding: 8px 12px;
@@ -587,6 +638,7 @@ async function loadData() {
             }).join("");
 
         } else {
+            // ============ TAB ACHIEVEMENT SEKOLAH ============
             let query = supabase
                 .from('achievement_sekolah')
                 .select('*, levels(id, kode, detail), sub_levels(name, kode)')
@@ -600,13 +652,26 @@ async function loadData() {
             loading.style.display = 'none';
             if (error) throw error;
 
+            // Hitung pemakaian achievement di pertemuan/absensi (info guru: berapa sesi terpakai)
+            let usageMap = {};
+            try {
+                const { data: ur } = await supabase.from('achievement_kelas').select('achievement_sekolah_id');
+                (ur || []).forEach(r => {
+                    if (r.achievement_sekolah_id) {
+                        usageMap[r.achievement_sekolah_id] = (usageMap[r.achievement_sekolah_id] || 0) + 1;
+                    }
+                });
+            } catch (uErr) { console.warn('[guru-materi] Gagal hitung pemakaian achievement:', uErr.message); }
+
             const filtered = data ? data.filter(a => {
                 const mainMatch = a.main_achievement?.toLowerCase().includes(search);
                 const subMatch = a.sub_achievement?.toLowerCase().includes(search);
                 const levelMatch = a.levels?.kode?.toLowerCase().includes(search);
-                return mainMatch || subMatch || levelMatch;
+                const subLevelMatch = (a.sub_levels?.name || a.sub_levels?.kode || '').toLowerCase().includes(search);
+                const subFilterMatch = selectedSubLevelId === "all" || a.sub_level_id === selectedSubLevelId;
+                return (mainMatch || subMatch || levelMatch || subLevelMatch) && subFilterMatch;
             }) : [];
-            
+
             if (!filtered.length) {
                 containerAchieve.innerHTML = `
                     <div style="text-align:center; padding:40px; color:#94a3b8; background:white; border-radius:14px; border:2px dashed #e2e8f0;">
@@ -616,31 +681,51 @@ async function loadData() {
                 return;
             }
 
-            containerAchieve.innerHTML = filtered.map(a => {
-                const subList = (a.sub_achievement || "").split('\n').filter(s => s.trim() !== "");
+            const summaryBar = `
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px; padding:8px 14px; background:#fffbeb; border:1px solid #fde68a; border-radius:10px; font-size:0.8rem; color:#b45309; font-weight:600; flex-wrap:wrap;">
+                    <span><i class="fas fa-trophy"></i> ${filtered.length} Achievement</span>
+                    <span style="display:inline-flex; align-items:center; gap:5px;"><i class="fas fa-repeat"></i> Angka = pemakaian di sesi absensi</span>
+                </div>`;
+
+            containerAchieve.innerHTML = summaryBar + filtered.map(a => {
+                const subList = (a.sub_achievement || "").split("\n").filter(s => s.trim() !== "");
                 const levelName = a.levels?.kode || 'Umum';
                 const subLevelName = a.sub_level_id ? (a.sub_levels?.name || a.sub_levels?.kode || '') : '';
+                const usage = usageMap[a.id] || 0;
+                const isComplete = Boolean(a.main_achievement && a.main_achievement.trim()) && subList.length >= 1;
 
                 return `
                     <div class="achievement-folder item-card" data-id="${a.id}" data-type="achievement">
                         <div class="ach-header">
                             <div class="ach-title-block">
-                                <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
-                                    <span class="badge-level-tag"><i class="fas fa-layer-group"></i> ${levelName}</span>
-                                    ${subLevelName ? `<span class="badge-sublevel-tag"><i class="fas fa-tag"></i> ${subLevelName}</span>` : ''}
-                                    <span class="badge-status-pill status-complete"><i class="fas fa-list-check"></i> ${subList.length} Indikator</span>
+                                <div class="ach-badges">
+                                    <span class="badge-level-tag"><i class="fas fa-layer-group"></i> ${esc(levelName)}</span>
+                                    ${subLevelName ? `<span class="badge-sublevel-tag"><i class="fas fa-tag"></i> ${esc(subLevelName)}</span>` : ''}
+                                    <span class="badge-status-pill ${isComplete ? 'status-complete' : 'status-draft'}">
+                                        <i class="fas ${isComplete ? 'fa-list-check' : 'fa-triangle-exclamation'}"></i>
+                                        ${isComplete ? `${subList.length} Indikator` : 'Belum Lengkap'}
+                                    </span>
+                                    ${usage > 0 ? `<span class="badge-rpp-pill"><i class="fas fa-repeat"></i> ${usage}&times; Dipakai</span>` : ''}
+                                    ${a.sub_level_id ? '' : '<span class="badge-version-tag"><i class="fas fa-tag"></i> Tanpa Sub-Level</span>'}
                                 </div>
                                 <div class="ach-title">
-                                    <i class="fas fa-trophy" style="color: #f59e0b;"></i>
-                                    <span>${a.main_achievement}</span>
+                                    <i class="fas fa-trophy"></i>
+                                    <span>${esc(a.main_achievement || 'Tanpa Judul')}</span>
                                 </div>
                             </div>
-                            <button class="btn-action-icon btn-delete" data-id="${a.id}" data-type="achievement_sekolah" title="Hapus Achievement" aria-label="Hapus Achievement">
-                                <i class="fas fa-trash-can"></i>
-                            </button>
+                            <div style="display:flex; align-items:center; gap:4px;">
+                                <button class="btn-action-icon btn-dup" data-id="${a.id}" data-type="achievement" title="Duplikat Achievement" aria-label="Duplikat Achievement">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                                <button class="btn-action-icon btn-delete" data-id="${a.id}" data-type="achievement_sekolah" title="Hapus Achievement" aria-label="Hapus Achievement">
+                                    <i class="fas fa-trash-can"></i>
+                                </button>
+                            </div>
                         </div>
                         <ul class="ach-list">
-                            ${subList.length > 0 ? subList.map(s => `<li>${s}</li>`).join("") : "<li style='color:#94a3b8;'>Belum ada sub-indikator</li>"}
+                            ${subList.length > 0
+                                ? subList.map(s => `<li>${esc(s)}</li>`).join("")
+                                : "<li style='color:#94a3b8;'>Belum ada sub-indikator</li>"}
                         </ul>
                     </div>
                 `;
@@ -1966,8 +2051,18 @@ function setupEventListeners() {
         chipContainer.querySelectorAll('.level-chip').forEach(c => c.classList.remove('active'));
         chip.classList.add('active');
         selectedLevelId = chip.dataset.level;
+        selectedSubLevelId = 'all';
+        renderAchievementSubFilter();
         loadData();
     };
+
+    const subFilterEl = document.getElementById("achievement-sub-level-filter");
+    if (subFilterEl) {
+        subFilterEl.onchange = (e) => {
+            selectedSubLevelId = e.target.value;
+            loadData();
+        };
+    }
 
     document.getElementById("fab-add").onclick = async () => {
         editingId = null;
@@ -2030,6 +2125,13 @@ function setupEventListeners() {
             return;
         }
 
+        const btnDup = e.target.closest('.btn-dup');
+        if (btnDup) {
+            e.stopPropagation();
+            duplicateAchievement(btnDup.dataset.id);
+            return;
+        }
+
         const btnRpp = e.target.closest('.btn-rpp-view');
         if (btnRpp) {
             e.stopPropagation();
@@ -2067,6 +2169,11 @@ function switchTab(tab) {
     document.getElementById("btnAchievement").className = tab === 'achievement' ? 'tab-btn active' : 'tab-btn';
     document.getElementById("materi-list").style.display = tab === 'materi' ? 'block' : 'none';
     document.getElementById("achievement-list").style.display = tab === 'achievement' ? 'block' : 'none';
+    const subFilter = document.getElementById("achievement-sub-filter");
+    if (subFilter) {
+        subFilter.style.display = tab === 'achievement' ? 'flex' : 'none';
+        if (tab === 'achievement') renderAchievementSubFilter();
+    }
     loadData();
 }
 
@@ -2081,10 +2188,16 @@ async function handleFormSubmit(e) {
 
     const shouldSaveHistory = Boolean(document.getElementById('save_history_snapshot')?.checked);
 
-    if (payload.level_id) {
+    if (payload.level_id && currentTab === "materi") {
         const matchedLevel = levelsList.find(l => l.id === payload.level_id);
         if (matchedLevel) payload.level = matchedLevel.kode;
+        /* Catatan: tabel achievement_sekolah TIDAK punya kolom `level`, hanya `level_id`;
+           karena itu payload.level hanya diisi untuk tab materi. */
     }
+
+    // Bersihkan nilai kosong pada kolom FK (Supabase kolom uuid menolak string kosong '')
+    if (payload.sub_level_id === '') delete payload.sub_level_id;
+    if (payload.level_id === '') delete payload.level_id;
 
     if (currentTab === "materi") {
         if (editingId && shouldSaveHistory) {
@@ -2164,9 +2277,12 @@ async function handleFormSubmit(e) {
 
 async function openEdit(type, id) {
     const table = type === 'materi' ? 'materi' : 'achievement_sekolah';
-    let { data, error } = await supabase.from(table).select('*, assembly_guides(id, title, description, image_url, step_number, instruction_text, created_at)').eq('id', id).single();
+    // Achievement tidak punya relasi assembly_guides -> hindari embed yang selalu gagal (fallback)
+    const selectCols = table === 'materi'
+        ? '*, assembly_guides(id, title, description, image_url, step_number, instruction_text, created_at)'
+        : '*';
+    let { data, error } = await supabase.from(table).select(selectCols).eq('id', id).single();
     if (error) {
-        // Fallback: jika kolom embed belum ada (migrasi 02 belum diterapkan), muat tanpa embed
         console.warn('[guru-materi] Embed assembly_guides gagal, fallback select dasar:', error.message);
         const fb = await supabase.from(table).select('*').eq('id', id).single();
         data = fb.data;
@@ -2175,6 +2291,25 @@ async function openEdit(type, id) {
         editingId = id;
         await injectFormFields("edit", data);
         document.getElementById("modal-overlay").classList.add("active");
+    }
+}
+
+// Duplikat achievement: buka form add dengan data bawaan dari achievement terpilih
+async function duplicateAchievement(id) {
+    try {
+        const { data, error } = await supabase.from('achievement_sekolah').select('*').eq('id', id).single();
+        if (error || !data) throw new Error(error?.message || 'Data tidak ditemukan');
+        editingId = null;
+        await injectFormFields("add", {
+            level_id: data.level_id,
+            sub_level_id: data.sub_level_id,
+            main_achievement: data.main_achievement || '',
+            sub_achievement: data.sub_achievement || ''
+        });
+        document.getElementById("modal-overlay").classList.add("active");
+        showToast('Form duplikat siap — ubah bila perlu lalu simpan.', 'info');
+    } catch (err) {
+        showToast('Gagal duplikat achievement: ' + err.message, 'error');
     }
 }
 
@@ -2203,7 +2338,7 @@ function showToast(message, type = 'success') {
     }, 3000);
 }
 
-function openDeleteDialog({ title, message, softLabel = 'Sembunyikan (Soft Delete)', onSoft, onHard }) {
+function openDeleteDialog({ title, message, softLabel = 'Sembunyikan (Soft Delete)', softDanger = false, onSoft, onHard }) {
     const overlay = document.createElement('div');
     overlay.className = 'gm-del-overlay';
     overlay.innerHTML = `
@@ -2217,7 +2352,7 @@ function openDeleteDialog({ title, message, softLabel = 'Sembunyikan (Soft Delet
             <p class="gm-del-msg">${message}</p>
             <div class="gm-del-actions">
                 <button type="button" class="gm-del-btn gm-del-cancel">Batal</button>
-                <button type="button" class="gm-del-btn gm-del-soft">${softLabel}</button>
+                <button type="button" class="gm-del-btn gm-del-soft" style="${softDanger ? 'background:#dc2626;color:#fff;border-color:#dc2626;' : ''}">${softLabel}</button>
                 <button type="button" class="gm-del-btn gm-del-hard" style="${onHard ? '' : 'display:none;'}">Hapus Permanen</button>
             </div>
             <div class="gm-del-hardzone" style="display:none;margin-top:14px;border-top:1px dashed #fecaca;padding-top:12px;">
@@ -2281,6 +2416,39 @@ function openDeleteDialog({ title, message, softLabel = 'Sembunyikan (Soft Delet
 
 // RBAC DELETION LOGIC: Soft Delete for Teacher, Hard/Soft Delete for Super Admin
 async function deleteData(tableType, id) {
+    // Achievement Sekolah: tabel belum punya kolom soft-delete (is_deleted/deleted_at/deleted_by),
+    // jadi jalur "Sembunyikan" tidak tersedia. Gunakan hard delete permanen dengan proteksi:
+    // jika sudah dipakai di achievement_kelas (pertemuan/absensi), tolak penghapusan.
+    if (tableType === 'achievement_sekolah') {
+        openDeleteDialog({
+            title: 'Hapus Achievement',
+            message: 'Tindakan ini menghapus achievement SECARA PERMANEN dan tidak bisa dikembalikan.<br>Jika achievement sudah dipakai di sesi absensi, penghapusan akan dibatalkan otomatis.',
+            softLabel: 'Ya, Hapus Permanen',
+            softDanger: true,
+            onSoft: async () => {
+                try {
+                    const { count: usedCount, error: cErr } = await supabase
+                        .from('achievement_kelas')
+                        .select('id', { count: 'exact', head: true })
+                        .eq('achievement_sekolah_id', id);
+                    if (cErr) throw cErr;
+                    if (usedCount > 0) {
+                        showToast(`Tidak bisa dihapus: sudah dipakai di ${usedCount} sesi absensi.`, 'error');
+                        loadData();
+                        return;
+                    }
+                    const { error } = await supabase.from('achievement_sekolah').delete().eq('id', id);
+                    if (error) throw error;
+                    showToast('Achievement dihapus permanen.', 'success');
+                } catch (err) {
+                    showToast('Gagal menghapus: ' + err.message, 'error');
+                }
+                loadData();
+            }
+        });
+        return;
+    }
+
     const softPayload = {
         is_deleted: true,
         deleted_at: new Date().toISOString(),
