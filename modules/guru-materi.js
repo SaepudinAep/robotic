@@ -449,9 +449,9 @@ function injectStyles() {
 
         .rpp-preview-card { background: #fafafa; border: 1px solid #e2e8f0; border-radius: 16px; padding: 24px; font-family: 'Poppins', sans-serif; color: #1e293b; }
 
-        /* Kop & tanda tangan — khusus tampilan cetak, disembunyikan di layar */
+        /* Kop & footer — khusus tampilan cetak, disembunyikan di layar */
         .rpp-print-identitas,
-        .rpp-print-sign { display: none; }
+        .rpp-print-footer { display: none; }
         .rpp-header-box { text-align: center; border-bottom: 2px solid #cbd5e1; padding-bottom: 16px; margin-bottom: 20px; }
         .rpp-header-box h3 { margin: 0 0 6px 0; font-size: 1.3rem; color: #0f172a; font-weight: 800; }
         .rpp-meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; background: white; padding: 12px 16px; border-radius: 12px; border: 1px solid #e2e8f0; margin-top: 12px; text-align: left; }
@@ -518,48 +518,29 @@ function injectStyles() {
                 color: #000000 !important;
             }
 
-            /* ===== KOP SURAT (identitas standar sekolah) ===== */
+            /* ===== KOP / HEADER DOKUMEN (sederhana) ===== */
             #gm-print-root .rpp-print-identitas {
                 display: block !important;
                 text-align: center;
-                border-bottom: 3px double #111111;
-                padding-bottom: 14px;
-                margin-bottom: 18px;
-            }
-            #gm-print-root .rpp-print-brand {
-                font-size: 18pt;
-                font-weight: 800;
-                letter-spacing: 6px;
-                color: #111111;
+                border-bottom: 2px solid #111111;
+                padding-bottom: 12px;
+                margin-bottom: 16px;
             }
             #gm-print-root .rpp-print-title {
                 font-size: 15pt;
                 font-weight: 800;
                 text-transform: uppercase;
-                margin-top: 4px;
                 letter-spacing: 1px;
             }
             #gm-print-root .rpp-print-sub {
-                font-size: 10pt;
+                font-size: 10.5pt;
                 margin-top: 2px;
                 font-style: italic;
             }
-            #gm-print-root .rpp-print-idtable {
-                width: 100%;
-                border-collapse: collapse;
-                margin-top: 14px;
+            #gm-print-root .rpp-print-meta {
                 font-size: 11pt;
-            }
-            #gm-print-root .rpp-print-idtable td {
-                border: 1px solid #111111;
-                padding: 6px 10px;
-                text-align: left;
-                vertical-align: top;
-            }
-            #gm-print-root .rpp-print-idtable .rpp-print-label {
-                width: 30%;
-                font-weight: 700;
-                background: #f1f5f9;
+                font-weight: 400;
+                margin-top: 8px;
             }
 
             /* Sembunyikan header versi/meta grid & kontrol interaktif yang hanya untuk layar */
@@ -629,27 +610,14 @@ function injectStyles() {
                 font-size: 9.5pt;
             }
 
-            /* ===== TANDA TANGAN ===== */
-            #gm-print-root .rpp-print-sign {
+            /* ===== FOOTER "Dibuat oleh / Tanggal" ===== */
+            #gm-print-root .rpp-print-footer {
                 display: flex !important;
                 justify-content: space-between;
-                gap: 40px;
-                margin-top: 34px;
+                gap: 24px;
+                margin-top: 28px;
+                font-size: 10.5pt;
                 page-break-inside: avoid;
-            }
-            #gm-print-root .rpp-print-sign-col {
-                width: 42%;
-                text-align: center;
-                font-size: 11pt;
-            }
-            #gm-print-root .rpp-print-sign-role { font-weight: 700; margin-top: 2px; }
-            #gm-print-root .rpp-print-sign-space { height: 84px; }
-            #gm-print-root .rpp-print-sign-name {
-                border-top: 1px solid #111111;
-                padding-top: 4px;
-                display: inline-block;
-                min-width: 160px;
-                font-size: 10pt;
             }
         }
 
@@ -2002,18 +1970,9 @@ async function openRppReader(id) {
             <div class="rpp-preview-card" id="rpp-printable-area">
                 <!-- KOP / IDENTITAS STANDAR SEKOLAH (hanya tampil di cetak) -->
                 <div class="rpp-print-identitas">
-                    <div class="rpp-print-brand">ROBOPANDA</div>
                     <div class="rpp-print-title">RENCANA PELAKSANAAN PEMBELAJARAN (RPP)</div>
-                    <div class="rpp-print-sub">Robotik &amp; Coding &bull; Sekolah / Ekstrakurikuler</div>
-                    <table class="rpp-print-idtable">
-                        <tr><td class="rpp-print-label">Satuan Pendidikan</td><td>Robopanda</td></tr>
-                        <tr><td class="rpp-print-label">Mata Pelajaran</td><td>Robotik &amp; Coding</td></tr>
-                        <tr><td class="rpp-print-label">Level / Jenjang</td><td>${esc(levelName)}</td></tr>
-                        <tr><td class="rpp-print-label">Sub-Level</td><td>${esc(subLevelName)}</td></tr>
-                        <tr><td class="rpp-print-label">Judul Materi / Project</td><td>${esc(m.title || '-')}</td></tr>
-                        <tr><td class="rpp-print-label">Alokasi Waktu</td><td>${esc(rppData.alokasi_waktu || '1 Sesi (60-90 Menit)')}</td></tr>
-                        <tr><td class="rpp-print-label">Versi RPP</td><td>v${selectedVer}${rppData.version_notes ? ` (${esc(rppData.version_notes)})` : ''}</td></tr>
-                    </table>
+                    <div class="rpp-print-sub">Robotik &amp; Coding &bull; Ekstrakurikuler</div>
+                    <div class="rpp-print-meta">Level: ${esc(levelName)} &nbsp;|&nbsp; Sub-Level: ${esc(subLevelName)} &nbsp;|&nbsp; Judul: ${esc(m.title || '-')} &nbsp;|&nbsp; Durasi: ${esc(rppData.alokasi_waktu || '1 Sesi (60-90 Menit)')}</div>
                 </div>
 
                 <div class="rpp-version-bar">
@@ -2120,20 +2079,10 @@ async function openRppReader(id) {
                     ${renderRubric(rppData.rubric_penilaian)}
                 </div>
 
-                <!-- TANDA TANGAN (hanya tampil di cetak) -->
-                <div class="rpp-print-sign">
-                    <div class="rpp-print-sign-col">
-                        <div>Mengetahui,</div>
-                        <div class="rpp-print-sign-role">Kepala Sekolah</div>
-                        <div class="rpp-print-sign-space"></div>
-                        <div class="rpp-print-sign-name">( Nama &amp; TTD )</div>
-                    </div>
-                    <div class="rpp-print-sign-col">
-                        <div>&nbsp;</div>
-                        <div class="rpp-print-sign-role">Guru Pengampu</div>
-                        <div class="rpp-print-sign-space"></div>
-                        <div class="rpp-print-sign-name">( Nama &amp; TTD )</div>
-                    </div>
+                <!-- FOOTER "Dibuat oleh / Tanggal" (hanya tampil di cetak) -->
+                <div class="rpp-print-footer">
+                    <span>Dibuat oleh: ________________________________</span>
+                    <span>Tanggal: ________________</span>
                 </div>
             </div>
         `;
