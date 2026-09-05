@@ -481,12 +481,77 @@ function injectStyles() {
         @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 
         @media print {
-            body * { visibility: hidden; }
-            #rpp-printable-area, #rpp-printable-area * { visibility: visible; }
-            #rpp-printable-area {
-                position: absolute; left: 0; top: 0; width: 100%; max-width: 100%;
-                box-shadow: none; border: none; margin: 0;
+            @page { size: A4; margin: 14mm; }
+
+            /* Sembunyikan semua konten lain, hanya area cetak RPP yang terlihat */
+            body * { visibility: hidden !important; }
+            #rpp-printable-area, #rpp-printable-area * { visibility: visible !important; }
+
+            /* Lepaskan konteks moda (fixed/overflow) agar tidak terpotong
+               dan posisi area cetak dapat dihitung dari awal halaman */
+            #modal-rpp-overlay,
+            #modal-rpp-overlay .modal-drawer,
+            #modal-rpp-overlay .modal-header,
+            #modal-rpp-overlay .modal-body,
+            #rpp-preview-container {
+                position: static !important;
+                display: block !important;
+                max-height: none !important;
+                height: auto !important;
+                overflow: visible !important;
+                background: #ffffff !important;
+                border: none !important;
+                border-radius: 0 !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                box-shadow: none !important;
+                animation: none !important;
             }
+
+            #rpp-printable-area {
+                position: absolute !important;
+                left: 0 !important;
+                top: 0 !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                border: none !important;
+                border-radius: 0 !important;
+                box-shadow: none !important;
+                background: #ffffff !important;
+                color: #000 !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+
+            /* Sembunyikan kontrol interaktif / elemen modal yang tak perlu di cetak */
+            #modal-rpp-overlay .rpp-version-bar { display: none !important; }
+            #modal-rpp-overlay .modal-header { display: none !important; }
+            #modal-rpp-overlay .close-btn { display: none !important; }
+
+            /* Warna latar / gaya tetap tercetak (badges, header tabel, dll) */
+            #rpp-printable-area,
+            #rpp-printable-area .rpp-block,
+            #rpp-printable-area .rpp-meta-grid,
+            #rpp-printable-area .rpp-rubric-table th,
+            #rpp-printable-area .rpp-rubric-table td {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+
+            /* Cegah blok terpotong di tengah antar halaman */
+            .rpp-block,
+            .rpp-meta-grid,
+            .rpp-header-box,
+            .rpp-rubric-wrap {
+                break-inside: avoid;
+                page-break-inside: avoid;
+            }
+
+            /* Tabel rubric tidak terpotong oleh overflow-x */
+            .rpp-rubric-wrap { overflow: visible !important; }
+            .rpp-rubric-table { min-width: 0 !important; font-size: 0.78rem !important; }
         }
 
         @media (max-width: 600px) {
