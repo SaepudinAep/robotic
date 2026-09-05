@@ -1248,24 +1248,22 @@ function buildAiPromptTemplate() {
 
     // ============ FASE 1: DATA FIXED (dari form) ============
     const fixedData = [
-        `- Level: ${selLevel ? selLevel.kode + (selLevel.detail ? ` (${selLevel.detail})` : '') : '[Belum dipilih - wajib ditanyakan]'}`,
-        `- Sub-Level: ${selSub ? selSub.name : '[Belum dipilih - wajib ditanyakan]'}`,
-        `- Kit/Alat yang WAJIB dipakai: ${selSub && selSub.kit_alat ? selSub.kit_alat : selSub ? '[Belum diisi di sub-level - tanyakan ke user]' : '[Belum dipilih - wajib ditanyakan]'}`,
+        `- Level: ${selLevel ? selLevel.kode + (selLevel.detail ? ` (${selLevel.detail})` : '') : '[Pilih di form]'}`,
+        `- Sub-Level: ${selSub ? selSub.name : '[Pilih di form]'}`,
+        `- Kit/Alat yang WAJIB dipakai: ${selSub && selSub.kit_alat ? selSub.kit_alat : selSub ? '[Belum diisi di DB - boleh ditanyakan ke user]' : '[Pilih di form]'}`,
         `- Nama Materi (Judul): ${currentTitle || '[Belum diisi - wajib ditanyakan]'}`,
         `- Durasi Sesi Total: ${currentDurasi || '[Belum diisi - wajib ditanyakan]'}`
     ];
     if (selSub && selSub.description) fixedData.push(`- Fokus kit/sub-level: ${selSub.description}`);
 
     // ============ FASE 2: CLARIFICATION (prioritas WAJIB -> OPTIONAL) ============
+    // ATURAN: Level, Sub-Level, dan Kit SUDAH tersedia di DB (dropdown form) —
+    // TIDAK BOLEH ditanyakan. Hanya data yang benar-benar tidak ada di DB/form
+    // yang ditanyakan (judul materi, durasi, dan kit bila kolom kit di DB kosong).
     const wajibQuestions = [];
     if (!currentTitle) wajibQuestions.push('□ Topik/nama robot apa yang ingin dibuat? (Contoh: Line Follower, Obstacle Avoider, Object Gripper)');
-    if (!selLevel) wajibQuestions.push('□ Level pembelajaran apa yang ditarget? (Contoh: Robotik Level X)');
-    if (!selSub) wajibQuestions.push('□ Sub-Level apa yang ditarget? (Contoh: WeDo Basic SD Kelas 3-6)');
-    if (selSub && !selSub.kit_alat) wajibQuestions.push('□ Kit/alat robotik apa yang tersedia di sekolah? (Contoh: LEGO WeDo 2.0, LEGO Mindstorm, Arduino Kit)');
+    if (selSub && !selSub.kit_alat) wajibQuestions.push('□ Kit/alat robotik apa yang tersedia? (Contoh: LEGO WeDo 2.0, LEGO Mindstorm, Arduino Kit)');
     if (!currentDurasi) wajibQuestions.push('□ Berapa durasi sesi pembelajaran? (60 menit atau 90 menit?)');
-    if (selSub && !(selSub.description || '').toLowerCase().match(/usia|umur|\btahun\b|kelas/)) {
-        wajibQuestions.push('□ Sub-Level ini untuk siswa umur berapa? (Opsi: TK 4-6 tahun / SD kelas 1-2 (7-8 th) / SD kelas 3-6 (9-12 th) / SMP / campur)');
-    }
 
     const optionalQuestions = [
         `□ Apakah siswa sudah pernah pakai ${(selSub && selSub.kit_alat) || 'kit ini'} sebelumnya? (Opsi: Belum sama sekali / Sudah basic / Sudah advanced)`,
@@ -1282,6 +1280,7 @@ function buildAiPromptTemplate() {
         ? [
             '=== FASE 2: CLARIFICATION QUESTIONS (WAJIB SATU PER SATU) ===',
             'JIKA ada data yang kosong ATAU tidak jelas, TANYA dulu. JANGAN langsung buat RPP.',
+            'CATATAN PENTING: Level, Sub-Level, dan Kit sudah tersedia di database/form — DILARANG menanyakannya (termasuk usia siswa). Hanya ajukan pertanyaan dari daftar di bawah.',
             'WAJIB: HANYA 1 (satu) pertanyaan dalam 1 pesan, lalu BERHENTI dan tunggu jawaban user. Setelah dijawab, baru ajukan pertanyaan berikutnya.',
             'DILARANG menggabungkan beberapa pertanyaan dalam satu pesan, DILARANG menampilkan daftar pertanyaan sekaligus.',
             'URUTAN: selesaikan SEMUA WAJIB (daftar bawah) satu per satu dulu, baru OPTIONAL yang belum terjawab.',
@@ -1318,8 +1317,7 @@ function buildAiPromptTemplate() {
         'SUB-LEVEL: [dari form, PERSIS]',
         'KIT: [dari form, PERSIS]',
         'DURASI TOTAL: [60 atau 90 menit]',
-        'TARGET USIA: [TK 4-6 / SD 1-2 / SD 3-6 / SMP / campur]',
-        'PRASYARAT: [Belum pernah / Sudah basic / Sudah advanced]',
+
         '',
         '---SECTION B: OVERVIEW---',
         'DESKRIPSI: [ringkasan 1-2 kalimat project robotik]',
@@ -1430,24 +1428,25 @@ function buildAiPromptTemplate() {
         '',
         '=== ATURAN KERJA (NON-NEGOTIABLE) ===',
         'BEFORE GENERATE RPP:',
-        '1. STEP 1: Pastikan WAJIB data (Judul, Level, Sub-Level, Kit, Durasi) lengkap; jika belum, tanya SATU PER SATU.',
+        '1. STEP 1: Pastikan WAJIB data (Judul, Durasi; Kit hanya bila kolom Kit di DB kosong) lengkap; jika belum, tanya SATU PER SATU.',
         '2. ATURAN SATU PER SATU: 1 pesan = TEPAT 1 pertanyaan saja. Tunggu jawaban user, baru lanjut ke pertanyaan berikutnya.',
         '3. DILARANG menanyakan banyak hal sekaligus ATAU memunculkan daftar pertanyaan dalam satu pesan.',
-        '4. STEP 2: Setelah WAJIB lengkap, ajukan OPTIONAL yang belum terjawab SATU PER SATU (hanya yang missing).',
-        '5. STEP 3: Setelah semua terjawab, generate. JANGAN asumsi/mengarang data yang belum terjawab.',
+        '4. DILARANG menanyakan Level, Sub-Level, Kit (jika sudah tercantum), usia siswa, atau data lain yang sudah tersedia di DB — itu bukan bagian pertanyaan.',
+        '5. STEP 2: Setelah WAJIB lengkap, ajukan OPTIONAL yang belum terjawab SATU PER SATU (hanya yang missing).',
+        '6. STEP 3: Setelah semua terjawab, generate. JANGAN asumsi/mengarang data yang belum terjawab.',
         '',
         'SAAT GENERATE RPP:',
-        '4. Gunakan nama Level/Sub-Level/Kit PERSIS dari DATA FIXED (jangan translate/rephrase).',
-        '5. TIMELINE WAJIB: total durasi = jumlah semua fase (tanpa sisa); SETIAP step punya durasi menit + aktivitas konkret.',
-        '6. TROUBLESHOOTING: tepat 3 masalah spesifik untuk kit & robot ini; tiap masalah min 2 penyebab & min 2 langkah solusi; format checklist.',
-        '7. RUBRIC: tepat 3 kriteria; tiap kriteria Skor 4/3/2/1 dengan deskripsi operasional terukur (bukan samar).',
-        '8. Format output PERSIS (---SECTION X---, dash, penomoran). Tanpa pembuka/penutup percakapan.',
+        '7. Gunakan nama Level/Sub-Level/Kit PERSIS dari DATA FIXED (jangan translate/rephrase).',
+        '8. TIMELINE WAJIB: total durasi = jumlah semua fase (tanpa sisa); SETIAP step punya durasi menit + aktivitas konkret.',
+        '9. TROUBLESHOOTING: tepat 3 masalah spesifik untuk kit & robot ini; tiap masalah min 2 penyebab & min 2 langkah solusi; format checklist.',
+        '10. RUBRIC: tepat 3 kriteria; tiap kriteria Skor 4/3/2/1 dengan deskripsi operasional terukur (bukan samar).',
+        '11. Format output PERSIS (---SECTION X---, dash, penomoran). Tanpa pembuka/penutup percakapan.',
         '',
         'QUALITY GATES (cek sebelum submit):',
-        '9. Math check: timeline total = durasi yang diminta?',
-        '10. Completeness: semua 8 section (A-H) ada?',
-        '11. Clarity: setiap poin jelas & operasional?',
-        '12. Relevance: troubleshooting & rubric spesifik untuk kit/mekanisme robot ini?'
+        '12. Math check: timeline total = durasi yang diminta?',
+        '13. Completeness: semua 8 section (A-H) ada?',
+        '14. Clarity: setiap poin jelas & operasional?',
+        '15. Relevance: troubleshooting & rubric spesifik untuk kit/mekanisme robot ini?'
     ];
 
     return [
@@ -1495,8 +1494,6 @@ LEVEL: WeDo Basic
 SUB-LEVEL: WeDo Basic SD Kelas 3-6
 KIT: LEGO Education WeDo 2.0
 DURASI TOTAL: 90 menit
-TARGET USIA: SD kelas 3-6 (9-12 tahun)
-PRASYARAT: Sudah pernah menggunakan WeDo 2.0 (basic)
 
 ---SECTION B: OVERVIEW---
 DESKRIPSI: Siswa merakit robot beroda yang mengikuti garis hitam di lintasan, lalu memprogram sensor jarak sebagai "mata" untuk belok kiri-kanan. Project ini memperkenalkan konsep sensor, kondisi (condition), dan loop.
